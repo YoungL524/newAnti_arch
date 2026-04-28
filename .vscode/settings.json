@@ -1,0 +1,63 @@
+{
+  // ---- 编辑器 / 文件 ----
+  "files.encoding": "utf8",
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 1000,
+  "files.associations": {
+    "*.pro": "qmake",
+    "*.pri": "qmake",
+    "*.qrc": "xml"
+  },
+  "terminal.integrated.defaultProfile.windows": "PowerShell",
+
+  // ---- CMake Tools ----
+  "cmake.sourceDirectory": "${workspaceFolder}",
+  "cmake.buildDirectory": "${workspaceFolder}/build",
+  "cmake.generator": "MinGW Makefiles",
+  "cmake.configureSettings": {
+    "CMAKE_PREFIX_PATH": "C:/Qt/Qt5.14.2/5.14.2/mingw73_64",
+    "CMAKE_MAKE_PROGRAM": "C:/Qt/Qt5.14.2/Tools/mingw730_64/bin/mingw32-make.exe"
+  },
+  "cmake.environment": {
+    "PATH": "C:/Qt/Qt5.14.2/5.14.2/mingw73_64/bin;C:/Qt/Qt5.14.2/Tools/mingw730_64/bin;${env:PATH}"
+  },
+  "cmake.buildToolArgs": ["-j8"],
+  "cmake.parallelJobs": 8,
+  "cmake.configureOnOpen": true,
+  "cmake.useCMakePresets": "never",
+
+  // ---- C/C++ IntelliSense（CMake Tools 提供 configurationProvider）----
+  "C_Cpp.default.cppStandard": "c++17",
+  "C_Cpp.default.intelliSenseMode": "windows-gcc-x64",
+  "C_Cpp.default.compilerPath": "C:/Qt/Qt5.14.2/Tools/mingw730_64/bin/g++.exe",
+
+  // ---- 搜索 / 资源管理器排除 ----
+  "files.exclude": {
+    "**/.git": true,
+    "**/Makefile": true,
+    "**/Makefile.Debug": true,
+    "**/Makefile.Release": true,
+    "**/.qmake.stash": true,
+    "**/object_script.*": true,
+    "**/moc_*.cpp": true,
+    "**/qrc_*.cpp": true,
+    "**/ui_*.h": true,
+    "**/*.pro.user": true,
+    "**/*.pro.user.*": true
+  },
+  "search.exclude": {
+    "build/**": true,
+    "build-*/**": true,
+    "**/debug/**": true,
+    "**/release/**": true,
+    "**/CMakeFiles/**": true,
+    "**/*.docx": true,
+    "**/*.png": true,
+    "data/**": true
+  },
+  "qtConfigure.mingwPath": "C:\\Qt\\Qt5.14.2\\Tools\\mingw730_64",
+  "qtConfigure.qtDir": "C:\\Qt\\Qt5.14.2\\",
+  "qtConfigure.qtKitDir": "C:\\Qt\\Qt5.14.2\\5.14.2\\mingw73_64",
+  "qttools.creator": "C:\\Qt\\Qt5.14.2\\Tools\\QtCreator\\bin",
+  "qttools.useExternalBrowser": true
+}

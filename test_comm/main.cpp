@@ -23,7 +23,7 @@ static void consoleMessageHandler(QtMsgType type, const QMessageLogContext& cont
     case QtFatalMsg:    line = QStringLiteral("[FATAL] ") + msg; break;
     }
     line.append(QLatin1Char('\n'));
-
+ 
 #ifdef Q_OS_WIN
     HANDLE handle = (type >= QtWarningMsg)
                     ? GetStdHandle(STD_ERROR_HANDLE)

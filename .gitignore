@@ -11,6 +11,12 @@ object_script.*
 debug/
 release/
 build/
+build-*/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+CMakeUserPresets.json
+cmake_install.cmake
 MinGW_64/
 *.o
 *.obj
@@ -28,8 +34,9 @@ qrc_*.cpp
 ui_*.h
 
 # IDE
-.vscode/
 .idea/
+# 注意：.vscode/ 作为团队共享配置入仓库；个人 user-settings 单独忽略
+.vscode/*.code-workspace
 *.swp
 *.swo
 .DS_Store
@@ -37,3 +44,6 @@ Thumbs.db
 
 # Logs / data
 *.log
+
+#sql
+*.db
