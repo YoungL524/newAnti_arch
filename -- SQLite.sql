@@ -1,0 +1,2 @@
+﻿-- SQLite
+SELECT * FROM tracks ORDER BY id DESC LIMIT 20;

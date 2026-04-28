@@ -1,0 +1,36 @@
+{
+  "endpointSources": [
+    {
+      "endpointId": "radar_cpu",
+      "sourceType": 1
+    }
+  ],
+  "reverseTargetDevice": 1,
+  "defaultRoute": {
+    "endpointId": "radar_cpu",
+    "targetName": "workmode"
+  },
+  "dphPublisher": {
+    "enabled": true,
+    "intervalMs": 50,
+    "endpointId": "radar_cpu",
+    "targetName": "dph"
+  },
+  "routes": [
+    {
+      "payloadType": 1,
+      "endpointId": "radar_cpu",
+      "targetName": "workmode"
+    },
+    {
+      "payloadType": 2,
+      "endpointId": "radar_cpu",
+      "targetName": "workmode"
+    },
+    {
+      "payloadType": 3,
+      "endpointId": "radar_cpu",
+      "targetName": "workmode"
+    }
+  ]
+}

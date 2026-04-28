@@ -1,0 +1,60 @@
+{
+  "exclude": [
+    "**/.git/**",
+    "**/.vscode/**",
+    "**/vscode/**",
+    "**/debug/**",
+    "**/release/**",
+    "**/build/**",
+    "**/build-*/**",
+    "**/MinGW_64/**",
+    "**/moc_*.cpp",
+    "**/ui_*.h",
+    "**/qrc_*.cpp",
+    "**/*.user",
+    "**/.qmake.stash",
+    "**/Makefile",
+    "config/**",
+    "data/**",
+    "doc/**",
+    "**/*.sql",
+    "**/*.png",
+    "**/*.jpg",
+    "**/*.jpeg",
+    "**/*.bmp",
+    "**/*.svg",
+    "**/*.doc",
+    "**/*.docx",
+    "**/*.pdf",
+    "**/*.md"
+  ],
+  "include": [
+    "core/**/*.cpp",
+    "core/**/*.h"
+  ],
+  "concurrency": 2,
+  "verbose": false,
+  "output": {
+    "format": "console",
+    "top": 15,
+    "maxIssues": 8,
+    "showDetails": true
+  },
+  "metrics": {
+    "weights": {
+      "complexity": 0.28,
+      "duplication": 0.16,
+      "size": 0.14,
+      "structure": 0.18,
+      "error": 0.16,
+      "documentation": 0.04,
+      "naming": 0.04
+    }
+  },
+  "ai": {
+    "enabled": false
+  },
+  "i18n": {
+    "locale": "zh"
+  }
+}
