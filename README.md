@@ -227,6 +227,19 @@ CMake 构建后 `build/bin/config/` 已就位；从工程根目录直接跑也�
 
 ---
 
+## 日志
+
+`@core/log/Logger.{h,cpp}` 实现了一个轻量日志门面，被 `core` 与 `test_comm` 共用：
+
+- 启动时调用 `Logger::instance().init()` + `qInstallMessageHandler(Logger::messageHandler)`，自动接管所有 `qDebug/qInfo/qWarning/qCritical/qFatal`。
+- 同时输出到控制台（Windows 下用 `WriteConsoleW` 保中文）与日志文件。
+- 日志目录：`data/logs/`（按 `cwd → exeDir → exeDir/..` 顺序定位）。
+- 文件名：`<applicationName>-YYYY-MM-DD.log`（`core` → `NewAntiDrone-core-...`，`test_comm` → `test_comm-...`），跨天自动切换。
+- 启动时自动清理超过 7 天的旧日志，长期运行最多 7 个文件。
+- 每行格式：`2026-04-29 11:24:10.948 [INFO ] 内容`。
+
+---
+
 ## 联调（test_comm ↔ core）
 
 `test_comm` 复用 `core/protocol` 的报文头，作为模拟雷达端跑在同一台机器上：
@@ -242,7 +255,7 @@ CMake 构建后 `build/bin/config/` 已就位；从工程根目录直接跑也�
 - [x] 迁移 qmake → **CMake**（统一 Windows / Ubuntu，去除 Qt 路径硬编码）。
 - [ ] 协议结构体 pack/unpack 的单元测试（端到端字节级对照）。
 - [ ] `SystemBus` 容量上限与背压策略，防止慢消费者撑大队列。
-- [ ] 日志门面（等级 / 文件落盘 / 现场排错）。
+- [x] 日志门面（按日期切分、每条带毫秒时间戳、自动清理 7 天前旧文件、core 与 test_comm 各自独立文件）。
 - [ ] 处理 Windows-only 路径（`StdinReader` / 控制台编码），与 Linux 对齐。
 
 ---

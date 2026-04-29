@@ -2,50 +2,11 @@
 #include <QDebug>
 #include "TestComm.h"
 #include "StdinReader.h"
+#include "Logger.h"
 
 #ifdef Q_OS_WIN
 #include <windows.h>
 #endif
-
-/**
- * @brief Unicode 控制台日志处理器
- * @details Windows 下使用 WriteConsoleW 避免中文乱码
- */
-static void consoleMessageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg)
-{
-    Q_UNUSED(context)
-    QString line;
-    switch (type) {
-    case QtDebugMsg:    line = msg; break;
-    case QtInfoMsg:     line = msg; break;
-    case QtWarningMsg:  line = QStringLiteral("[WARN] ") + msg; break;
-    case QtCriticalMsg: line = QStringLiteral("[ERROR] ") + msg; break;
-    case QtFatalMsg:    line = QStringLiteral("[FATAL] ") + msg; break;
-    }
-    line.append(QLatin1Char('\n'));
- 
-#ifdef Q_OS_WIN
-    HANDLE handle = (type >= QtWarningMsg)
-                    ? GetStdHandle(STD_ERROR_HANDLE)
-                    : GetStdHandle(STD_OUTPUT_HANDLE);
-    DWORD mode = 0;
-    if (handle != INVALID_HANDLE_VALUE && GetConsoleMode(handle, &mode)) {
-        DWORD written = 0;
-        WriteConsoleW(handle,
-                      reinterpret_cast<const wchar_t*>(line.utf16()),
-                      static_cast<DWORD>(line.size()),
-                      &written, nullptr);
-        if (type == QtFatalMsg) abort();
-        return;
-    }
-#endif
-
-    QByteArray bytes = line.toUtf8();
-    FILE* out = (type >= QtWarningMsg) ? stderr : stdout;
-    fwrite(bytes.constData(), 1, static_cast<size_t>(bytes.size()), out);
-    fflush(out);
-    if (type == QtFatalMsg) abort();
-}
 
 /**
  * @brief 打印命令帮助
@@ -78,10 +39,16 @@ int main(int argc, char *argv[])
         SetConsoleOutputCP(65001);
         SetConsoleCP(65001);
     #endif
-    qInstallMessageHandler(consoleMessageHandler);
-    
+
     QCoreApplication app(argc, argv);
-    
+    QCoreApplication::setApplicationName(QStringLiteral("test_comm"));
+    QCoreApplication::setApplicationVersion(QStringLiteral("2.0"));
+
+    Logger::instance().init();
+    qInstallMessageHandler(Logger::messageHandler);
+    qInfo() << QStringLiteral("[Logger] 日志文件: %1")
+                   .arg(Logger::instance().currentLogFile());
+
     qDebug() << QStringLiteral("反无雷达通信测试工具启动...");
     
     // 命令行参数：目标IP 目标端口 workmode端口 DPH端口

@@ -15,12 +15,14 @@ set(CORE_HEADERS
     processor/DphPublisher.h
     data/ConfigManager.h
     data/DataStore.h
+    log/Logger.h
     AppController.h
     StdinReader.h
 )
 
 set(CORE_SOURCES
     main.cpp
+    log/Logger.cpp
     comm/Endpoint.cpp
     comm/UdpEndpoint.cpp
     comm/CommunicationManager.cpp
@@ -43,6 +45,7 @@ target_include_directories(NewAntiDrone_core PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/bus
     ${CMAKE_CURRENT_SOURCE_DIR}/processor
     ${CMAKE_CURRENT_SOURCE_DIR}/data
+    ${CMAKE_CURRENT_SOURCE_DIR}/log
 )
 
 target_link_libraries(NewAntiDrone_core PRIVATE

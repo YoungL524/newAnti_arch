@@ -37,13 +37,10 @@ ui_*.h
 .idea/
 # 注意：.vscode/ 作为团队共享配置入仓库；个人 user-settings 单独忽略
 .vscode/*.code-workspace
-*.swp
-*.swo
-.DS_Store
-Thumbs.db
 
 # Logs / data
 *.log
+data/logs/
 
 #sql
 *.db

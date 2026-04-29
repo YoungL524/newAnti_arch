@@ -9,88 +9,9 @@
 
 #include "AppController.h"
 #include "StdinReader.h"
-
-/**
- * @brief 生成日志前缀
- * @param type Qt 日志级别
- * @return 对应前缀；普通信息返回空字符串
- */
-static QString logPrefix(QtMsgType type)
-{
-    switch (type) {
-    case QtWarningMsg:
-        return QStringLiteral("[WARN] ");
-    case QtCriticalMsg:
-        return QStringLiteral("[ERROR] ");
-    case QtFatalMsg:
-        return QStringLiteral("[FATAL] ");
-    case QtDebugMsg:
-    case QtInfoMsg:
-        return QString();
-    }
-
-    return QString();
-}
-
-/**
- * @brief 判断日志是否应输出到 stderr
- * @param type Qt 日志级别
- * @return 是否为错误类输出
- */
-static bool useErrorStream(QtMsgType type)
-{
-    return type == QtWarningMsg || type == QtCriticalMsg || type == QtFatalMsg;
-}
-
-/**
- * @brief 构造完整日志文本
- * @param type Qt 日志级别
- * @param msg 原始消息
- * @return 附带前缀与换行的完整文本
- */
-static QString buildLogLine(QtMsgType type, const QString& msg)
-{
-    QString line = logPrefix(type);
-    line += msg;
-    line.append(QLatin1Char('\n'));
-    return line;
-}
+#include "log/Logger.h"
 
 #ifdef Q_OS_WIN
-/**
- * @brief 获取 Windows 控制台句柄
- * @param type Qt 日志级别
- * @return 标准输出或标准错误句柄
- */
-static HANDLE consoleHandleForMessage(QtMsgType type)
-{
-    return useErrorStream(type) ? GetStdHandle(STD_ERROR_HANDLE)
-                                : GetStdHandle(STD_OUTPUT_HANDLE);
-}
-
-/**
- * @brief 尝试使用 Windows Unicode 控制台输出
- * @param type Qt 日志级别
- * @param line 完整日志文本
- * @return 是否已成功写入控制台
- */
-static bool writeWindowsConsoleLine(QtMsgType type, const QString& line)
-{
-    HANDLE handle = consoleHandleForMessage(type);
-    DWORD mode = 0;
-    if (handle == INVALID_HANDLE_VALUE || !GetConsoleMode(handle, &mode)) {
-        return false;
-    }
-
-    DWORD written = 0;
-    WriteConsoleW(handle,
-                  reinterpret_cast<const wchar_t*>(line.utf16()),
-                  static_cast<DWORD>(line.size()),
-                  &written,
-                  nullptr);
-    return true;
-}
-
 /**
  * @brief 配置 Windows 控制台编码为 UTF-8
  */
@@ -100,30 +21,6 @@ static void configureWindowsConsoleEncoding()
     SetConsoleCP(65001);
 }
 #endif
-
-/**
- * @brief 通过标准 C 输出日志
- * @param type Qt 日志级别
- * @param line 完整日志文本
- */
-static void writeStandardStreamLine(QtMsgType type, const QString& line)
-{
-    const QByteArray bytes = line.toUtf8();
-    FILE* out = useErrorStream(type) ? stderr : stdout;
-    fwrite(bytes.constData(), 1, static_cast<size_t>(bytes.size()), out);
-    fflush(out);
-}
-
-/**
- * @brief 处理 fatal 日志后的终止动作
- * @param type Qt 日志级别
- */
-static void abortOnFatalMessage(QtMsgType type)
-{
-    if (type == QtFatalMsg) {
-        abort();
-    }
-}
 
 /**
  * @brief 打印程序横幅
@@ -230,27 +127,6 @@ static void connectShutdownHandlers(QCoreApplication& app,
 }
 
 /**
- * @brief Unicode 控制台日志处理器
- * @details Windows 下使用 WriteConsoleW 实现 Unicode 输出，避免中文乱码
- */
-static void consoleMessageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg)
-{
-    Q_UNUSED(context)
-
-    const QString line = buildLogLine(type, msg);
-
-#ifdef Q_OS_WIN
-    if (writeWindowsConsoleLine(type, line)) {
-        abortOnFatalMessage(type);
-        return;
-    }
-#endif
-
-    writeStandardStreamLine(type, line);
-    abortOnFatalMessage(type);
-}
-
-/**
  * @brief 打印命令帮助
  */
 static void printUsage()
@@ -276,11 +152,16 @@ int main(int argc, char *argv[])
     // Qt Creator 内置控制台中文支持
     configureWindowsConsoleEncoding();
 #endif
-    qInstallMessageHandler(consoleMessageHandler);
 
     QCoreApplication app(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("NewAntiDrone-core"));
     QCoreApplication::setApplicationVersion(QStringLiteral("1.0.0"));
+
+    // 先初始化日志（依赖 QCoreApplication::applicationDirPath 定位 data/logs/）
+    Logger::instance().init();
+    qInstallMessageHandler(Logger::messageHandler);
+    qInfo() << QStringLiteral("[Logger] 日志文件: %1")
+                  .arg(Logger::instance().currentLogFile());
 
     printBanner();
 
