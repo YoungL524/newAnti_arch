@@ -41,7 +41,7 @@ public:
 
     /**
      * @brief 初始化日志目录与首个日志文件
-     * @param logsDir 可选；为空时自动搜索 data/logs/（cwd → exeDir → exeDir/..）
+     * @param logsDir 可选；为空时使用 <exeDir>/data/logs（与 cwd 无关，跨启动方式稳定）
      * @param keepDays 保留天数；早于该天数的 .log 文件启动时清理；默认 7
      * @return 是否成功打开文件；失败时仍可继续运行（仅控制台输出）
      */

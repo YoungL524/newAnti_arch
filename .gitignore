@@ -44,3 +44,6 @@ data/logs/
 
 #sql
 *.db
+*.db-shm
+*.db-wal
+*.db-journal

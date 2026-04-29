@@ -233,7 +233,7 @@ CMake 构建后 `build/bin/config/` 已就位；从工程根目录直接跑也�
 
 - 启动时调用 `Logger::instance().init()` + `qInstallMessageHandler(Logger::messageHandler)`，自动接管所有 `qDebug/qInfo/qWarning/qCritical/qFatal`。
 - 同时输出到控制台（Windows 下用 `WriteConsoleW` 保中文）与日志文件。
-- 日志目录：`data/logs/`（按 `cwd → exeDir → exeDir/..` 顺序定位）。
+- 日志目录：**始终是 `<exe 所在目录>/data/logs/`**（与启动 cwd 无关）。CMake 构建后即 `build/bin/data/logs/`。
 - 文件名：`<applicationName>-YYYY-MM-DD.log`（`core` → `NewAntiDrone-core-...`，`test_comm` → `test_comm-...`），跨天自动切换。
 - 启动时自动清理超过 7 天的旧日志，长期运行最多 7 个文件。
 - 每行格式：`2026-04-29 11:24:10.948 [INFO ] 内容`。

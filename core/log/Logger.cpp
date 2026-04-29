@@ -69,23 +69,10 @@ QString Logger::currentLogFile() const
 
 QString Logger::locateLogsDir()
 {
-    const QString rel = QStringLiteral("data/logs");
+    // 始终落在 exe 旁边的 data/logs/，与 cwd 无关。
+    // 这样 VSCode/QtCreator/双击/命令行 启动行为一致，方便排错。
     const QString exeDir = QCoreApplication::applicationDirPath();
-    const QStringList candidates = {
-        QDir::currentPath() + QStringLiteral("/") + rel,
-        exeDir + QStringLiteral("/") + rel,
-        exeDir + QStringLiteral("/../") + rel,
-    };
-
-    // 找第一个父目录已存在的候选（避免污染奇怪的位置）
-    for (const QString& path : candidates) {
-        QFileInfo fi(path);
-        if (QDir(fi.absolutePath()).exists()) {
-            return QDir::cleanPath(fi.absoluteFilePath());
-        }
-    }
-    // 都不存在时退到 exeDir/../data/logs，由 mkpath 创建
-    return QDir::cleanPath(exeDir + QStringLiteral("/../") + rel);
+    return QDir::cleanPath(exeDir + QStringLiteral("/data/logs"));
 }
 
 void Logger::rotateIfNeededLocked(const QDate& today)

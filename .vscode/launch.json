@@ -74,6 +74,26 @@
       ],
       "preLaunchTask": "build-test_comm",
       "visualizerFile": "c:\\Users\\YH01\\AppData\\Roaming\\Code\\User\\workspaceStorage\\c47483df1f2fbda724c5d86e08169079\\tonka3000.qtvsctools\\qt.natvis.xml"
+    },
+    {
+      "name": "Run TestComm (no debug)",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/bin/test_comm.exe",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}/build/bin",
+      "environment": [
+        {
+          "name": "PATH",
+          "value": "C:/Qt/Qt5.14.2/5.14.2/mingw73_64/bin;${env:PATH}"
+        }
+      ],
+      "externalConsole": true,
+      "MIMode": "gdb",
+      "miDebuggerPath": "C:/Qt/Qt5.14.2/Tools/mingw730_64/bin/gdb.exe",
+      "preLaunchTask": "build-test_comm",
+      "visualizerFile": "c:\\Users\\YH01\\AppData\\Roaming\\Code\\User\\workspaceStorage\\c47483df1f2fbda724c5d86e08169079\\tonka3000.qtvsctools\\qt.natvis.xml"
     }
   ]
 }
