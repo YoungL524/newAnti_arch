@@ -1,49 +1,63 @@
-# Qt / qmake generated
-Makefile
-Makefile.*
-*.qmake.stash
-.qmake.stash
+# IDE / 编辑器本机配置
+.vscode/
+.idea/
+*.code-workspace
+
+# Qt Creator / qmake 本机配置与生成文件
 *.pro.user
 *.pro.user.*
+*.qmake.stash
+.qmake.stash
+Makefile
+Makefile.*
 object_script.*
 
-# Build output
-debug/
-release/
+# CMake 生成文件
 build/
 build-*/
 cmake-build-*/
 CMakeCache.txt
 CMakeFiles/
 CMakeUserPresets.json
+CMakeSettings.json
 cmake_install.cmake
-MinGW_64/
+compile_commands.json
+
+# 编译输出
+debug/
+release/
 *.o
 *.obj
 *.a
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.idb
 *.exe
 *.dll
 *.so
 *.dylib
-*.exp
-*.lib
-*.pdb
 moc_*.cpp
 moc_*.h
 qrc_*.cpp
 ui_*.h
 
-# IDE
-.idea/
-# 注意：.vscode/ 作为团队共享配置入仓库；个人 user-settings 单独忽略
-.vscode/*.code-workspace
-
-# Logs / data
+# 运行期数据
+/data/
 *.log
-data/logs/
-
-#sql
 *.db
 *.db-shm
 *.db-wal
 *.db-journal
+
+# 本机环境
+.env
+.env.*
+*.tmp
+*.temp
+
+# 系统文件
+Thumbs.db
+Desktop.ini
+.DS_Store

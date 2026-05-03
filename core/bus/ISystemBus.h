@@ -8,6 +8,14 @@
 using SubscriptionId = uint32_t;
 
 // 系统总线回调函数类型
+/**
+ * @brief 系统总线回调函数类型
+ * @warning 回调运行在 SystemBus 内部工作线程，不是主线程。
+ *          不要在回调里直接操作 QObject、UI、SQLite 等线程敏感对象。
+ *          推荐模式：拷贝 DataPacket，再用 QMetaObject::invokeMethod
+ *          (target, "slot", Qt::QueuedConnection, Q_ARG(DataPacket, copy))
+ *          转回 owner 线程处理。
+ */
 using BusCallback = std::function<void(const DataPacket*)>;
 
 /**
@@ -42,6 +50,9 @@ public:
      * @param sourceType 数据源类型
      * @param callback 接收数据的回调函数
      * @return 订阅ID，用于取消订阅
+     *
+     * @note callback 在 SystemBus 内部工作线程执行，不可直接操作 QObject/UI/SQLite。
+     *       见 BusCallback 文档的线程安全说明。
      */
     virtual SubscriptionId subscribeBySource(uint16_t sourceType, BusCallback callback) = 0;
 
@@ -50,6 +61,9 @@ public:
      * @param target 分发目标
      * @param callback 接收数据的回调函数
      * @return 订阅ID，用于取消订阅
+     *
+     * @note callback 在 SystemBus 内部工作线程执行，不可直接操作 QObject/UI/SQLite。
+     *       见 BusCallback 文档的线程安全说明。
      */
     virtual SubscriptionId subscribeByTarget(uint16_t target, BusCallback callback) = 0;
 
@@ -59,6 +73,9 @@ public:
      * @param target 分发目标
      * @param callback 接收数据的回调函数
      * @return 订阅ID，用于取消订阅
+     *
+     * @note callback 在 SystemBus 内部工作线程执行，不可直接操作 QObject/UI/SQLite。
+     *       见 BusCallback 文档的线程安全说明。
      */
     virtual SubscriptionId subscribe(uint16_t sourceType, uint16_t target, BusCallback callback) = 0;
 

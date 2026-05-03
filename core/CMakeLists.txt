@@ -16,6 +16,9 @@ set(CORE_HEADERS
     data/ConfigManager.h
     data/DataStore.h
     log/Logger.h
+    business/IWorkModeCommandSender.h
+    business/RadarWorkModeController.h
+    business/BusWorkModeSender.h
     AppController.h
     StdinReader.h
 )
@@ -33,6 +36,8 @@ set(CORE_SOURCES
     processor/DphPublisher.cpp
     data/ConfigManager.cpp
     data/DataStore.cpp
+    business/RadarWorkModeController.cpp
+    business/BusWorkModeSender.cpp
     AppController.cpp
 )
 
@@ -46,6 +51,7 @@ target_include_directories(NewAntiDrone_core PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/processor
     ${CMAKE_CURRENT_SOURCE_DIR}/data
     ${CMAKE_CURRENT_SOURCE_DIR}/log
+    ${CMAKE_CURRENT_SOURCE_DIR}/business
 )
 
 target_link_libraries(NewAntiDrone_core PRIVATE

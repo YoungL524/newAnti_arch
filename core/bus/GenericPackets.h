@@ -26,6 +26,15 @@ enum DeviceType {
 };
 
 /**
+ * @brief 判断设备类型是否为雷达
+ * @details 枚举范围的集中判断点。新增雷达设备时需同步更新此函数。
+ *          被 BusToCommRouter 用于过滤非反向流数据（雷达→上位机的上报数据）。
+ */
+inline bool isRadarDevice(uint16_t sourceType) {
+    return sourceType >= DEVICE_RADAR_NH_KU_1 && sourceType <= DEVICE_RADAR_NH_S_2;
+}
+
+/**
  * @brief UI组件类型枚举
  * @details 用于标识数据的分发目标，Phase3加入GUI后使用
  */

@@ -35,12 +35,23 @@ endif()
 # Linux 上 apt 安装的 qtbase5-dev 通常无需额外指定。
 find_package(Qt5 5.14 REQUIRED COMPONENTS Core Network Sql)
 
+# ---- 单元测试开关 ----
+option(BUILD_TESTS "Build unit tests under doc/test/src" ON)
+if(BUILD_TESTS)
+    enable_testing()
+    find_package(Qt5 5.14 REQUIRED COMPONENTS Test)
+endif()
+
 # ---- 子项目 ----
 add_subdirectory(core)
 add_subdirectory(test_comm)
 
 # 让 test_comm 在依赖关系上排在 core 之后
 add_dependencies(test_comm NewAntiDrone_core)
+
+if(BUILD_TESTS)
+    add_subdirectory(doc/test/src)
+endif()
 
 # ---- 配置文件随构建产物一起拷贝（方便直接运行）----
 set(_runtime_config_dir "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/config")

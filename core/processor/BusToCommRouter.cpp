@@ -121,7 +121,8 @@ void BusToCommRouter::handlePacket(DataPacket packet)
 
     // 只处理 UI → 设备 方向。SystemBus 的 subscribeByTarget 已过滤 dispatchTarget，
     // 但保留此防御性检查，避免订阅配置错误时把正向流数据再发一遍。
-    if (packet.sourceType == DEVICE_RADAR_NH_KU_1) {
+    // 用 isRadarDevice() 覆盖全部雷达设备枚举，支持多雷达场景。
+    if (isRadarDevice(packet.sourceType)) {
         // 来源是雷达自己 → 不是反向流，丢弃
         return;
     }
