@@ -20,12 +20,12 @@ NewAntiDrone-newArch/
 ├── core/                     # ★ 主进程：NewAntiDrone_core
 │   ├── core.pro
 │   ├── main.cpp              # 入口 + 控制台命令(work/standby/help/quit)
-│   ├── AppController.{h,cpp} # 装配 & 生命周期
+│   ├── AppController.{h,cpp} # 装配 & 生命周期 + 健康报告
 │   ├── StdinReader.h         # 独立线程读 stdin，不阻塞 Qt 事件循环
 │   ├── comm/                 # 通信层：Endpoint 抽象 + UdpEndpoint + 管理器
 │   ├── protocol/             # 协议层：StructureSend / StructureReceive
 │   ├── bus/                  # 系统总线：ISystemBus + ThreadSafeQueue + GenericPackets
-│   ├── processor/            # 业务处理：RadarDataProcessor / BusToCommRouter / DphPublisher
+│   ├── processor/            # 业务处理：RadarDataProcessor / BusToCommRouter / DphPublisher / LatencyStats
 │   └── data/                 # 数据层：ConfigManager / DataStore (SQLite)
 ├── test_comm/                # 协议联调客户端（模拟雷达端）
 │   ├── test_comm.pro
@@ -65,9 +65,12 @@ NewAntiDrone-newArch/
 
 数据流（典型）：
 
-- **上行**：`UdpEndpoint` 收包 → `RadarDataProcessor` 解析 → `SystemBus` 发布 → 订阅者（路由 / 持久化等）。
+- **上行**：`UdpEndpoint` 收包（打时间戳）→ `RadarDataProcessor` 解析 → `SystemBus` 发布 → 订阅者（路由 / 持久化等）。
 - **下行**：业务模块向 `SystemBus` 投递 → `BusToCommRouter` 按 `processor.json` 选择端点/目标 → `UdpEndpoint` 发送。
 - **周期**：`DphPublisher` 每 50ms 向雷达端发送 DPH 心跳（见 `processor.json` → `dphPublisher`）。
+- **延时监测**：上行在 `UdpEndpoint::onReadyRead` 捕获 `receivedMs`，经 `CommunicationManager` → `RadarDataProcessor` 计算处理耗时；下行在 `BusToCommRouter::handlePacket` 计算 DataPacket 创建到 UDP 发出的耗时。
+- **健康检查**：`AppController::healthReport()` 返回 `AppHealth` 结构体，聚合 SystemBus、通信端点、数据处理、数据库和延时统计状态。
+- **批量写库**：航迹数据先缓冲在 `m_trackBuffer`（20 条或 200ms），通过 `DataStore::insertBatch` 在事务内批量写入 SQLite，避免每包 fsync 开销。
 
 ---
 
@@ -253,9 +256,13 @@ CMake 构建后 `build/bin/config/` 已就位；从工程根目录直接跑也�
 ## 路线图
 
 - [x] 迁移 qmake → **CMake**（统一 Windows / Ubuntu，去除 Qt 路径硬编码）。
-- [ ] 协议结构体 pack/unpack 的单元测试（端到端字节级对照）。
-- [ ] `SystemBus` 容量上限与背压策略，防止慢消费者撑大队列。
+- [x] 协议结构体 pack/unpack 的单元测试（端到端字节级对照）。
+- [x] `SystemBus` 容量上限与背压策略，防止慢消费者撑大队列。
 - [x] 日志门面（按日期切分、每条带毫秒时间戳、自动清理 7 天前旧文件、core 与 test_comm 各自独立文件）。
+- [x] 注入式工作模式状态机（`RadarWorkModeController` 5 态转移，替换 hardcode 命令）。
+- [x] 上下行链路延时监测（UDP 收包 → Processor / DataPacket 创建 → UDP 发出）。
+- [x] 系统健康报告（`AppHealth` + `healthReport()`）。
+- [x] 批量数据库写入（攒批 insertBatch，消除单包 fsync 瓶颈）。
 - [ ] 处理 Windows-only 路径（`StdinReader` / 控制台编码），与 Linux 对齐。
 
 ---
