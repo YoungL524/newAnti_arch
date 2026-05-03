@@ -11,6 +11,9 @@
 #include "ConfigManager.h"
 #include "DataStore.h"
 
+class RadarWorkModeController;
+class IWorkModeCommandSender;
+
 /**
  * @brief 应用总控类（非GUI）
  * @details 从旧的 NewAntiDrone(QMainWindow) 中抽出业务逻辑部分
@@ -73,15 +76,10 @@ public:
     DataStore* dataStore() const { return m_dataStore.get(); }
 
     /**
-     * @brief 向雷达端发送工作/待机命令
-     * @param mode 1=工作, 0=待机
-     * @details 构造 `workStandby` 命令并发布到 `SystemBus`，由 `BusToCommRouter`
-     *          统一路由到 `radar_cpu/workmode`。
-     *          雷达端收到后：工作模式开始上报航迹；待机模式停止上报。
-     *          本方法不影响 DPH 的 50ms 周期发送。
-     * @return 是否成功发布到总线（true 仅表示已进入系统内部链路）
+     * @brief 获取雷达工作模式控制器
+     * @return 控制器指针；初始化完成前为 nullptr
      */
-    bool sendWorkModeCommand(uint32_t mode);
+    RadarWorkModeController* workModeController() const { return m_workModeController.get(); }
 
 private slots:
     /**
@@ -215,6 +213,12 @@ private:
                            const QString& source,
                            const QString& detail);
 
+    /**
+     * @brief 初始化业务逻辑层（工作模式控制器等）
+     * @return 是否成功
+     */
+    bool initializeBusinessLogic();
+
 private:
     ConfigManager m_configManager;                          ///< 配置管理器（数据访问层）
     std::unique_ptr<DataStore> m_dataStore;                 ///< 数据存储（数据访问层）
@@ -222,6 +226,8 @@ private:
     std::unique_ptr<RadarDataProcessor> m_radarProcessor;   ///< 正向流处理器（阶段 A）
     std::unique_ptr<BusToCommRouter> m_busRouter;           ///< 反向流路由器（阶段 B）
     std::unique_ptr<DphPublisher> m_dphPublisher;           ///< DPH 定时发送器（阶段 D3）
+    std::unique_ptr<IWorkModeCommandSender> m_workModeSender;    ///< 工作模式命令发送器
+    std::unique_ptr<RadarWorkModeController> m_workModeController; ///< 工作模式状态机
     uint16_t m_reverseTargetDevice = DEVICE_RADAR_NH_KU_1;  ///< 反向流目标设备（由 processor.json 装配）
     bool m_dphEnabled = true;                                ///< DPH 发送开关（由 processor.json 装配）
     bool m_running = false;                                 ///< 运行状态标志

@@ -10,6 +10,7 @@
 #include "AppController.h"
 #include "StdinReader.h"
 #include "log/Logger.h"
+#include "RadarWorkModeController.h"
 
 #ifdef Q_OS_WIN
 /**
@@ -62,12 +63,16 @@ static void handleConsoleCommand(AppController& controller, const QString& input
 {
     const QString cmd = input.toLower();
     if (cmd == QStringLiteral("1") || cmd == QStringLiteral("work")) {
-        controller.sendWorkModeCommand(1);
+        auto* wmc = controller.workModeController();
+        if (wmc) { wmc->requestWork(); }
+        else { qWarning() << QStringLiteral("工作模式控制器未就绪"); }
         return;
     }
 
     if (cmd == QStringLiteral("2") || cmd == QStringLiteral("standby")) {
-        controller.sendWorkModeCommand(0);
+        auto* wmc = controller.workModeController();
+        if (wmc) { wmc->requestStandby(); }
+        else { qWarning() << QStringLiteral("工作模式控制器未就绪"); }
         return;
     }
 

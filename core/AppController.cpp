@@ -1,6 +1,8 @@
 ﻿#include "AppController.h"
 #include "EndpointConfigLoader.h"
 #include "GenericPackets.h"
+#include "BusWorkModeSender.h"
+#include "RadarWorkModeController.h"
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -34,6 +36,11 @@ bool AppController::initialize()
 
     if (!initializeProcessorPipeline()) {
         qCritical() << QStringLiteral("[AppController] 业务装配初始化失败");
+        return false;
+    }
+
+    if (!initializeBusinessLogic()) {
+        qCritical() << QStringLiteral("[AppController] 业务逻辑层初始化失败");
         return false;
     }
 
@@ -422,40 +429,44 @@ void AppController::configureDphPublisher(const QJsonObject& processorConfig)
                 .arg(m_dphEnabled ? QStringLiteral("true") : QStringLiteral("false"));
 }
 
-bool AppController::sendWorkModeCommand(uint32_t mode)
+bool AppController::initializeBusinessLogic()
 {
-    if (!m_busRouter) {
-        qWarning() << QStringLiteral("[AppController] 反向流路由器未初始化，无法发送 workmode");
-        return false;
-    }
+    // 工作模式命令发送器：直接发布到 SystemBus
+    m_workModeSender = std::make_unique<BusWorkModeSender>();
 
-    workStandby cmd;
-    memset(&cmd, 0, sizeof(workStandby));
-    cmd.Work_Standby_Mode = mode;
-    // 本机位置占位值（真实部署由配置/界面提供）
-    cmd.Lon_Coordinates = 116.3974;
-    cmd.Lat_Coordinates = 39.9093;
-    cmd.Altitude = 100.0;
+    // 工作模式状态机
+    m_workModeController = std::make_unique<RadarWorkModeController>(
+        m_reverseTargetDevice, m_workModeSender.get(), this);
+    m_workModeController->setTransitionTimeoutMs(300);
 
-    DataPacket packet;
-    packet.sourceType = UI_CONFIGWIDGET;
-    packet.dispatchTarget = m_reverseTargetDevice;
-    packet.packetSequence = static_cast<uint32_t>(SystemBus::getInstance().getPublishedCount() + 1);
-    packet.timeStamp = static_cast<uint64_t>(QDateTime::currentMSecsSinceEpoch());
+    // 状态变化 → 日志（未来 UI 阶段改为更新状态栏/指示灯）
+    connect(m_workModeController.get(), &RadarWorkModeController::stateChanged,
+            this, [](RadarWorkModeController::State oldState,
+                     RadarWorkModeController::State newState) {
+        qInfo() << QStringLiteral("[AppController] 雷达工作状态: %1 → %2")
+                    .arg(RadarWorkModeController::stateName(oldState),
+                         RadarWorkModeController::stateName(newState));
+    });
 
-    if (!packDataToPayload(packet, cmd)) {
-        qWarning() << QStringLiteral("[AppController] workStandby 打包失败，无法发布到总线");
-        return false;
-    }
+    // 命令被拒绝 → 日志（UI 阶段可改为 toast/状态提示）
+    connect(m_workModeController.get(), &RadarWorkModeController::requestRejected,
+            this, [](RadarWorkModeController::RejectReason reason,
+                     RadarWorkModeController::State current) {
+        qWarning() << QStringLiteral("[AppController] 命令被拒绝: %1 (当前状态=%2)")
+                       .arg(RadarWorkModeController::rejectReasonName(reason),
+                            RadarWorkModeController::stateName(current));
+    });
 
-    const bool ok = SystemBus::getInstance().publish(std::move(packet));
+    // 命令成功下发
+    connect(m_workModeController.get(), &RadarWorkModeController::workModeCommandIssued,
+            this, [](uint16_t deviceId, uint32_t mode) {
+        qDebug() << QStringLiteral("[AppController] 已下发 workmode=%1 到 device=%2")
+                    .arg(mode).arg(deviceId);
+    });
 
-    qDebug() << QStringLiteral("[AppController] 已发布 workmode=%1 (%2) 到 SystemBus, %3 字节, %4")
-                .arg(mode)
-                .arg(mode == 1 ? QStringLiteral("工作") : QStringLiteral("待机"))
-                .arg(sizeof(workStandby))
-                .arg(ok ? QStringLiteral("成功") : QStringLiteral("失败"));
-    return ok;
+    qDebug() << QStringLiteral("[AppController] 工作模式控制器已就绪, device=%1")
+                .arg(m_reverseTargetDevice);
+    return true;
 }
 
 void AppController::onCommError(const QString& endpointId, const QString& message)
