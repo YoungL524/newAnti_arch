@@ -2,6 +2,7 @@
 #include "CommunicationManager.h"
 #include "SystemBus.h"
 
+#include <QDateTime>
 #include <QDebug>
 #include <cstring>
 
@@ -119,11 +120,8 @@ void BusToCommRouter::handlePacket(DataPacket packet)
 {
     if (!m_commManager) return;
 
-    // 只处理 UI → 设备 方向。SystemBus 的 subscribeByTarget 已过滤 dispatchTarget，
-    // 但保留此防御性检查，避免订阅配置错误时把正向流数据再发一遍。
-    // 用 isRadarDevice() 覆盖全部雷达设备枚举，支持多雷达场景。
+    // 只处理 UI → 设备 方向
     if (isRadarDevice(packet.sourceType)) {
-        // 来源是雷达自己 → 不是反向流，丢弃
         return;
     }
 
@@ -138,6 +136,23 @@ void BusToCommRouter::handlePacket(DataPacket packet)
     const bool ok = m_commManager->sendTo(r.endpointId, r.targetName, bytes);
     if (ok) {
         ++m_routedCount;
+
+        // 下行链路延时：从 DataPacket 创建（packet.timeStamp）到 UDP 发出
+        const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+        const qint64 latencyMs = nowMs - static_cast<qint64>(packet.timeStamp);
+        if (latencyMs >= 0) {
+            m_downlinkLatency.addSample(latencyMs);
+        }
+
+        // 每 200 包打印一次延时概况
+        if (m_downlinkLatency.sampleCount % 200 == 0) {
+            qDebug() << QStringLiteral("[BusToCommRouter] 下行延时: avg=%1ms min=%2ms max=%3ms [%4 samples]")
+                        .arg(m_downlinkLatency.avgMs)
+                        .arg(m_downlinkLatency.minMs)
+                        .arg(m_downlinkLatency.maxMs)
+                        .arg(m_downlinkLatency.sampleCount);
+        }
+
         qDebug() << QStringLiteral("[BusToCommRouter] 路由成功: payloadType=%1, %2B → %3/%4, seq=%5")
                     .arg(packet.payloadType)
                     .arg(bytes.size())

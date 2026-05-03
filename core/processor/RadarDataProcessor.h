@@ -2,9 +2,13 @@
 
 #include <QObject>
 #include <QMap>
+#include <QVector>
+#include <QTimer>
+#include <QVariantMap>
 #include <cstdint>
 #include "StructureReceive.h"
 #include "GenericPackets.h"
+#include "LatencyStats.h"
 
 class CommunicationManager;
 class DataStore;
@@ -52,26 +56,39 @@ public:
      */
     uint64_t generalPackageCount() const { return m_generalPackageCount; }
 
+    /**
+     * @brief 获取累计写入 tracks 表的记录数
+     */
+    uint64_t trackInsertCount() const { return m_trackInsertCount; }
+
+    /**
+     * @brief 上行链路延时统计（UDP 接收到 → Processor 处理完成）
+     */
+    const LatencyStats& uplinkLatency() const { return m_uplinkLatency; }
+
 public slots:
     /**
      * @brief 处理来自通信层的原始数据
      * @param endpointId 端点 ID
      * @param data       原始字节流
+     * @param receivedMs 数据到达时间戳（由 UdpEndpoint 在 readDatagram 后捕获）
      * @details 按数据大小分发到相应解析路径。解析失败或未知大小的包会记录警告。
      */
-    void onCommDataReceived(const QString& endpointId, const QByteArray& data);
+    void onCommDataReceived(const QString& endpointId, const QByteArray& data, qint64 receivedMs);
 
 private:
     /**
      * @brief 处理 GeneralPackage（完整业务数据包）
-     * @details 写入 tracks 表 + 发布到 SystemBus
+     * @param endpointId 来源端点 ID
+     * @param gp         协议包
+     * @param receivedMs 数据到达时间戳（用于 latency 基准 + DataPacket.timeStamp）
      */
-    void handleGeneralPackage(const QString& endpointId, const GeneralPackage& gp);
+    void handleGeneralPackage(const QString& endpointId, const GeneralPackage& gp, qint64 receivedMs);
 
     /**
      * @brief 处理独立的 workStandby（通常是对端回显；核心场景下不常见）
      */
-    void handleWorkStandby(const QString& endpointId, const workStandby& cmd);
+    void handleWorkStandby(const QString& endpointId, const workStandby& cmd, qint64 receivedMs);
 
     /**
      * @brief 查询端点对应的 sourceType
@@ -79,16 +96,17 @@ private:
     uint16_t resolveSourceType(const QString& endpointId) const;
 
     /**
-     * @brief 将 TargetType 写入 tracks 表
-     * @param tsMs       记录时间戳（毫秒）
-     * @param endpointId 来源端点 ID（存入表的 source 字段）
-     * @param tgt        航迹数据
-     * @param sceneNum   景幅号（来自 DPH 或 0）
+     * @brief 将 TargetType 追加到写缓冲
      */
-    void insertTrack(qint64 tsMs,
+    void bufferTrack(qint64 tsMs,
                      const QString& endpointId,
                      const TargetType& tgt,
                      uint32_t sceneNum);
+
+    /**
+     * @brief 将缓冲中的航迹批量写入数据库（事务内）
+     */
+    void flushTracks();
 
 private:
     CommunicationManager* m_commManager = nullptr;   ///< 通信管理器（非持有）
@@ -98,4 +116,13 @@ private:
     uint32_t m_sequence = 0;                         ///< DataPacket 发布序列号
     uint64_t m_generalPackageCount = 0;              ///< 已处理的 GeneralPackage 计数
     uint64_t m_trackInsertCount = 0;                 ///< 已写入 tracks 表的记录数
+
+    // ---- 批量写缓冲 ----
+    QVector<QVariantMap> m_trackBuffer;              ///< 航迹写缓冲，攒批 flush
+    QTimer* m_flushTimer = nullptr;                  ///< 定期 flush 定时器（防饥饿）
+    static constexpr int kFlushThreshold = 20;       ///< 缓冲阈值（条），达到后自动 flush
+    static constexpr int kFlushIntervalMs = 200;     ///< 最大 flush 间隔（ms）
+
+    // ---- 延时监测 ----
+    LatencyStats m_uplinkLatency;                    ///< 上行链路延时统计（UDP 接收到 → Processor 处理完成）
 };

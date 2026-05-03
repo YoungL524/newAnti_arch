@@ -10,9 +10,42 @@
 #include "DphPublisher.h"
 #include "ConfigManager.h"
 #include "DataStore.h"
+#include "LatencyStats.h"
 
 class RadarWorkModeController;
 class IWorkModeCommandSender;
+
+/**
+ * @brief 系统健康报告
+ * @details healthReport() 的返回类型，聚合各子系统运行状态
+ */
+struct AppHealth {
+    struct SystemBusStatus {
+        bool running = false;
+        int subscriptionCount = 0;
+    };
+    struct CommStatus {
+        int totalEndpoints = 0;
+        int openEndpoints = 0;
+    };
+    struct ProcessingStatus {
+        uint64_t generalPackageCount = 0;
+        uint64_t trackInsertCount = 0;
+        uint64_t routedCount = 0;
+    };
+    struct DatabaseStatus {
+        bool configured = false;
+        bool connected = false;
+    };
+
+    SystemBusStatus systemBus;
+    CommStatus comm;
+    ProcessingStatus processing;
+    DatabaseStatus database;
+    LatencyStats uplinkLatency;
+    LatencyStats downlinkLatency;
+    qint64 timestampMs = 0;          ///< 报告生成时间（currentMSecsSinceEpoch）
+};
 
 /**
  * @brief 应用总控类（非GUI）
@@ -80,6 +113,14 @@ public:
      * @return 控制器指针；初始化完成前为 nullptr
      */
     RadarWorkModeController* workModeController() const { return m_workModeController.get(); }
+
+    /**
+     * @brief 获取系统健康报告
+     * @return 各子系统运行状态快照
+     * @details 聚合 SystemBus、通信端点、数据处理、数据库和延时统计数据。
+     *          UI 阶段可通过定时器轮询此方法刷新状态栏/指示灯。
+     */
+    AppHealth healthReport() const;
 
 private slots:
     /**

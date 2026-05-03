@@ -3,6 +3,7 @@
 #include "GenericPackets.h"
 #include "BusWorkModeSender.h"
 #include "RadarWorkModeController.h"
+#include <QDateTime>
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -467,6 +468,48 @@ bool AppController::initializeBusinessLogic()
     qDebug() << QStringLiteral("[AppController] 工作模式控制器已就绪, device=%1")
                 .arg(m_reverseTargetDevice);
     return true;
+}
+
+AppHealth AppController::healthReport() const
+{
+    AppHealth report;
+    report.timestampMs = QDateTime::currentMSecsSinceEpoch();
+
+    // SystemBus 状态
+    const auto& bus = SystemBus::getInstance();
+    report.systemBus.running = bus.isRunning();
+    report.systemBus.subscriptionCount = bus.getSubscriptionCount();
+
+    // 通信端点状态
+    if (m_commManager) {
+        report.comm.totalEndpoints = m_commManager->endpointCount();
+        // open 计数需遍历端点；目前 CommManager 无公开遍历接口，
+        // 用 totalEndpoints 近似，未来可细化
+        report.comm.openEndpoints = m_commManager->endpointCount();
+    }
+
+    // 数据处理状态
+    if (m_radarProcessor) {
+        report.processing.generalPackageCount = m_radarProcessor->generalPackageCount();
+        report.processing.trackInsertCount = m_radarProcessor->trackInsertCount();
+    }
+    if (m_busRouter) {
+        report.processing.routedCount = m_busRouter->routedCount();
+    }
+
+    // 数据库状态
+    report.database.configured = (m_dataStore != nullptr);
+    report.database.connected = m_dataStore && m_dataStore->isConnected();
+
+    // 延时统计
+    if (m_radarProcessor) {
+        report.uplinkLatency = m_radarProcessor->uplinkLatency();
+    }
+    if (m_busRouter) {
+        report.downlinkLatency = m_busRouter->downlinkLatency();
+    }
+
+    return report;
 }
 
 void AppController::onCommError(const QString& endpointId, const QString& message)

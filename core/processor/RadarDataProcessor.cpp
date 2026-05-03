@@ -17,15 +17,26 @@ RadarDataProcessor::RadarDataProcessor(CommunicationManager* commManager,
 {
     Q_ASSERT(m_commManager != nullptr);
 
-    // 订阅通信层的接收信号（直接连接；若未来此处耗时过长再 moveToThread）
+    // 订阅通信层的接收信号
     connect(m_commManager, &CommunicationManager::dataReceived,
             this, &RadarDataProcessor::onCommDataReceived);
+
+    // 定期 flush 定时器：即使数据流低于阈值也不会饿死
+    m_flushTimer = new QTimer(this);
+    connect(m_flushTimer, &QTimer::timeout, this, &RadarDataProcessor::flushTracks);
+    m_flushTimer->start(kFlushIntervalMs);
 
     qDebug() << QStringLiteral("[RadarDataProcessor] 已创建，订阅 CommunicationManager::dataReceived");
 }
 
 RadarDataProcessor::~RadarDataProcessor()
 {
+    // 析构前确保缓冲数据落盘
+    if (m_flushTimer) {
+        m_flushTimer->stop();
+    }
+    flushTracks();
+
     qDebug() << QStringLiteral("[RadarDataProcessor] 销毁：共处理 GeneralPackage=%1, 写入 tracks=%2")
                 .arg(m_generalPackageCount)
                 .arg(m_trackInsertCount);
@@ -49,43 +60,56 @@ uint16_t RadarDataProcessor::resolveSourceType(const QString& endpointId) const
 }
 
 void RadarDataProcessor::onCommDataReceived(const QString& endpointId,
-                                            const QByteArray& data)
+                                            const QByteArray& data,
+                                            qint64 receivedMs)
 {
-    // 按大小分发：当前协议的业务包有两种固定长度。
-    // 后续多协议时，这里可升级为"读协议头字段再分发"。
+    // 按大小分发
     const size_t sz = static_cast<size_t>(data.size());
+    bool handled = false;
 
     if (sz == sizeof(GeneralPackage)) {
         GeneralPackage gp;
         memcpy(&gp, data.constData(), sizeof(GeneralPackage));
-        handleGeneralPackage(endpointId, gp);
-        return;
-    }
-
-    if (sz == sizeof(workStandby)) {
+        handleGeneralPackage(endpointId, gp, receivedMs);
+        handled = true;
+    } else if (sz == sizeof(workStandby)) {
         workStandby cmd;
         memcpy(&cmd, data.constData(), sizeof(workStandby));
-        handleWorkStandby(endpointId, cmd);
-        return;
+        handleWorkStandby(endpointId, cmd, receivedMs);
+        handled = true;
+    } else {
+        qWarning() << QStringLiteral("[RadarDataProcessor] 未识别的数据长度: %1 字节, 端点='%2'")
+                      .arg(sz).arg(endpointId);
     }
 
-    // 未知大小：打印一次警告，不写库（避免噪声）
-    qWarning() << QStringLiteral("[RadarDataProcessor] 未识别的数据长度: %1 字节, 端点='%2'")
-                  .arg(sz).arg(endpointId);
+    // 记录上行处理延时（仅对已识别的合法包统计）
+    if (handled) {
+        const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+        m_uplinkLatency.addSample(nowMs - receivedMs);
+
+        // 每 200 包打印一次延时概况
+        if (m_uplinkLatency.sampleCount % 200 == 0) {
+            qDebug() << QStringLiteral("[RadarDataProcessor] 上行延时: avg=%1ms min=%2ms max=%3ms [%4 samples]")
+                        .arg(m_uplinkLatency.avgMs)
+                        .arg(m_uplinkLatency.minMs)
+                        .arg(m_uplinkLatency.maxMs)
+                        .arg(m_uplinkLatency.sampleCount);
+        }
+    }
 }
 
 void RadarDataProcessor::handleGeneralPackage(const QString& endpointId,
-                                              const GeneralPackage& gp)
+                                              const GeneralPackage& gp,
+                                              qint64 receivedMs)
 {
     m_generalPackageCount++;
 
-    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
     const TargetType& tgt = gp.h_c.TrackInfo;
     const uint32_t sceneNum = gp.datapackageheader.F_UI_Scene_Num;
 
-    // 1) 写入 tracks 业务表
+    // 1) 缓冲航迹，攒批写入（避免每包 fsync）
     if (m_dataStore && m_dataStore->isConnected()) {
-        insertTrack(nowMs, endpointId, tgt, sceneNum);
+        bufferTrack(receivedMs, endpointId, tgt, sceneNum);
     }
 
     // 2) 发布到 SystemBus，供 UI 等订阅
@@ -93,8 +117,8 @@ void RadarDataProcessor::handleGeneralPackage(const QString& endpointId,
     packet.sourceType     = resolveSourceType(endpointId);
     packet.dispatchTarget = UI_OUTPUTWIDGET;
     packet.packetSequence = ++m_sequence;
-    packet.timeStamp      = static_cast<uint64_t>(nowMs);
-    packDataToPayload(packet, gp);  // 模板函数：填 payloadType=PAYLOAD_TYPE_GENERAL_PACKAGE
+    packet.timeStamp      = static_cast<uint64_t>(receivedMs);
+    packDataToPayload(packet, gp);
 
     if (!SystemBus::getInstance().publish(std::move(packet))) {
         qWarning() << QStringLiteral("[RadarDataProcessor] 发布 GeneralPackage 到总线失败, seq=%1")
@@ -113,7 +137,8 @@ void RadarDataProcessor::handleGeneralPackage(const QString& endpointId,
 }
 
 void RadarDataProcessor::handleWorkStandby(const QString& endpointId,
-                                           const workStandby& cmd)
+                                           const workStandby& cmd,
+                                           qint64 receivedMs)
 {
     qDebug() << QStringLiteral("[RadarDataProcessor] 收到 workStandby: 端点='%1', 模式=%2")
                 .arg(endpointId).arg(cmd.Work_Standby_Mode);
@@ -123,7 +148,7 @@ void RadarDataProcessor::handleWorkStandby(const QString& endpointId,
     packet.sourceType     = resolveSourceType(endpointId);
     packet.dispatchTarget = UI_OUTPUTWIDGET;
     packet.packetSequence = ++m_sequence;
-    packet.timeStamp      = static_cast<uint64_t>(QDateTime::currentMSecsSinceEpoch());
+    packet.timeStamp      = static_cast<uint64_t>(receivedMs);
     packDataToPayload(packet, cmd);
 
     if (!SystemBus::getInstance().publish(std::move(packet))) {
@@ -132,7 +157,7 @@ void RadarDataProcessor::handleWorkStandby(const QString& endpointId,
     }
 }
 
-void RadarDataProcessor::insertTrack(qint64 tsMs,
+void RadarDataProcessor::bufferTrack(qint64 tsMs,
                                      const QString& endpointId,
                                      const TargetType& tgt,
                                      uint32_t sceneNum)
@@ -151,7 +176,26 @@ void RadarDataProcessor::insertTrack(qint64 tsMs,
     row.insert(QStringLiteral("y"),            tgt.y);
     row.insert(QStringLiteral("z"),            tgt.z);
 
-    if (m_dataStore->insert(QStringLiteral("tracks"), row)) {
-        m_trackInsertCount++;
+    m_trackBuffer.append(std::move(row));
+
+    // 达到阈值 → 立即 flush
+    if (m_trackBuffer.size() >= kFlushThreshold) {
+        flushTracks();
     }
+}
+
+void RadarDataProcessor::flushTracks()
+{
+    if (m_trackBuffer.isEmpty() || !m_dataStore || !m_dataStore->isConnected()) {
+        return;
+    }
+
+    const int n = m_trackBuffer.size();
+    if (m_dataStore->insertBatch(QStringLiteral("tracks"), m_trackBuffer)) {
+        m_trackInsertCount += n;
+        qDebug() << QStringLiteral("[RadarDataProcessor] 批量写入 tracks: %1 条").arg(n);
+    } else {
+        qWarning() << QStringLiteral("[RadarDataProcessor] 批量写入 tracks 失败: %1 条").arg(n);
+    }
+    m_trackBuffer.clear();
 }

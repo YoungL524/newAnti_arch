@@ -1,4 +1,5 @@
 ﻿#include "UdpEndpoint.h"
+#include <QDateTime>
 #include <QDebug>
 
 UdpEndpoint::UdpEndpoint(const EndpointConfig& config, QObject* parent)
@@ -108,7 +109,9 @@ void UdpEndpoint::onReadyRead()
             continue;
         }
         datagram.resize(static_cast<int>(actual));
-        emit dataReceived(datagram);
+        // 在 readDatagram 之后立即捕获时间戳，排除后续 Qt 信号投递和处理的影响
+        const qint64 receivedMs = QDateTime::currentMSecsSinceEpoch();
+        emit dataReceived(datagram, receivedMs);
     }
 }
 

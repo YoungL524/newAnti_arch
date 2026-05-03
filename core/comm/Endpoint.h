@@ -20,7 +20,13 @@ public:
     virtual bool send(const QString& targetKey, const QByteArray& data) = 0;
 
 signals:
-    void dataReceived(const QByteArray& data);
+    /**
+     * @brief 收到原始数据
+     * @param data       原始字节（UDP 报文）
+     * @param receivedMs 数据到达时间戳（currentMSecsSinceEpoch），
+     *                   在 readDatagram 后立即捕获，反映系统层接收时刻
+     */
+    void dataReceived(const QByteArray& data, qint64 receivedMs);
     void errorOccurred(const QString& message);
 
 protected:

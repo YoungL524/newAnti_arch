@@ -24,7 +24,13 @@ public:
     int endpointCount() const { return m_endpoints.size(); }
 
 signals:
-    void dataReceived(const QString& endpointId, const QByteArray& data);
+    /**
+     * @brief 接收到来自端点的数据（转发自 Endpoint::dataReceived）
+     * @param endpointId 来源端点的 id
+     * @param data       原始字节
+     * @param receivedMs 数据到达时间戳（来自 Endpoint 的接收时刻）
+     */
+    void dataReceived(const QString& endpointId, const QByteArray& data, qint64 receivedMs);
     void errorOccurred(const QString& endpointId, const QString& message);
 
 private:

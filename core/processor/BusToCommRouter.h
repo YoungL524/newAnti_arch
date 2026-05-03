@@ -5,6 +5,7 @@
 #include <cstdint>
 #include "GenericPackets.h"
 #include "StructureReceive.h"
+#include "LatencyStats.h"
 
 class CommunicationManager;
 
@@ -75,6 +76,11 @@ public:
      */
     uint64_t routedCount() const { return m_routedCount; }
 
+    /**
+     * @brief 下行链路延时统计（DataPacket 创建 → UDP 发出）
+     */
+    const LatencyStats& downlinkLatency() const { return m_downlinkLatency; }
+
 private slots:
     /**
      * @brief 在本对象所属线程处理 DataPacket
@@ -100,4 +106,5 @@ private:
     Route m_defaultRoute;                            ///< 默认路由
     uint32_t m_subscriptionId = 0;                   ///< SystemBus 订阅 ID
     uint64_t m_routedCount = 0;                      ///< 路由成功的包数
+    LatencyStats m_downlinkLatency;                  ///< 下行链路延时统计
 };
