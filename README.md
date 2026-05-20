@@ -1,8 +1,70 @@
-# NewAntiDrone (newArch)
+# DCMP — 反无人机雷达指控系统 (新架构)
 
-反无人机雷达指控系统 —— 新架构版本。基于 **Qt 5.14.2 (C++17)** 的控制台应用，按"通信 / 协议 / 总线 / 处理 / 数据"五层解耦设计，便于在嵌入式与桌面侧统一维护。
+> **D**rone **C**ountermeasure **M**onitoring **P**latform
 
-> 上位/指控端（本工程）↔ 雷达 CPU 端，通过 UDP 收发雷达指控协议（详见 `ZL-反无雷达指控协议-260205.docx`）。
+基于 **Qt 5.14.2 (C++17)** 内核 + **React 19 + Vite** 前端的雷达上位机系统，支持实时 PPI 雷达显示、目标跟踪、数据采集和日志监控。
+
+![UI 预览](ide_design.png)
+
+---
+
+## 架构概览
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Browser (React UI)                       │
+│  ┌─ TitleBar ─ ActivityBar ─ Sidebar ─────────────────────────┐ │
+│  │                                                             │ │
+│  │               PPI Radar Display (全屏 Canvas)               │ │
+│  │    · 距离环 / 角度标签 / 扫描线 / 数据点 / 图例             │ │
+│  │                                                             │ │
+│  │  ┌─────── 底部面板 (目标列表 | 日志 | 告警 | 事件) ───────┐ │ │
+│  └───────────────────────────────────────────────────────────────┘ │
+│                         HTTP REST / WebSocket                      │
+│                             8088 / 8089                            │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────────┐
+│                    C++ Core (Qt Console)                         │
+│                                                                  │
+│  ┌─ HttpServer ──────────────────────────────────────────────┐  │
+│  │  · QTcpServer  → 提供 HTTP REST API + 静态文件服务          │  │
+│  │  · QWebSocketServer → 实时推送状态广播                       │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  ┌─ AppController ────────────────────────────────────────────┐  │
+│  │  · 雷达业务逻辑 / 工作模式控制                               │  │
+│  │  · 通信管理 / 协议编解码 / 数据持久化                       │  │
+│  │  · 系统健康监测 / 延时统计                                  │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  ┌─ Communication ────────────────────────────────────────────┐  │
+│  │  · UDP Endpoint (与雷达 CPU 通信)                           │  │
+│  │  · 协议结构体 pack / unpack                                │  │
+│  │  · DPH 心跳 50ms 周期                                     │  │
+│  └─────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### 核心特性
+
+- **全屏 PPI 雷达显示** — Canvas 实时渲染，距离环 / 十字线 / 角度标签 / 橙色扫描线 / 目标数据点
+- **Material Design 3 浅色主题** — 暖白色 Canvas 色系 (#f7f7f4)，橙色强调 (#f54e00)
+- **模块化布局** — 标题栏 / 活动栏 / 侧边栏 / 全屏雷达 / 底部多标签面板
+- **C++ HTTP+WebSocket 双协议服务** — REST API + 实时推送
+- **一键启动** — 双击 `core.exe` 自动启动 HTTP/WS 服务并加载前端页面
+
+---
+
+## 技术栈
+
+| 层 | 技术 | 说明 |
+| --- | --- | --- |
+| 前端 UI | **React 19** + **TypeScript 5.8** + **Vite 6** | 现代工程化 SPA |
+| 样式 | **Tailwind CSS 3** + CSS Variables | Material Design 3 浅色主题 |
+| 可视化 | **HTML Canvas** API + requestAnimationFrame | PPI 雷达渲染 (60fps) |
+| 通信 | **REST** (QTcpServer) + **WebSocket** (QWebSocketServer) | 状态获取 / 实时广播 |
+| 后端 | **Qt 5.14.2** / C++17 / CMake 3.16 | 跨平台 (Windows / Ubuntu) |
 
 ---
 
@@ -10,67 +72,123 @@
 
 ```
 NewAntiDrone-newArch/
-├── CMakeLists.txt            # 顶层 CMake（推荐）
-├── NewAntiDrone.pro          # 顶层 qmake 工程（兼容保留）
-├── build.bat                 # Windows 一键 qmake 构建并运行 core
-├── config/                   # 运行时配置（被 core 加载）
-│   ├── endpoints.json        # 通信端点：本地端口 / 对端目标
-│   ├── processor.json        # 路由 / DPH 周期发布 / 默认下行
-│   └── database.json         # SQLite 配置
-├── core/                     # ★ 主进程：NewAntiDrone_core
-│   ├── core.pro
-│   ├── main.cpp              # 入口 + 控制台命令(work/standby/help/quit)
-│   ├── AppController.{h,cpp} # 装配 & 生命周期 + 健康报告
-│   ├── StdinReader.h         # 独立线程读 stdin，不阻塞 Qt 事件循环
-│   ├── comm/                 # 通信层：Endpoint 抽象 + UdpEndpoint + 管理器
-│   ├── protocol/             # 协议层：StructureSend / StructureReceive
-│   ├── bus/                  # 系统总线：ISystemBus + ThreadSafeQueue + GenericPackets
-│   ├── processor/            # 业务处理：RadarDataProcessor / BusToCommRouter / DphPublisher / LatencyStats
-│   └── data/                 # 数据层：ConfigManager / DataStore (SQLite)
-├── test_comm/                # 协议联调客户端（模拟雷达端）
-│   ├── test_comm.pro
-│   ├── main.cpp
-│   ├── TestComm.{h,cpp}
-│   └── StdinReader.h
-├── data/                     # 运行期数据（SQLite 等，已 .gitignore）
-├── doc/                      # 设计文档
-│   ├── 架构设计-做减法版.md
-│   └── core-数据流图.md
-├── 系统架构.png
-└── ZL-反无雷达指控协议-260205.docx
+├── CMakeLists.txt             # 顶层 CMake (C++ core 构建)
+├── config/                    # 运行时配置 (endpoints / processor / database)
+│   ├── endpoints.json
+│   ├── processor.json
+│   └── database.json
+├── core/                      # ★ C++ 后端核心
+│   ├── main.cpp               # 入口 + 控制台命令
+│   ├── HttpServer.{h,cpp}     # HTTP REST + WebSocket 服务
+│   ├── AppController.{h,cpp}  # 装配 & 生命周期
+│   ├── comm/                  # 通信层 (UDP Endpoint)
+│   ├── protocol/              # 协议层 (雷达协议结构体)
+│   ├── bus/                   # 系统总线
+│   ├── processor/             # 业务处理
+│   └── data/                  # 数据层 (SQLite)
+├── ui/                        # ★ React 前端
+│   ├── src/
+│   │   ├── App.tsx            # 根组件
+│   │   ├── main.tsx           # 入口
+│   │   ├── components/
+│   │   │   ├── layout/        # 布局组件 (TitleBar / RadarView / StatusBar 等)
+│   │   │   └── panels/        # 面板组件 (BottomPanel)
+│   │   ├── hooks/             # React Hooks (useCoreApi)
+│   │   ├── lib/               # 类型定义
+│   │   └── styles/            # 全局样式 (CSS Variables)
+│   ├── package.json
+│   ├── vite.config.ts
+│   └── tailwind.config.js
+├── test_comm/                 # 协议联调测试客户端
+├── doc/                       # 设计文档
+│   └── ZL-反无雷达指控协议-260205.docx
+└── ide_design.html            # UI 设计原型参考
 ```
 
 ---
 
-## 架构概览
+## 快速开始
 
-```
-                ┌──────────── AppController（装配 / 生命周期） ────────────┐
-                │                                                          │
-   data 层      │  ConfigManager  ◄── JSON ──►  endpoints/processor/db    │
-                │  DataStore      ◄── SQLite ─►  data/antidrone.db        │
-                │                                                          │
-   bus 层       │  ISystemBus / SystemBus  +  ThreadSafeQueue              │
-                │  GenericPackets（统一业务包格式，发布订阅）              │
-                │                                                          │
-  processor 层  │  RadarDataProcessor   BusToCommRouter   DphPublisher     │
-                │  （报文 ↔ 业务包翻译；上行入总线，下行出网络）           │
-                │                                                          │
-   comm 层      │  CommunicationManager → Endpoint(抽象) → UdpEndpoint     │
-                │  EndpointConfigLoader（按 JSON 注册端点 / 目标）         │
-                │                                                          │
-  protocol 层   │  StructureSend / StructureReceive（雷达协议结构体）      │
-                └──────────────────────────────────────────────────────────┘
+### 1. 构建 C++ 后端
+
+#### Windows (MinGW, Qt 5.14.2)
+
+```powershell
+cmake -S . -B build -G "MinGW Makefiles" `
+    -DCMAKE_PREFIX_PATH="C:/Qt/Qt5.14.2/5.14.2/mingw73_64" `
+    -DCMAKE_MAKE_PROGRAM="C:/Qt/Qt5.14.2/Tools/mingw730_64/bin/mingw32-make.exe"
+
+cmake --build build -j 8
 ```
 
-数据流（典型）：
+#### Linux (Ubuntu)
 
-- **上行**：`UdpEndpoint` 收包（打时间戳）→ `RadarDataProcessor` 解析 → `SystemBus` 发布 → 订阅者（路由 / 持久化等）。
-- **下行**：业务模块向 `SystemBus` 投递 → `BusToCommRouter` 按 `processor.json` 选择端点/目标 → `UdpEndpoint` 发送。
-- **周期**：`DphPublisher` 每 50ms 向雷达端发送 DPH 心跳（见 `processor.json` → `dphPublisher`）。
-- **延时监测**：上行在 `UdpEndpoint::onReadyRead` 捕获 `receivedMs`，经 `CommunicationManager` → `RadarDataProcessor` 计算处理耗时；下行在 `BusToCommRouter::handlePacket` 计算 DataPacket 创建到 UDP 发出的耗时。
-- **健康检查**：`AppController::healthReport()` 返回 `AppHealth` 结构体，聚合 SystemBus、通信端点、数据处理、数据库和延时统计状态。
-- **批量写库**：航迹数据先缓冲在 `m_trackBuffer`（20 条或 200ms），通过 `DataStore::insertBatch` 在事务内批量写入 SQLite，避免每包 fsync 开销。
+```bash
+sudo apt install qtbase5-dev libqt5sql5-sqlite libqt5websockets5-dev cmake build-essential
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build -j$(nproc)
+```
+
+### 2. 构建前端
+
+```bash
+cd ui
+npm install
+npm run build
+```
+
+### 3. 运行
+
+#### 一键启动
+
+```bash
+# Windows: 双击 build/bin/NewAntiDrone_core.exe
+# 或命令行：
+./build/bin/NewAntiDrone_core
+```
+
+后端启动后，在浏览器访问 **http://localhost:8088**
+
+#### 开发模式 (前后端分离)
+
+```bash
+# 终端 1: 前端开发服务器 (热更新)
+cd ui && npm run dev
+
+# 终端 2: C++ 后端 (HTTP 8088 / WS 8089)
+./build/bin/NewAntiDrone_core
+```
+
+---
+
+## API 接口
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| `GET` | `/` | 前端静态页面 (index.html) |
+| `GET` | `/api/status` | 系统状态 (采集/连接/运行时间) |
+| `POST` | `/api/start` | 开始采集 (发送工作模式) |
+| `POST` | `/api/stop` | 停止采集 (发送待机模式) |
+| `WS` | `ws://localhost:8089` | 实时状态推送 (每秒) |
+
+---
+
+## 前端布局
+
+```
+┌─ TitleBar (44px, 暖白) ─ [⬡ DCMP] ─── [⚙] [🔔] [●已连接] [开始采集] ─┐
+├─ Main (flex-1) ─────────────────────────────────────────────────────────┤
+│ ┌Activity┐ ┌Sidebar(196px,悬浮)──┐                                     │
+│ │ radar  │ │ 资源管理器          │  ┌─ PPI Canvas (全屏, 60fps) ──────┐ │
+│ │ table  │ │ 工程项目            │  │  距离环 / 角度 / 扫描线 / 数据点  │ │
+│ │ folder │ │ 设备列表            │  │  雷达信息浮层 / 图例 / 快捷工具   │ │
+│ └────────┘ └─────────────────────┘  └───────────────────────────────────┘ │
+│ ┌─ BottomPanel (200px) ────────────────────────────────────────────────┐ │
+│ │ 目标列表(7) | 日志(45) | 告警(3) | 事件(12)       [清空] [导出] [▼] │ │
+│ └───────────────────────────────────────────────────────────────────────┘ │
+├─ StatusBar (24px) ─ ●就绪 | DCMP ─── Dist:2.3km Az:… ─── 20:08:18 ─────┤
+└──────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -78,197 +196,14 @@ NewAntiDrone-newArch/
 
 | 组件 | 版本 / 说明 |
 | --- | --- |
-| Qt | 5.14.2（`core`/`network`/`sql` 模块） |
-| 编译器（Windows） | MinGW 7.3.0 64-bit（Qt 自带的 `mingw73_64`） |
-| 编译器（Linux） | GCC 7+ / Clang 6+ |
-| 构建工具 | qmake + mingw32-make / make |
-
-> Linux：`sudo apt install qtbase5-dev libqt5sql5-sqlite qt5-qmake build-essential` 即可。
-
----
-
-## 构建与运行
-
-### CMake（推荐，Windows / Linux 通用）
-
-#### Windows（MinGW，Qt 5.14.2 自带工具链）
-
-```powershell
-# 配置（首次）
-cmake -S . -B build -G "MinGW Makefiles" `
-    -DCMAKE_PREFIX_PATH="C:/Qt/Qt5.14.2/5.14.2/mingw73_64" `
-    -DCMAKE_MAKE_PROGRAM="C:/Qt/Qt5.14.2/Tools/mingw730_64/bin/mingw32-make.exe"
-
-# 编译
-cmake --build build -j 8
-
-# 运行（产物与 config 已自动 copy 到 build/bin/）
-.\build\bin\NewAntiDrone_core.exe
-.\build\bin\test_comm.exe
-```
-
-如果用 MSVC 工具链，把 `-G "MinGW Makefiles"` 换成 `-G "Visual Studio 17 2022" -A x64`，并把 `CMAKE_PREFIX_PATH` 指向 `C:/Qt/Qt5.14.2/5.14.2/msvc2017_64`（视你的安装而定）。
-
-#### Linux（Ubuntu）
-
-```bash
-sudo apt install qtbase5-dev libqt5sql5-sqlite cmake build-essential
-
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build -j$(nproc)
-
-./build/bin/NewAntiDrone_core
-./build/bin/test_comm
-```
-
-CMake 会把 `config/*.json` 拷贝到 `build/bin/config/`，并预建 `build/bin/data/`（SQLite 落地目录），产物自包含可直接运行。
-
-### VSCode 推荐工作流
-
-仓库自带 `.vscode/` 共享配置（`settings.json` / `tasks.json` / `launch.json` / `extensions.json`）：
-
-- 首次打开会提示安装推荐扩展（`ms-vscode.cpptools` / `ms-vscode.cmake-tools` / `tonka3000.qtvsctools` 等）。
-- CMake Tools 会自动 configure 并接管 IntelliSense（无需手写 `c_cpp_properties.json`）。
-- **F7** 默认编译 `build-all`；**F5** 调试 `Debug Core (gdb)`；侧边栏可切到 `Debug TestComm`。
-- Tasks：`cmake-configure` / `build-all` / `build-core` / `build-test_comm` / `clean` / `wipe-build`。
-
-### qmake（兼容保留）
-
-#### Windows 一键脚本
-
-1. 把 Qt 的 mingw 工具链加进 PATH，或在 `build.bat` 顶部追加：
-   ```bat
-   set PATH=C:\Qt\Qt5.14.2\5.14.2\mingw73_64\bin;C:\Qt\Qt5.14.2\Tools\mingw730_64\bin;%PATH%
-   ```
-2. 双击或在 PowerShell / CMD 中执行 `build.bat`：进入 `core/`，必要时 `qmake core.pro`，然后 `mingw32-make -j8` 构建并启动 `debug\NewAntiDrone_core.exe`。
-
-#### 手动 qmake
-
-```bash
-qmake NewAntiDrone.pro
-mingw32-make -j8     # Windows
-# 或
-make -j8             # Linux
-
-cd core/debug && ./NewAntiDrone_core
-cd test_comm/debug && ./test_comm
-```
-
-### 运行控制台命令
-
-启动 `NewAntiDrone_core` 后输入：
-
-| 命令 | 作用 |
-| --- | --- |
-| `1` 或 `work` | 发送工作模式（`workStandby_Mode = 1`），雷达开始上报航迹 |
-| `2` 或 `standby` | 发送待机模式（`workStandby_Mode = 0`），雷达停止上报 |
-| `h` 或 `help` | 显示帮助 |
-| `q` 或 `quit` | 退出程序 |
-
-`core` 启动后会持续每 50 ms 向雷达端发送 DPH（见 `processor.json`）。
+| Qt | 5.14.2 (`core` / `network` / `websockets` / `sql` 模块) |
+| 编译器 (Windows) | MinGW 7.3.0 64-bit |
+| 编译器 (Linux) | GCC 7+ / Clang 6+ |
+| 构建工具 | CMake 3.16+, mingw32-make / make |
+| Node.js | 18+ (仅构建前端) |
 
 ---
 
-## 配置文件
+## 许可证
 
-`ConfigManager` 按以下顺序定位 `config/` 子目录（首个命中即用）：
-
-1. `<工作目录>/config/`
-2. `<exe 所在目录>/config/`
-3. `<exe 所在目录>/../config/`
-
-CMake 构建后 `build/bin/config/` 已就位；从工程根目录直接跑也能命中根 `config/`。
-
-### `config/endpoints.json`
-
-通信端点定义。`id` 在 `processor.json` 中被引用。
-
-```json
-{
-  "endpoints": [
-    {
-      "id": "radar_cpu",
-      "protocol": "udp",
-      "localAddress": "127.0.0.1",
-      "localPort": 7788,
-      "targets": {
-        "dph":      { "address": "127.0.0.1", "port": 3456 },
-        "workmode": { "address": "127.0.0.1", "port": 1234 }
-      },
-      "description": "雷达CPU通信"
-    }
-  ]
-}
-```
-
-### `config/processor.json`
-
-业务处理器配置：上行源、下行路由、DPH 周期发布。
-
-```json
-{
-  "endpointSources":   [ { "endpointId": "radar_cpu", "sourceType": 1 } ],
-  "reverseTargetDevice": 1,
-  "defaultRoute":      { "endpointId": "radar_cpu", "targetName": "workmode" },
-  "dphPublisher":      { "enabled": true, "intervalMs": 50,
-                         "endpointId": "radar_cpu", "targetName": "dph" },
-  "routes": [
-    { "payloadType": 1, "endpointId": "radar_cpu", "targetName": "workmode" },
-    { "payloadType": 2, "endpointId": "radar_cpu", "targetName": "workmode" },
-    { "payloadType": 3, "endpointId": "radar_cpu", "targetName": "workmode" }
-  ]
-}
-```
-
-### `config/database.json`
-
-```json
-{ "driver": "QSQLITE", "database": "data/antidrone.db" }
-```
-
-> 数据库文件本身不入仓库（已加入 `.gitignore`）。建表脚本见仓库根的 `-- SQLite.sql`。
-
----
-
-## 日志
-
-`@core/log/Logger.{h,cpp}` 实现了一个轻量日志门面，被 `core` 与 `test_comm` 共用：
-
-- 启动时调用 `Logger::instance().init()` + `qInstallMessageHandler(Logger::messageHandler)`，自动接管所有 `qDebug/qInfo/qWarning/qCritical/qFatal`。
-- 同时输出到控制台（Windows 下用 `WriteConsoleW` 保中文）与日志文件。
-- 日志目录：**始终是 `<exe 所在目录>/data/logs/`**（与启动 cwd 无关）。CMake 构建后即 `build/bin/data/logs/`。
-- 文件名：`<applicationName>-YYYY-MM-DD.log`（`core` → `NewAntiDrone-core-...`，`test_comm` → `test_comm-...`），跨天自动切换。
-- 启动时自动清理超过 7 天的旧日志，长期运行最多 7 个文件。
-- 每行格式：`2026-04-29 11:24:10.948 [INFO ] 内容`。
-
----
-
-## 联调（test_comm ↔ core）
-
-`test_comm` 复用 `core/protocol` 的报文头，作为模拟雷达端跑在同一台机器上：
-
-1. 修改双方 `endpoints.json` 中的端口/地址使其互通（默认 `127.0.0.1` 即可）。
-2. 先启动 `test_comm`（监听上行），再启动 `core`。
-3. 在 `core` 控制台输入 `1`（work）后，`test_comm` 应开始收到 DPH 与工作模式指令；`test_comm` 也可推送模拟航迹给 `core` 验证总线发布链路。
-
----
-
-## 路线图
-
-- [x] 迁移 qmake → **CMake**（统一 Windows / Ubuntu，去除 Qt 路径硬编码）。
-- [x] 协议结构体 pack/unpack 的单元测试（端到端字节级对照）。
-- [x] `SystemBus` 容量上限与背压策略，防止慢消费者撑大队列。
-- [x] 日志门面（按日期切分、每条带毫秒时间戳、自动清理 7 天前旧文件、core 与 test_comm 各自独立文件）。
-- [x] 注入式工作模式状态机（`RadarWorkModeController` 5 态转移，替换 hardcode 命令）。
-- [x] 上下行链路延时监测（UDP 收包 → Processor / DataPacket 创建 → UDP 发出）。
-- [x] 系统健康报告（`AppHealth` + `healthReport()`）。
-- [x] 批量数据库写入（攒批 insertBatch，消除单包 fsync 瓶颈）。
-- [ ] 处理 Windows-only 路径（`StdinReader` / 控制台编码），与 Linux 对齐。
-
----
-
-## 仓库约定
-
-- `Makefile` / `Makefile.*` / `*.pro.user*` / `*.qmake.stash` / `build*/` / `debug/` / `release/` / `*.db` 等构建与本地产物均不入库（见 `.gitignore`）。
-- `.vscode/` 作为团队共享配置入库；个人 `*.code-workspace` 不入库。
-- 首次拉取后：CMake 用户 `cmake -S . -B build ...`；qmake 用户自行 `qmake` 生成本地 Makefile，**切勿提交生成的 Makefile**。
+本项目仅供学习和研究使用。

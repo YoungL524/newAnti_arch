@@ -109,6 +109,8 @@ void TestRadarWorkModeController::initTestCase()
 {
     qRegisterMetaType<RadarWorkModeController::State>("RadarWorkModeController::State");
     qRegisterMetaType<RadarWorkModeController::RejectReason>("RadarWorkModeController::RejectReason");
+    qRegisterMetaType<uint16_t>("uint16_t");
+    qRegisterMetaType<uint32_t>("uint32_t");
 }
 
 std::unique_ptr<RadarWorkModeController>

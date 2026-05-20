@@ -1,5 +1,10 @@
 ﻿#include <QCoreApplication>
 #include <QDebug>
+#include <QTimer>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QJsonObject>
+#include <QDateTime>
 #include <csignal>
 #include <cstdio>
 
@@ -9,6 +14,7 @@
 
 #include "AppController.h"
 #include "StdinReader.h"
+#include "HttpServer.h"
 #include "log/Logger.h"
 #include "RadarWorkModeController.h"
 
@@ -177,6 +183,81 @@ int main(int argc, char *argv[])
     }
 
     printUsage();
+
+    // ---- HTTP + WebSocket 服务 ----
+    HttpServer httpServer;
+    auto wmc = controller.workModeController();
+
+    // REST: GET /api/status
+    httpServer.handleGet(QStringLiteral("/api/status"), [&controller, wmc](const QJsonObject &) {
+        QJsonObject s;
+        auto health = controller.healthReport();
+        s[QStringLiteral("ok")] = true;
+        s[QStringLiteral("acquisition")] = wmc ? (wmc->state() == RadarWorkModeController::State::Working) : false;
+        s[QStringLiteral("state")] = wmc ? RadarWorkModeController::stateName(wmc->state()) : QStringLiteral("Unknown");
+        s[QStringLiteral("connected")] = health.comm.openEndpoints > 0;
+        s[QStringLiteral("uptime")] = QDateTime::currentSecsSinceEpoch();
+        s[QStringLiteral("endpoints")] = health.comm.openEndpoints;
+        s[QStringLiteral("dbConnected")] = health.database.connected;
+        return s;
+    });
+
+    // REST: POST /api/start
+    if (wmc) {
+        httpServer.handlePost(QStringLiteral("/api/start"), [wmc](const QJsonObject &) {
+            wmc->requestWork();
+            QJsonObject r;
+            r[QStringLiteral("ok")] = true;
+            return r;
+        });
+
+        // REST: POST /api/stop
+        httpServer.handlePost(QStringLiteral("/api/stop"), [wmc](const QJsonObject &) {
+            wmc->requestStandby();
+            QJsonObject r;
+            r[QStringLiteral("ok")] = true;
+            return r;
+        });
+    }
+
+    // 输出 HTTP server 日志
+    QObject::connect(&httpServer, &HttpServer::serverLog,
+                     [](const QString &level, const QString &msg) {
+        if (level == QStringLiteral("error"))
+            qWarning().noquote() << QStringLiteral("[HTTP]") << msg;
+        else
+            qDebug().noquote() << QStringLiteral("[HTTP]") << msg;
+    });
+
+    // WebSocket 广播: 定时推送状态
+    QTimer *statusTimer = new QTimer(&httpServer);
+    QObject::connect(statusTimer, &QTimer::timeout, [&httpServer, &controller, wmc]() {
+        auto health = controller.healthReport();
+        QJsonObject msg;
+        msg[QStringLiteral("type")] = QStringLiteral("status");
+        msg[QStringLiteral("acquisition")] = wmc ? (wmc->state() == RadarWorkModeController::State::Working) : false;
+        msg[QStringLiteral("state")] = wmc ? RadarWorkModeController::stateName(wmc->state()) : QStringLiteral("Unknown");
+        msg[QStringLiteral("connected")] = health.comm.openEndpoints > 0;
+        msg[QStringLiteral("upTime")] = health.timestampMs;
+        httpServer.broadcast(msg);
+    });
+    statusTimer->start(1000);
+
+    // WebSocket 广播: 状态变化时立即推送
+    if (wmc) {
+        QObject::connect(wmc, &RadarWorkModeController::stateChanged,
+                         &httpServer, [&httpServer](auto, auto) {
+            // 状态变化由定时器在下一秒推送, 避免重复
+        });
+    }
+
+    // 启动 HTTP 服务
+    if (!httpServer.start(8088, 8089)) {
+        qWarning() << QStringLiteral("HTTP 服务启动失败, 前端不可用");
+    } else {
+        // 自动打开浏览器
+        QDesktopServices::openUrl(QUrl(QStringLiteral("http://localhost:8088")));
+    }
 
     // 命令行输入：独立线程读取 stdin，避免阻塞 Qt 事件循环
     StdinReader reader;

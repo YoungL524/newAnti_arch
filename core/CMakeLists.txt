@@ -1,4 +1,5 @@
 set(CORE_HEADERS
+    HttpServer.h
     comm/CommTypes.h
     comm/Endpoint.h
     comm/UdpEndpoint.h
@@ -25,6 +26,7 @@ set(CORE_HEADERS
 
 set(CORE_SOURCES
     main.cpp
+    HttpServer.cpp
     log/Logger.cpp
     comm/Endpoint.cpp
     comm/UdpEndpoint.cpp
@@ -55,9 +57,11 @@ target_include_directories(NewAntiDrone_core PRIVATE
 )
 
 target_link_libraries(NewAntiDrone_core PRIVATE
+    RSC
     Qt5::Core
     Qt5::Network
     Qt5::Sql
+    Qt5::WebSockets
 )
 
 # 控制台应用（与 .pro 中 CONFIG += console 一致：Windows 下不要 WIN32）

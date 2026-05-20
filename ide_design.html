@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>DCMP - 监测台</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "canvas": "#f7f7f4",
+                      "background": "#f9f9f6",
+                      "on-secondary-container": "#65635a",
+                      "primary-container": "#d24200",
+                      "surface-bright": "#f9f9f6",
+                      "on-tertiary-container": "#fefcff",
+                      "tertiary": "#005baf",
+                      "surface": "#f9f9f6",
+                      "on-secondary-fixed-variant": "#48473f",
+                      "tertiary-fixed": "#d5e3ff",
+                      "target-done": "#c08532",
+                      "surface-dim": "#dadad7",
+                      "target-grep": "#9fc9a2",
+                      "target-thinking": "#dfa88f",
+                      "surface-container-low": "#f4f4f1",
+                      "on-tertiary": "#ffffff",
+                      "surface-tint": "#ac3400",
+                      "on-secondary": "#ffffff",
+                      "surface-container-lowest": "#ffffff",
+                      "primary": "#a83300",
+                      "body": "#5a5852",
+                      "surface-container-highest": "#e2e3e0",
+                      "secondary": "#605e56",
+                      "hairline-strong": "#cfcdc4",
+                      "secondary-fixed": "#e6e2d7",
+                      "on-background": "#1a1c1b",
+                      "surface-container-high": "#e8e8e5",
+                      "error": "#ba1a1a",
+                      "outline-variant": "#e5beb2",
+                      "on-primary-fixed": "#390b00",
+                      "ink": "#26251e",
+                      "secondary-container": "#e3dfd4",
+                      "on-error-container": "#93000a",
+                      "tertiary-fixed-dim": "#a8c8ff",
+                      "primary-fixed-dim": "#ffb59d",
+                      "canvas-soft": "#fafaf7",
+                      "target-read": "#9fbbe0",
+                      "on-secondary-fixed": "#1d1c15",
+                      "surface-variant": "#e2e3e0",
+                      "surface-card": "#ffffff",
+                      "inverse-surface": "#2f312f",
+                      "inverse-on-surface": "#f1f1ee",
+                      "hairline": "#e6e5e0",
+                      "on-primary-container": "#fffbff",
+                      "surface-container": "#eeeeeb",
+                      "target-edit": "#c0a8dd",
+                      "inverse-primary": "#ffb59d",
+                      "on-error": "#ffffff",
+                      "tertiary-container": "#0074db",
+                      "on-surface-variant": "#5c4038",
+                      "outline": "#907066",
+                      "on-primary-fixed-variant": "#832600",
+                      "secondary-fixed-dim": "#cac6bc",
+                      "on-tertiary-fixed": "#001b3c",
+                      "on-surface": "#1a1c1b",
+                      "on-primary": "#ffffff",
+                      "primary-fixed": "#ffdbd0",
+                      "error-container": "#ffdad6",
+                      "on-tertiary-fixed-variant": "#004689"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "margin": "24px",
+                      "md": "20px",
+                      "xs": "8px",
+                      "sm": "12px",
+                      "gutter": "16px",
+                      "unit": "4px",
+                      "section": "80px",
+                      "lg": "32px"
+              },
+              "fontFamily": {
+                      "display-lg-mobile": [
+                              "Inter"
+                      ],
+                      "label-caps": [
+                              "JetBrains Mono"
+                      ],
+                      "body-sm": [
+                              "Inter"
+                      ],
+                      "body-md": [
+                              "Inter"
+                      ],
+                      "display-md": [
+                              "Inter"
+                      ],
+                      "display-lg": [
+                              "Inter"
+                      ],
+                      "headline-sm": [
+                              "Inter"
+                      ],
+                      "data-mono": [
+                              "JetBrains Mono"
+                      ]
+              },
+              "fontSize": {
+                      "display-lg-mobile": [
+                              "28px",
+                              {
+                                      "lineHeight": "1.2",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "label-caps": [
+                              "11px",
+                              {
+                                      "lineHeight": "1.4",
+                                      "letterSpacing": "0.08em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-sm": [
+                              "14px",
+                              {
+                                      "lineHeight": "1.5",
+                                      "letterSpacing": "0",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "body-md": [
+                              "16px",
+                              {
+                                      "lineHeight": "1.5",
+                                      "letterSpacing": "0",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "display-md": [
+                              "26px",
+                              {
+                                      "lineHeight": "1.25",
+                                      "letterSpacing": "-0.015em",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "display-lg": [
+                              "36px",
+                              {
+                                      "lineHeight": "1.2",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-sm": [
+                              "22px",
+                              {
+                                      "lineHeight": "1.3",
+                                      "letterSpacing": "-0.01em",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "data-mono": [
+                              "13px",
+                              {
+                                      "lineHeight": "1.5",
+                                      "letterSpacing": "0",
+                                      "fontWeight": "400"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+      </script>
+<style>
+        body {
+            background-color: theme('colors.canvas');
+            color: theme('colors.ink');
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Radar Sweep Animation */
+        @keyframes radar-sweep {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .radar-sweep-cone {
+            background: conic-gradient(from 0deg at 50% 50%, rgba(168, 51, 0, 0) 0deg, rgba(168, 51, 0, 0.02) 270deg, rgba(168, 51, 0, 0.15) 360deg);
+            transform-origin: 50% 50%;
+            animation: radar-sweep 4s linear infinite;
+        }
+
+        /* Hide scrollbar for clean IDE look */
+        ::-webkit-scrollbar {
+            width: 4px;
+            height: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: theme('colors.hairline-strong');
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: theme('colors.secondary');
+        }
+    </style>
+</head>
+<body>
+<!-- Top Navigation -->
+<header class="flex justify-between items-center w-full px-margin h-16 max-w-full bg-canvas border-b border-hairline shrink-0 relative z-20">
+<!-- Brand -->
+<div class="flex items-center gap-2">
+<span class="font-display-md text-display-md text-ink tracking-tight">DCMP</span>
+</div>
+<!-- Center Nav -->
+<nav class="hidden md:flex gap-8 h-full items-end pt-2">
+<a class="font-body-md text-body-md text-[#f54e00] font-normal border-b-2 border-[#f54e00] pb-4" href="#">监测</a>
+<a class="font-body-md text-body-md text-secondary hover:text-ink transition-colors pb-4 border-b-2 border-transparent" href="#">目标</a>
+<a class="font-body-md text-body-md text-secondary hover:text-ink transition-colors pb-4 border-b-2 border-transparent" href="#">日志</a>
+<a class="font-body-md text-body-md text-secondary hover:text-ink transition-colors pb-4 border-b-2 border-transparent" href="#">归档</a>
+</nav>
+<!-- Trailing Actions -->
+<div class="flex items-center gap-4">
+<div class="hidden lg:flex items-center gap-3 mr-4">
+<span class="flex items-center justify-center w-8 h-8 rounded hover:bg-surface-container-low transition-all text-secondary cursor-pointer">
+<span class="material-symbols-outlined text-[20px]">settings</span>
+</span>
+<span class="flex items-center justify-center w-8 h-8 rounded hover:bg-surface-container-low transition-all text-secondary cursor-pointer">
+<span class="material-symbols-outlined text-[20px]">notifications</span>
+</span>
+</div>
+<button class="bg-[#f54e00] hover:bg-[#d24200] text-white font-body-sm text-body-sm font-medium px-4 py-2 rounded transition-colors flex items-center gap-2">
+                开始采集
+            </button>
+</div>
+</header>
+<!-- Main IDE Layout -->
+<main class="flex flex-1 relative overflow-hidden bg-canvas">
+<!-- Activity Bar (Leftmost) -->
+<aside class="w-12 border-r border-hairline bg-canvas flex flex-col items-center py-4 gap-4 shrink-0 z-20">
+<button class="w-8 h-8 rounded bg-surface-container-high text-[#f54e00] flex items-center justify-center" title="Radar">
+<span class="material-symbols-outlined text-[20px]">radar</span>
+</button>
+<button class="w-8 h-8 rounded hover:bg-surface-container transition-colors text-secondary hover:text-ink flex items-center justify-center" title="Data Table">
+<span class="material-symbols-outlined text-[20px]">table_rows</span>
+</button>
+<button class="w-8 h-8 rounded hover:bg-surface-container transition-colors text-secondary hover:text-ink flex items-center justify-center" title="Files">
+<span class="material-symbols-outlined text-[20px]">folder</span>
+</button>
+</aside>
+<!-- Floating Sidebar / Explorer -->
+<aside class="absolute left-16 top-4 bottom-4 w-64 border border-hairline bg-surface-card/90 backdrop-blur-md rounded shadow-sm flex flex-col shrink-0 z-10 hidden md:flex">
+<div class="px-4 py-3 border-b border-hairline flex justify-between items-center">
+<span class="font-label-caps text-label-caps text-secondary uppercase tracking-wider">资源管理器</span>
+<button class="text-secondary hover:text-ink flex items-center" title="Collapse Panel">
+<span class="material-symbols-outlined text-[16px]">keyboard_double_arrow_left</span>
+</button>
+</div>
+<div class="flex-1 overflow-y-auto p-2">
+<!-- Project Section -->
+<div class="mb-4">
+<div class="flex items-center gap-2 px-2 py-1.5 text-ink hover:bg-surface-container rounded cursor-pointer group">
+<span class="material-symbols-outlined text-[16px] text-secondary group-hover:text-ink">keyboard_arrow_down</span>
+<span class="font-body-sm text-body-sm font-medium">工程项目</span>
+</div>
+<div class="pl-6 flex flex-col gap-0.5 mt-1">
+<div class="flex items-center gap-2 px-2 py-1 text-secondary hover:bg-surface-container hover:text-ink rounded cursor-pointer">
+<span class="material-symbols-outlined text-[16px]">description</span>
+<span class="font-body-sm text-body-sm">config_main.yaml</span>
+</div>
+<div class="flex items-center gap-2 px-2 py-1 text-secondary hover:bg-surface-container hover:text-ink rounded cursor-pointer">
+<span class="material-symbols-outlined text-[16px]">description</span>
+<span class="font-body-sm text-body-sm">calibration_data.json</span>
+</div>
+</div>
+</div>
+<!-- Devices Section -->
+<div>
+<div class="flex items-center gap-2 px-2 py-1.5 text-ink hover:bg-surface-container rounded cursor-pointer group">
+<span class="material-symbols-outlined text-[16px] text-secondary group-hover:text-ink">keyboard_arrow_down</span>
+<span class="font-body-sm text-body-sm font-medium">设备列表</span>
+</div>
+<div class="pl-6 flex flex-col gap-0.5 mt-1">
+<div class="flex items-center gap-2 px-2 py-1 text-primary bg-surface-container-high rounded cursor-pointer">
+<span class="material-symbols-outlined text-[16px] text-target-grep">router</span>
+<span class="font-body-sm text-body-sm">Array_01 (Active)</span>
+</div>
+<div class="flex items-center gap-2 px-2 py-1 text-secondary hover:bg-surface-container hover:text-ink rounded cursor-pointer">
+<span class="material-symbols-outlined text-[16px]">router</span>
+<span class="font-body-sm text-body-sm">Array_02 (Standby)</span>
+</div>
+</div>
+</div>
+</div>
+</aside>
+<!-- Center Canvas - Radar Visualization -->
+<section class="flex-1 absolute inset-0 flex flex-col items-center justify-center p-8 z-0 ml-12">
+<!-- Canvas Header Floating -->
+<div class="absolute top-4 left-[288px] right-4 h-10 border border-hairline rounded bg-surface-card/90 backdrop-blur-md flex items-center px-4 shadow-sm z-10 hidden md:flex">
+<span class="font-data-mono text-data-mono text-secondary">Monitoring Area: Sector Alpha</span>
+<div class="ml-auto flex gap-2">
+<span class="font-data-mono text-data-mono text-target-grep flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-target-grep"></span> LIVE
+                    </span>
+</div>
+</div>
+<!-- Radar Area -->
+<div class="relative flex items-center justify-center w-full max-w-[800px] aspect-square mx-auto">
+<!-- Info Overlay Top Left -->
+<div class="absolute top-0 left-0 bg-surface-card/90 backdrop-blur-md border border-hairline rounded p-4 flex flex-col gap-2 z-10 w-48 shadow-sm">
+<div class="flex items-center gap-2 mb-2">
+<span class="w-2 h-2 rounded-full bg-target-grep"></span>
+<span class="font-body-sm text-body-sm font-medium">雷达运行中</span>
+</div>
+<div class="font-data-mono text-data-mono text-secondary flex flex-col gap-1">
+<div>PRF: 1200 Hz | PW: 1.0 μs</div>
+<div>距离范围: 0-2 km</div>
+<div class="text-ink">检测目标: <span class="text-[#f54e00] font-bold">7</span> | 跟踪: <span class="text-target-grep font-bold">5</span></div>
+</div>
+</div>
+<!-- Legend Overlay Top Right -->
+<div class="absolute top-0 right-0 bg-surface-card/90 backdrop-blur-md border border-hairline rounded p-3 flex gap-4 z-10 shadow-sm">
+<div class="flex items-center gap-1.5 font-body-sm text-body-sm text-secondary">
+<span class="w-2 h-2 rounded-full bg-target-grep"></span> 跟踪
+                    </div>
+<div class="flex items-center gap-1.5 font-body-sm text-body-sm text-secondary">
+<span class="w-2 h-2 rounded-full bg-target-read"></span> 目标
+                    </div>
+<div class="flex items-center gap-1.5 font-body-sm text-body-sm text-secondary">
+<span class="w-2 h-2 rounded-full bg-target-thinking"></span> 干扰
+                    </div>
+</div>
+<!-- Radar Circle -->
+<div class="relative w-[600px] h-[600px] rounded-full border border-hairline-strong flex items-center justify-center overflow-hidden">
+<!-- Concentric Rings -->
+<div class="absolute w-[450px] h-[450px] rounded-full border border-hairline"></div>
+<div class="absolute w-[300px] h-[300px] rounded-full border border-hairline"></div>
+<div class="absolute w-[150px] h-[150px] rounded-full border border-hairline"></div>
+<!-- Crosshairs -->
+<div class="absolute w-full h-[1px] bg-hairline"></div>
+<div class="absolute h-full w-[1px] bg-hairline"></div>
+<div class="absolute w-full h-[1px] bg-hairline rotate-45"></div>
+<div class="absolute w-full h-[1px] bg-hairline -rotate-45"></div>
+<!-- Range Labels -->
+<span class="absolute top-[75px] left-1/2 ml-1 font-data-mono text-[10px] text-secondary">2km</span>
+<span class="absolute top-[150px] left-1/2 ml-1 font-data-mono text-[10px] text-secondary">1.5km</span>
+<span class="absolute top-[225px] left-1/2 ml-1 font-data-mono text-[10px] text-secondary">1km</span>
+<span class="absolute top-[300px] left-1/2 ml-1 font-data-mono text-[10px] text-secondary">0.5km</span>
+<!-- Degree Labels -->
+<span class="absolute top-2 left-1/2 -translate-x-1/2 font-data-mono text-[10px] text-secondary">0°</span>
+<span class="absolute bottom-2 left-1/2 -translate-x-1/2 font-data-mono text-[10px] text-secondary">180°</span>
+<span class="absolute right-2 top-1/2 -translate-y-1/2 font-data-mono text-[10px] text-secondary">90°</span>
+<span class="absolute left-2 top-1/2 -translate-y-1/2 font-data-mono text-[10px] text-secondary">270°</span>
+<!-- Radar Sweep -->
+<div class="absolute inset-0 radar-sweep-cone"></div>
+<!-- Radar Center Point -->
+<div class="absolute w-1.5 h-1.5 bg-ink rounded-full z-20"></div>
+<!-- Targets -->
+<!-- T-001 Tracking -->
+<div class="absolute z-20 flex items-center gap-1" style="top: 25%; left: 65%;">
+<div class="w-2 h-2 rounded-full bg-target-grep animate-pulse"></div>
+<span class="font-data-mono text-[10px] text-ink">T-001</span>
+</div>
+<!-- T-002 Tracking -->
+<div class="absolute z-20 flex items-center gap-1" style="top: 35%; left: 75%;">
+<div class="w-2 h-2 rounded-full bg-target-grep"></div>
+<span class="font-data-mono text-[10px] text-ink">T-002</span>
+</div>
+<!-- T-004 Target -->
+<div class="absolute z-20 flex items-center gap-1" style="top: 60%; left: 60%;">
+<div class="w-2 h-2 rounded-full bg-target-thinking"></div>
+<span class="font-data-mono text-[10px] text-ink">T-004</span>
+</div>
+<!-- T-005 Tracking -->
+<div class="absolute z-20 flex items-center gap-1" style="top: 55%; left: 30%;">
+<div class="w-2 h-2 rounded-full bg-target-grep"></div>
+<span class="font-data-mono text-[10px] text-ink">T-005</span>
+</div>
+<!-- T-006 Interference -->
+<div class="absolute z-20 flex items-center gap-1" style="top: 42%; left: 45%;">
+<div class="w-2 h-2 rounded-full bg-target-thinking"></div>
+<span class="font-data-mono text-[10px] text-ink">T-006</span>
+</div>
+<!-- T-007 Target -->
+<div class="absolute z-20 flex items-center gap-1" style="top: 15%; left: 70%;">
+<div class="w-2 h-2 rounded-full bg-target-read"></div>
+<span class="font-data-mono text-[10px] text-ink">T-007</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Floating Bottom Panel: Logs / Terminal -->
+<div class="absolute bottom-4 right-4 left-4 md:left-[288px] h-[280px] border border-hairline bg-surface-card/90 backdrop-blur-md flex flex-col shrink-0 z-10 rounded shadow-sm">
+<!-- Panel Tabs -->
+<div class="flex items-center gap-6 px-4 border-b border-hairline bg-surface-card/50 h-10 shrink-0">
+<button class="flex items-center gap-2 h-full border-b-2 border-transparent text-secondary hover:text-ink font-body-sm text-body-sm">
+                        目标列表 <span class="bg-surface-container-high text-secondary text-[10px] px-1.5 rounded-full font-data-mono">7</span>
+</button>
+<button class="flex items-center gap-2 h-full border-b-2 border-[#f54e00] text-[#f54e00] font-normal font-body-sm text-body-sm">
+                        日志 <span class="bg-[#d24200] text-white text-[10px] px-1.5 rounded-full font-data-mono">45</span>
+</button>
+<button class="flex items-center gap-2 h-full border-b-2 border-transparent text-secondary hover:text-ink font-body-sm text-body-sm">
+                        告警 <span class="bg-surface-container-high text-secondary text-[10px] px-1.5 rounded-full font-data-mono">3</span>
+</button>
+<button class="flex items-center gap-2 h-full border-b-2 border-transparent text-secondary hover:text-ink font-body-sm text-body-sm">
+                        事件 <span class="bg-surface-container-high text-secondary text-[10px] px-1.5 rounded-full font-data-mono">12</span>
+</button>
+<div class="ml-auto flex items-center gap-2">
+<button class="text-secondary hover:text-ink" title="Clear"><span class="material-symbols-outlined text-[16px]">delete</span></button>
+<button class="text-secondary hover:text-ink" title="Export"><span class="material-symbols-outlined text-[16px]">download</span></button>
+<div class="w-px h-4 bg-hairline mx-1"></div>
+<button class="text-secondary hover:text-ink flex items-center" title="Collapse Panel"><span class="material-symbols-outlined text-[16px]">keyboard_double_arrow_down</span></button>
+</div>
+</div>
+<!-- Log Content -->
+<div class="flex-1 overflow-y-auto p-4 font-data-mono text-data-mono bg-surface-card/50">
+<table class="w-full text-left border-collapse">
+<tbody class="align-top">
+<tr class="hover:bg-surface-container-low transition-colors">
+<td class="py-1 w-24 text-secondary">14:32:05</td>
+<td class="py-1 w-16"><span class="bg-target-grep/30 text-target-grep px-1 rounded text-[10px] font-bold">INFO</span></td>
+<td class="py-1 text-ink">系统初始化完成，所有模块就绪</td>
+</tr>
+<tr class="hover:bg-surface-container-low transition-colors">
+<td class="py-1 text-secondary">14:32:05</td>
+<td class="py-1"><span class="bg-target-grep/30 text-target-grep px-1 rounded text-[10px] font-bold">INFO</span></td>
+<td class="py-1 text-ink">雷达传感器连接成功 [SN: RD-2024-0872]</td>
+</tr>
+<tr class="hover:bg-surface-container-low transition-colors">
+<td class="py-1 text-secondary">14:32:06</td>
+<td class="py-1"><span class="bg-target-thinking/30 text-target-done px-1 rounded text-[10px] font-bold">WARN</span></td>
+<td class="py-1 text-ink">信号增益略高于建议阈值 (42dB)</td>
+</tr>
+<tr class="hover:bg-surface-container-low transition-colors">
+<td class="py-1 text-secondary">14:32:06</td>
+<td class="py-1"><span class="bg-target-grep/30 text-target-grep px-1 rounded text-[10px] font-bold">INFO</span></td>
+<td class="py-1 text-ink">开始数据采集周期 #1</td>
+</tr>
+<tr class="hover:bg-surface-container-low transition-colors">
+<td class="py-1 text-secondary">14:32:07</td>
+<td class="py-1"><span class="bg-error-container text-error px-1 rounded text-[10px] font-bold">ERROR</span></td>
+<td class="py-1 text-ink">目标跟踪丢失: TK-002, 信噪比低于下限</td>
+</tr>
+<tr class="hover:bg-surface-container-low transition-colors">
+<td class="py-1 text-secondary">14:32:08</td>
+<td class="py-1"><span class="bg-target-grep/30 text-target-grep px-1 rounded text-[10px] font-bold">INFO</span></td>
+<td class="py-1 text-ink">已检测到 7 个目标，3 个正在跟踪</td>
+</tr>
+<tr class="hover:bg-surface-container-low transition-colors">
+<td class="py-1 text-secondary">14:32:09</td>
+<td class="py-1"><span class="bg-target-thinking/30 text-target-done px-1 rounded text-[10px] font-bold">WARN</span></td>
+<td class="py-1 text-ink">网络延迟增加，当前 47ms</td>
+</tr>
+<tr class="hover:bg-surface-container-low transition-colors">
+<td class="py-1 text-secondary">14:32:10</td>
+<td class="py-1"><span class="bg-target-grep/30 text-target-grep px-1 rounded text-[10px] font-bold">INFO</span></td>
+<td class="py-1 text-ink">数据已写入数据库 (批次 #42)</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</main>
+<!-- Bottom Status Bar -->
+<footer class="h-6 flex items-center justify-between px-4 bg-canvas text-body shrink-0 border-t border-hairline z-20 relative">
+<div class="flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-target-grep"></span>
+<span class="font-data-mono text-[10px]">就绪 | DCMP</span>
+</div>
+<div class="flex gap-4 font-data-mono text-[10px] text-secondary">
+<span>Dist: 2.3 km</span>
+<span>Az: 47.2°</span>
+<span>El: 12.5°</span>
+<span>Zoom: 100%</span>
+<span>20:08:18</span>
+</div>
+</footer>
+</body></html>
