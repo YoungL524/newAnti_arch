@@ -6,7 +6,7 @@ function useClock() {
     const id = setInterval(() => setTime(new Date()), 1000)
     return () => clearInterval(id)
   }, [])
-  return time.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  return time.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
 export default function StatusBar() {
@@ -14,24 +14,20 @@ export default function StatusBar() {
 
   return (
     <footer
-      className="h-6 flex items-center justify-between px-4 shrink-0 select-none z-20"
+      className="h-6 flex items-center justify-between px-4 shrink-0 select-none z-20 text-[10px]"
       style={{
-        background: 'var(--canvas)',
-        borderTop: '1px solid var(--hairline)',
-        color: 'var(--secondary)',
-        fontSize: '10px',
+        background: 'var(--surfaceLow)',
+        borderTop: '1px solid rgba(191, 201, 195, 0.3)',
+        color: 'var(--onSurfaceVariant)',
         fontFamily: "'JetBrains Mono', monospace",
       }}
     >
       <div className="flex items-center gap-2">
-        <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--targetGrep)' }} />
-        <span>就绪 | DCMP</span>
+        <span className="w-1.5 h-1.5 rounded-full animate-pulse"
+          style={{ background: 'var(--primaryContainer)' }} />
+        <span>DCMP v2.4.0 · 就绪</span>
       </div>
       <div className="flex gap-4">
-        <span>Dist: 2.3 km</span>
-        <span>Az: 47.2°</span>
-        <span>El: 12.5°</span>
-        <span>Zoom: 100%</span>
         <span>{clock}</span>
       </div>
     </footer>

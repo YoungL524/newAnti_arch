@@ -1,10 +1,8 @@
-# DCMP — 反无人机雷达指控系统 (新架构)
+# DCMP — 反无人机雷达指控系统
 
 > **D**rone **C**ountermeasure **M**onitoring **P**latform
 
-基于 **Qt 5.14.2 (C++17)** 内核 + **React 19 + Vite** 前端的雷达上位机系统，支持实时 PPI 雷达显示、目标跟踪、数据采集和日志监控。
-
-![UI 预览](ide_design.png)
+基于 **Qt 5.14.2 (C++17)** 内核 + **React 19 + Vite** 前端的雷达上位机系统，集成 **高德地图 JSAPI v2** 实现雷达站定位、目标标绘和实时监控。
 
 ---
 
@@ -13,15 +11,26 @@
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Browser (React UI)                       │
-│  ┌─ TitleBar ─ ActivityBar ─ Sidebar ─────────────────────────┐ │
-│  │                                                             │ │
-│  │               PPI Radar Display (全屏 Canvas)               │ │
-│  │    · 距离环 / 角度标签 / 扫描线 / 数据点 / 图例             │ │
-│  │                                                             │ │
-│  │  ┌─────── 底部面板 (目标列表 | 日志 | 告警 | 事件) ───────┐ │ │
-│  └───────────────────────────────────────────────────────────────┘ │
-│                         HTTP REST / WebSocket                      │
-│                             8088 / 8089                            │
+│  ┌─ Header (glass-panel) ───────────────────────────────────┐  │
+│  │  Live Transmission · 开始采集 · 设置                      │  │
+│  ├──────────────────────────────────────────────────────────┤  │
+│  │ ┌─ Sidebar ─┐ ┌─ Map Area ─────────────────────────────┐ │  │
+│  │ │ 资源管理器  │ │                                       │ │  │
+│  │ │ 项目文件    │ │   高德地图 Amap JSAPI v2              │ │  │
+│  │ │ 设备列表    │ │   · 雷达站定位                        │ │  │
+│  │ │ 数据分析    │ │   · 目标标绘                          │ │  │
+│  │ │ 历史归档    │ │   · 浮动地图控件                      │ │  │
+│  │ │            │ │                                       │ │  │
+│  │ │ Structure  │ │                                       │ │  │
+│  │ │  ├Globals  │ │                                       │ │  │
+│  │ │  └Node_01  │ │                                       │ │  │
+│  │ └────────────┘ └───────────────────────────────────────┘ │  │
+│  ├──────────────────────────────────────────────────────────┤  │
+│  │ Activity Feed (320px)                                    │  │
+│  │ Timestamp | System ID | Event Log | Integrity            │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                         HTTP REST / WebSocket                   │
+│                             8088 / 8089                         │
 └──────────────────────────┬──────────────────────────────────────┘
                            │
 ┌──────────────────────────▼──────────────────────────────────────┐
@@ -48,9 +57,10 @@
 
 ### 核心特性
 
-- **全屏 PPI 雷达显示** — Canvas 实时渲染，距离环 / 十字线 / 角度标签 / 橙色扫描线 / 目标数据点
-- **Material Design 3 浅色主题** — 暖白色 Canvas 色系 (#f7f7f4)，橙色强调 (#f54e00)
-- **模块化布局** — 标题栏 / 活动栏 / 侧边栏 / 全屏雷达 / 底部多标签面板
+- **高德地图集成** — 基于 Amap JSAPI v2，GCJ-02 坐标系，雷达站标定与目标标绘
+- **DCMP 风格 UI** — 玻璃拟态面板 (glass-panel)、墨绿主色调 (#003527)、Material Symbols 图标
+- **实时 Activity Feed** — 带过滤器的日志表格，Nominal/Caution/Breach 完整性状态
+- **浮动地图控件** — 缩放 / 定位 / 图层控制
 - **C++ HTTP+WebSocket 双协议服务** — REST API + 实时推送
 - **一键启动** — 双击 `core.exe` 自动启动 HTTP/WS 服务并加载前端页面
 
@@ -60,49 +70,59 @@
 
 | 层 | 技术 | 说明 |
 | --- | --- | --- |
-| 前端 UI | **React 19** + **TypeScript 5.8** + **Vite 6** | 现代工程化 SPA |
-| 样式 | **Tailwind CSS 3** + CSS Variables | Material Design 3 浅色主题 |
-| 可视化 | **HTML Canvas** API + requestAnimationFrame | PPI 雷达渲染 (60fps) |
+| 前端 UI | **React 19** + **TypeScript 5.8** + **Vite 6** | SPA with HMR |
+| 样式 | **Tailwind CSS 3** + CSS Variables | DCMP 墨绿主题·玻璃面板 |
+| 地图 | **高德地图 JSAPI v2.0** | GCJ-02 坐标系·点标记·缩放控件 |
+| 图标 | **Material Symbols Outlined** | Google Fonts CDN |
 | 通信 | **REST** (QTcpServer) + **WebSocket** (QWebSocketServer) | 状态获取 / 实时广播 |
-| 后端 | **Qt 5.14.2** / C++17 / CMake 3.16 | 跨平台 (Windows / Ubuntu) |
+| 后端 | **Qt 5.14.2** / C++17 / CMake 3.16 | 跨平台 |
 
 ---
 
 ## 目录结构
 
 ```
-NewAntiDrone-newArch/
-├── CMakeLists.txt             # 顶层 CMake (C++ core 构建)
-├── config/                    # 运行时配置 (endpoints / processor / database)
-│   ├── endpoints.json
-│   ├── processor.json
-│   └── database.json
-├── core/                      # ★ C++ 后端核心
-│   ├── main.cpp               # 入口 + 控制台命令
-│   ├── HttpServer.{h,cpp}     # HTTP REST + WebSocket 服务
-│   ├── AppController.{h,cpp}  # 装配 & 生命周期
-│   ├── comm/                  # 通信层 (UDP Endpoint)
-│   ├── protocol/              # 协议层 (雷达协议结构体)
-│   ├── bus/                   # 系统总线
-│   ├── processor/             # 业务处理
-│   └── data/                  # 数据层 (SQLite)
-├── ui/                        # ★ React 前端
+newAnti_arch/
+├── CMakeLists.txt                 # 顶层 CMake
+├── config/                        # 运行时配置
+│   ├── endpoints.json             # UDP 端点配置
+│   ├── processor.json             # 处理器参数
+│   └── database.json              # 数据库配置
+├── core/                          # ★ C++ 后端核心
+│   ├── main.cpp                   # 入口
+│   ├── HttpServer.{h,cpp}         # HTTP REST + WebSocket
+│   ├── AppController.{h,cpp}      # 装配 & 生命周期
+│   ├── comm/                      # 通信层 (UDP Endpoint)
+│   ├── protocol/                  # 协议层 (雷达协议结构体)
+│   ├── bus/                       # 系统总线
+│   ├── processor/                 # 业务处理
+│   └── data/                      # 数据层 (SQLite)
+├── ui/                            # ★ React 前端
 │   ├── src/
-│   │   ├── App.tsx            # 根组件
-│   │   ├── main.tsx           # 入口
+│   │   ├── App.tsx                # 根组件 (DCMP 布局)
+│   │   ├── main.tsx               # 入口
 │   │   ├── components/
-│   │   │   ├── layout/        # 布局组件 (TitleBar / RadarView / StatusBar 等)
-│   │   │   └── panels/        # 面板组件 (BottomPanel)
-│   │   ├── hooks/             # React Hooks (useCoreApi)
-│   │   ├── lib/               # 类型定义
-│   │   └── styles/            # 全局样式 (CSS Variables)
+│   │   │   ├── layout/            # 布局组件
+│   │   │   │   ├── TitleBar.tsx   # 顶部状态栏
+│   │   │   │   ├── Sidebar.tsx    # 资源管理器侧边栏
+│   │   │   │   └── StatusBar.tsx  # 底部状态栏
+│   │   │   ├── map/
+│   │   │   │   └── MapRadarView.tsx  # 高德地图 + 浮动控件
+│   │   │   └── panels/
+│   │   │       └── BottomPanel.tsx   # Activity Feed 日志面板
+│   │   ├── hooks/
+│   │   │   └── useCoreApi.tsx     # 后端通信 Context
+│   │   ├── types/
+│   │   │   └── global.d.ts        # Amap 类型声明
+│   │   └── styles/
+│   │       └── globals.css        # DCMP 主题 + 全局样式
+│   ├── .env                       # 高德地图 Key 配置 (gitignored)
 │   ├── package.json
 │   ├── vite.config.ts
 │   └── tailwind.config.js
-├── test_comm/                 # 协议联调测试客户端
-├── doc/                       # 设计文档
-│   └── ZL-反无雷达指控协议-260205.docx
-└── ide_design.html            # UI 设计原型参考
+├── test_comm/                     # 协议联调测试
+├── .vscode/                       # VS Code 编译/调试配置
+└── ide_design.html                # UI 设计原型
 ```
 
 ---
@@ -111,7 +131,7 @@ NewAntiDrone-newArch/
 
 ### 1. 构建 C++ 后端
 
-#### Windows (MinGW, Qt 5.14.2)
+#### Windows (MinGW 7.3.0, Qt 5.14.2)
 
 ```powershell
 cmake -S . -B build -G "MinGW Makefiles" `
@@ -141,23 +161,25 @@ npm run build
 
 #### 一键启动
 
-```bash
+```powershell
 # Windows: 双击 build/bin/NewAntiDrone_core.exe
 # 或命令行：
 ./build/bin/NewAntiDrone_core
 ```
 
-后端启动后，在浏览器访问 **http://localhost:8088**
+后端启动后自动打开浏览器访问 **http://localhost:8088**
 
 #### 开发模式 (前后端分离)
 
 ```bash
-# 终端 1: 前端开发服务器 (热更新)
+# 终端 1: 前端开发服务器 (HMR)
 cd ui && npm run dev
 
 # 终端 2: C++ 后端 (HTTP 8088 / WS 8089)
 ./build/bin/NewAntiDrone_core
 ```
+
+前端开发服务器会代理 `/api` 到 8088，`/ws` 到 8089。
 
 ---
 
@@ -165,30 +187,24 @@ cd ui && npm run dev
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `GET` | `/` | 前端静态页面 (index.html) |
+| `GET` | `/` | 前端静态页面 |
 | `GET` | `/api/status` | 系统状态 (采集/连接/运行时间) |
-| `POST` | `/api/start` | 开始采集 (发送工作模式) |
-| `POST` | `/api/stop` | 停止采集 (发送待机模式) |
-| `WS` | `ws://localhost:8089` | 实时状态推送 (每秒) |
+| `POST` | `/api/start` | 开始采集 |
+| `POST` | `/api/stop` | 停止采集 |
+| `WS` | `ws://localhost:8089` | 实时状态推送 |
 
 ---
 
-## 前端布局
+## 高德地图配置
 
+在 `ui/.env` 中配置：
+
+```env
+VITE_GAODE_API_KEY=你的Key
+VITE_GAODE_SECURITY_CODE=你的安全密钥
 ```
-┌─ TitleBar (44px, 暖白) ─ [⬡ DCMP] ─── [⚙] [🔔] [●已连接] [开始采集] ─┐
-├─ Main (flex-1) ─────────────────────────────────────────────────────────┤
-│ ┌Activity┐ ┌Sidebar(196px,悬浮)──┐                                     │
-│ │ radar  │ │ 资源管理器          │  ┌─ PPI Canvas (全屏, 60fps) ──────┐ │
-│ │ table  │ │ 工程项目            │  │  距离环 / 角度 / 扫描线 / 数据点  │ │
-│ │ folder │ │ 设备列表            │  │  雷达信息浮层 / 图例 / 快捷工具   │ │
-│ └────────┘ └─────────────────────┘  └───────────────────────────────────┘ │
-│ ┌─ BottomPanel (200px) ────────────────────────────────────────────────┐ │
-│ │ 目标列表(7) | 日志(45) | 告警(3) | 事件(12)       [清空] [导出] [▼] │ │
-│ └───────────────────────────────────────────────────────────────────────┘ │
-├─ StatusBar (24px) ─ ●就绪 | DCMP ─── Dist:2.3km Az:… ─── 20:08:18 ─────┤
-└──────────────────────────────────────────────────────────────────────────┘
-```
+
+> Key 需在[高德开放平台](https://console.amap.com/)申请，服务平台选择 **Web端(JS API)**，并配置 `localhost` 白名单。
 
 ---
 
@@ -196,7 +212,7 @@ cd ui && npm run dev
 
 | 组件 | 版本 / 说明 |
 | --- | --- |
-| Qt | 5.14.2 (`core` / `network` / `websockets` / `sql` 模块) |
+| Qt | 5.14.2 (`core` / `gui` / `network` / `websockets` / `sql` 模块) |
 | 编译器 (Windows) | MinGW 7.3.0 64-bit |
 | 编译器 (Linux) | GCC 7+ / Clang 6+ |
 | 构建工具 | CMake 3.16+, mingw32-make / make |
@@ -206,4 +222,4 @@ cd ui && npm run dev
 
 ## 许可证
 
-本项目仅供学习和研究使用。
+仅供学习和研究使用。

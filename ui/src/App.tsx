@@ -1,9 +1,8 @@
 import { useState } from 'react'
 import './styles/globals.css'
 import TitleBar from './components/layout/TitleBar'
-import ActivityBar from './components/layout/ActivityBar'
-import FileExplorer from './components/layout/FileExplorer'
-import RadarView from './components/layout/RadarView'
+import Sidebar from './components/layout/Sidebar'
+import MapRadarView from './components/map/MapRadarView'
 import BottomPanel from './components/panels/BottomPanel'
 import StatusBar from './components/layout/StatusBar'
 import { CoreProvider } from './hooks/useCoreApi'
@@ -13,42 +12,32 @@ export default function App() {
 
   return (
     <CoreProvider>
-      <div className="h-screen flex flex-col overflow-hidden select-none">
-        <TitleBar />
+      <div className="h-screen flex flex-col overflow-hidden" style={{ background: 'var(--canvas)' }}>
+        <div className="flex-1 flex overflow-hidden">
+          {sidebarOpen && <Sidebar onClose={() => setSidebarOpen(false)} />}
 
-        {/* Main area */}
-        <main
-          className="flex-1 flex relative overflow-hidden"
-          style={{ background: 'var(--canvas)' }}
-        >
-          <ActivityBar onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
+          <main className="flex-1 flex flex-col relative overflow-hidden" style={{ background: 'var(--surfaceDim)' }}>
+            <TitleBar />
+            <div className="flex-1 relative overflow-hidden">
+              <MapRadarView />
 
-          {/* Floating sidebar */}
-          {sidebarOpen && (
-            <div
-              className="absolute top-4 bottom-4 z-20"
-              style={{ left: '52px', width: '196px' }}
-            >
-              <FileExplorer onClose={() => setSidebarOpen(false)} />
+              {!sidebarOpen && (
+                <button
+                  className="absolute top-4 left-3 z-20 p-2.5 rounded-xl border-none cursor-pointer
+                             glass-panel transition-colors"
+                  style={{ color: 'var(--onSurfaceVariant)' }}
+                  onClick={() => setSidebarOpen(true)}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+                    <path d="M3 12h18M3 6h18M3 18h18" strokeLinecap="round" />
+                  </svg>
+                </button>
+              )}
             </div>
-          )}
 
-          {/* Radar + content area */}
-          <div className="flex-1 relative overflow-hidden">
-            <RadarView />
-
-            {/* Bottom panel — positioned to clear sidebar */}
-            <div
-              className="absolute bottom-0 z-10 transition-all"
-              style={{
-                left: sidebarOpen ? '256px' : '4px',
-                right: '4px',
-              }}
-            >
-              <BottomPanel />
-            </div>
-          </div>
-        </main>
+            <BottomPanel />
+          </main>
+        </div>
 
         <StatusBar />
       </div>

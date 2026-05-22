@@ -30,10 +30,10 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 # ---- Qt5 ----
-# Windows 下若未把 Qt 加入 CMAKE_PREFIX_PATH，可在配置时传入：
-#   cmake -S . -B build -DCMAKE_PREFIX_PATH=C:/Qt/Qt5.14.2/5.14.2/mingw73_64
-# Linux 上 apt 安装的 qtbase5-dev 通常无需额外指定。
-find_package(Qt5 5.14 REQUIRED COMPONENTS Core Network Sql Widgets WebSockets)
+# Windows: 需要 MinGW 在 PATH 中，且 Qt 在 CMAKE_PREFIX_PATH
+# 推荐使用项目根目录的 env_setup.bat / env_setup.ps1 配置环境
+#   cmake -S . -B build -G "MinGW Makefiles" -DCMAKE_PREFIX_PATH=C:/Qt/Qt5.14.2/5.14.2/mingw73_64
+find_package(Qt5 5.14 REQUIRED COMPONENTS Core Gui Network Sql WebSockets)
 
 # ---- 单元测试开关 ----
 option(BUILD_TESTS "Build unit tests under doc/test/src" ON)
@@ -43,11 +43,8 @@ if(BUILD_TESTS)
 endif()
 
 # ---- 子项目 ----
-add_subdirectory(RSC)
-add_subdirectory(qt-material-widgets-master)
 add_subdirectory(core)
 add_subdirectory(test_comm)
-add_subdirectory(demo)
 
 # 让 test_comm 在依赖关系上排在 core 之后
 add_dependencies(test_comm NewAntiDrone_core)

@@ -57,8 +57,8 @@ target_include_directories(NewAntiDrone_core PRIVATE
 )
 
 target_link_libraries(NewAntiDrone_core PRIVATE
-    RSC
     Qt5::Core
+    Qt5::Gui
     Qt5::Network
     Qt5::Sql
     Qt5::WebSockets
@@ -69,3 +69,16 @@ set_target_properties(NewAntiDrone_core PROPERTIES
     WIN32_EXECUTABLE OFF
     MACOSX_BUNDLE OFF
 )
+
+# 每次构建后自动部署 Qt DLL，确保直接双击可运行
+if(WIN32)
+    find_program(WINDEPLOYQT windeployqt
+        HINTS "C:/Qt/Qt5.14.2/5.14.2/mingw73_64/bin"
+    )
+    if(WINDEPLOYQT)
+        add_custom_command(TARGET NewAntiDrone_core POST_BUILD
+            COMMAND ${WINDEPLOYQT} $<TARGET_FILE:NewAntiDrone_core>
+            COMMENT "Deploying Qt DLLs via windeployqt..."
+        )
+    endif()
+endif()
