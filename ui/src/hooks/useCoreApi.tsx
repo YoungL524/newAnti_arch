@@ -1,22 +1,40 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { StatusResponse, WsMessage } from '../lib/protocol'
 
 interface CoreState {
   connected: boolean
   acquisition: boolean
   state: string
+  toggleAcquisition: () => void
 }
 
 const defaultState: CoreState = {
   connected: false,
   acquisition: false,
   state: 'Unknown',
+  toggleAcquisition: () => {},
 }
 
 const CoreContext = createContext<CoreState>(defaultState)
 
 export function CoreProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<CoreState>(defaultState)
+  const [state, setState] = useState<CoreState>(() => ({
+    ...defaultState,
+    toggleAcquisition: () => {},
+  }))
+
+  const toggleAcquisition = useCallback(() => {
+    setState(prev => {
+      const next = !prev.acquisition
+      // Notify backend
+      fetch('/api/command', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command: next ? 'start_acquisition' : 'stop_acquisition' }),
+      }).catch(() => { /* backend not available — revert on next poll */ })
+      return { ...prev, acquisition: next }
+    })
+  }, [])
 
   // Fetch initial status
   useEffect(() => {
@@ -25,11 +43,11 @@ export function CoreProvider({ children }: { children: ReactNode }) {
         const res = await fetch('/api/status')
         const data: StatusResponse = await res.json()
         if (data.ok) {
-          setState({
+          setState(prev => ({ ...prev,
             connected: data.connected,
             acquisition: data.acquisition,
             state: data.state,
-          })
+          }))
         }
       } catch {
         // core not running yet
@@ -60,11 +78,13 @@ export function CoreProvider({ children }: { children: ReactNode }) {
         try {
           const msg: WsMessage = JSON.parse(e.data)
           if (msg.type === 'status') {
-            setState({
+            setState(prev => ({ ...prev,
               connected: msg.connected,
               acquisition: msg.acquisition,
               state: msg.state,
-            })
+            }))
+          } else if (msg.type === 'tracks') {
+            // future: dispatch track data to context consumers
           }
         } catch { /* ignore bad messages */ }
       }
@@ -81,8 +101,10 @@ export function CoreProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const contextValue = useMemo(() => ({ ...state, toggleAcquisition }), [state, toggleAcquisition])
+
   return (
-    <CoreContext.Provider value={state}>
+    <CoreContext.Provider value={contextValue}>
       {children}
     </CoreContext.Provider>
   )

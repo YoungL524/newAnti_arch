@@ -1,40 +1,63 @@
 import { useEffect, useRef, useState } from 'react'
 import AMapLoader from '@amap/amap-jsapi-loader'
+import PPIOverlay from './PPIOverlay'
+import { type RadarDevice, RADAR_CENTER } from './types'
+import { useCore } from '../../hooks/useCoreApi'
 
 const API_KEY = import.meta.env.VITE_GAODE_API_KEY as string
 const SECURITY_CODE = import.meta.env.VITE_GAODE_SECURITY_CODE as string | undefined
 
-interface Target {
-  id: string; lng: number; lat: number; color: string
+// AMap security config must be set before any load() call
+;(window as any)._AMapSecurityConfig = {
+  securityJsCode: SECURITY_CODE || '',
 }
 
-const RADAR_CENTER: [number, number] = [118.653090, 31.935020]
+function markNode(AMap: any, device: RadarDevice) {
+  return new AMap.Marker({
+    position: [device.lng, device.lat],
+    content: '<div style="position:relative;cursor:pointer;">' +
+      '<div style="position:absolute;top:4px;left:4px;width:24px;height:24px;border-radius:6px;background:rgba(6,78,59,0.25);animation:marker-ping 1.5s ease-in-out infinite;"></div>' +
+      '<div style="width:32px;height:32px;background:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.08);border:1px solid rgba(229,231,226,0.6);position:relative;">' +
+      '<span class="material-symbols-outlined" style="font-size:18px;color:#064e3b;font-variation-settings:\'FILL\' 0,\'wght\' 300,\'GRAD\' 0,\'opsz\' 20;">sensors</span>' +
+      '</div>' +
+      '<div style="position:absolute;top:40px;left:50%;transform:translateX(-50%);padding:2px 10px;border-radius:6px;border:1px solid rgba(229,231,226,0.6);background:rgba(255,255,255,0.92);white-space:nowrap;box-shadow:0 2px 4px rgba(0,0,0,0.04);">' +
+      `<span style="font-size:10px;font-weight:700;color:#064e3b;font-family:Inter,sans-serif;letter-spacing:-0.01em;">${device.name}</span>` +
+      '</div>' +
+      '</div>',
+    offset: new AMap.Pixel(-16, -40),
+    zIndex: 60,
+  })
+}
 
-const demoTargets: Target[] = [
-  { id: 'T-001', lng: 118.656, lat: 31.938, color: '#9fc9a2' },
-  { id: 'T-002', lng: 118.648, lat: 31.932, color: '#9fc9a2' },
-  { id: 'T-003', lng: 118.660, lat: 31.936, color: '#dfa88f' },
-  { id: 'T-004', lng: 118.645, lat: 31.933, color: '#9fbbe0' },
-  { id: 'T-005', lng: 118.662, lat: 31.930, color: '#9fc9a2' },
-  { id: 'T-006', lng: 118.650, lat: 31.940, color: '#dfa88f' },
-  { id: 'T-007', lng: 118.655, lat: 31.928, color: '#9fbbe0' },
-]
-
-export default function MapRadarView() {
+export default function MapRadarView({ devices }: { devices: RadarDevice[] }) {
+  const { connected, acquisition } = useCore()
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const mapInstanceRef = useRef<any>(null)
+  const nodeMarkersRef = useRef<any[]>([])
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Sync map markers with devices
+  useEffect(() => {
+    const AMap = mapRef.current
+    const map = mapInstanceRef.current
+    if (!AMap || !map) return
+
+    nodeMarkersRef.current.forEach(m => map.remove(m))
+    const newMarkers = devices.map(d => {
+      const m = markNode(AMap, d)
+      map.add(m)
+      return m
+    })
+    nodeMarkersRef.current = newMarkers
+  }, [devices, ready])
+
+  // Init AMap
   useEffect(() => {
     if (!API_KEY) {
       setError('需要在 .env 中配置 VITE_GAODE_API_KEY')
       return
-    }
-
-    window._AMapSecurityConfig = {
-      securityJsCode: SECURITY_CODE || '',
     }
 
     AMapLoader.load({
@@ -45,31 +68,26 @@ export default function MapRadarView() {
       .then((AMap: any) => {
         mapRef.current = AMap
 
-        const map = new AMap.Map(containerRef.current, {
-          zoom: 14,
-          center: RADAR_CENTER,
-          mapStyle: 'amap://styles/whitesmoke',
-          features: ['bg', 'road', 'building', 'point'],
-          showIndoorMap: false,
-        })
-        mapInstanceRef.current = map
-
-        demoTargets.forEach((t) => {
-          const m = new AMap.Marker({
-            position: [t.lng, t.lat],
-            content: `<div style="width:8px;height:8px;background:${t.color};border-radius:50%;border:1px solid #fff;"></div>`,
-            offset: new AMap.Pixel(-4, -4),
-            zIndex: 50,
+        try {
+          const map = new AMap.Map(containerRef.current, {
+            zoom: 14,
+            center: RADAR_CENTER,
+            mapStyle: 'amap://styles/whitesmoke',
+            features: ['bg', 'road', 'building', 'point'],
+            showIndoorMap: false,
+            showLogo: false,
           })
-          map.add(m)
-        })
-
-        setReady(true)
+          mapInstanceRef.current = map
+          setReady(true)
+        } catch (e: any) {
+          console.error('[Amap] 地图实例化失败:', e)
+          setError(`高德地图实例化失败\n${e?.message || String(e)}\n\n请检查：\n1. 安全密钥与 Key 是否绑定（高德开放平台 → 应用管理）\n2. 域名白名单是否包含 localhost\n3. 可尝试删除安全密钥，改用「域名白名单」方式`)
+        }
       })
       .catch((err: any) => {
         const msg = err?.message || String(err)
         console.error('[Amap] 加载失败:', err)
-        setError(`高德地图加载失败\n\n${msg || JSON.stringify(err)}\n\n请确认：\n1. Key 服务平台为「Web端(JS API)」\n2. 白名单已添加 localhost`)
+        setError(`高德地图加载失败\n${msg || JSON.stringify(err)}\n\n请检查：\n1. Key「${API_KEY.slice(0, 8)}…」服务平台为「Web端(JS API)」\n2. 安全密钥与 Key 绑定且域名白名单包含 localhost\n3. 网络可访问 amap.com`)
       })
 
     return () => {
@@ -101,31 +119,31 @@ export default function MapRadarView() {
             <pre className="text-[11px] mb-3 p-3 rounded text-left whitespace-pre-wrap max-h-48 overflow-auto"
               style={{ color: 'var(--error)', background: 'var(--surfaceLow)', border: '1px solid var(--hairline)' }}
             >{error}</pre>
-            <p className="text-[11px]" style={{ color: 'var(--secondary)' }}>检查 .env 配置后刷新页面</p>
+            <button
+              className="px-3 py-1 rounded-lg text-white text-[11px] font-medium border-none cursor-pointer"
+              style={{ background: 'var(--primaryContainer)' }}
+              onClick={() => window.location.reload()}
+            >
+              重试
+            </button>
+            <p className="text-[11px] mt-2" style={{ color: 'var(--secondary)' }}>检查 .env 配置后点击重试</p>
           </div>
         </div>
       )}
 
       {ready && (
         <>
-          <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 group cursor-pointer z-10">
-            <div className="relative">
-              <div className="absolute inset-0 rounded-full animate-ping scale-[2.5]"
-                style={{ background: 'rgba(6,78,59,0.1)' }} />
-              <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center shadow-md border relative z-10 transition-transform group-hover:scale-110"
-                style={{ borderColor: 'rgba(229,231,226,0.6)' }}>
-                <span className="material-symbols-outlined !text-[16px]" style={{ color: 'var(--primaryContainer)' }}>sensors</span>
-              </div>
-              <div className="absolute top-10 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md shadow border whitespace-nowrap"
-                style={{
-                  background: 'rgba(255,255,255,0.92)',
-                  backdropFilter: 'blur(10px)',
-                  borderColor: 'rgba(229,231,226,0.6)',
-                }}>
-                <span className="text-[10px] font-bold tracking-tight" style={{ color: 'var(--primaryContainer)' }}>NODE_ALPHA_01</span>
-              </div>
-            </div>
-          </div>
+          {/* PPI overlays — one per device */}
+          {devices.map(d => (
+            <PPIOverlay
+              key={d.id}
+              device={d}
+              mapInstance={mapInstanceRef.current}
+              mapClass={mapRef.current}
+              connected={true}
+              acquiring={acquisition}
+            />
+          ))}
 
           {/* Floating Map Controls */}
           <div className="absolute right-4 top-16 flex flex-col gap-2 z-10">
@@ -173,35 +191,8 @@ export default function MapRadarView() {
               </svg>
             </button>
           </div>
-
-          {/* Top bar label */}
-          <div className="absolute top-4 left-3 h-10 flex items-center px-4 rounded z-10 shadow-sm"
-            style={{ background: 'rgba(255,255,255,0.92)', backdropFilter: 'blur(10px)', border: '1px solid var(--hairline)' }}>
-            <span className="text-[12px]" style={{ color: 'var(--secondary)', fontFamily: "'JetBrains Mono', monospace" }}>
-              高德地图 · 雷达站定位
-            </span>
-            <span className="ml-3 flex items-center gap-1 text-[12px] font-medium" style={{ color: 'var(--targetGrep)' }}>
-              <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--targetGrep)' }} /> LIVE
-            </span>
-          </div>
-
-          {/* Legend */}
-          <div className="absolute top-[60px] right-3 rounded p-3 z-10 shadow-sm flex gap-4"
-            style={{ background: 'rgba(255,255,255,0.92)', backdropFilter: 'blur(10px)', border: '1px solid var(--hairline)' }}>
-            <LegendDot color="var(--targetGrep)" label="跟踪" />
-            <LegendDot color="var(--targetRead)" label="目标" />
-            <LegendDot color="var(--targetThinking)" label="干扰" />
-          </div>
         </>
       )}
-    </div>
-  )
-}
-
-function LegendDot({ color, label }: { color: string; label: string }) {
-  return (
-    <div className="flex items-center gap-1.5 text-[12px]" style={{ color: 'var(--secondary)' }}>
-      <span className="w-2 h-2 rounded-full" style={{ background: color }} /> {label}
     </div>
   )
 }
