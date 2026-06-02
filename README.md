@@ -2,66 +2,50 @@
 
 > **D**rone **C**ountermeasure **M**onitoring **P**latform
 
-基于 **Qt 5.14.2 (C++17)** 内核 + **React 19 + Vite** 前端的雷达上位机系统，集成 **高德地图 JSAPI v2** 实现雷达站定位、PPI 多面阵扫描显示、目标标绘和实时监控。
+基于 **Qt 5.14.2 (C++17)** 内核 + **React 19 + Vite** 前端的雷达上位机系统。PPI 多面阵扫描、实时航迹标绘、设备注册管理。
 
 ---
 
 ## 核心特性
 
-- **PPI 多面阵渲染** — 支持 1~4 面阵雷达，每面阵独立朝向/扫描角/开关，Canvas 实时扫线 + 尾迹
-- **品牌协议索引** — 中电38所 / 中电14所 / 雷鹰，品牌字段映射后端数据协议
-- **高德地图集成** — Amap JSAPI v2，GCJ-02 坐标系，雷达站标定与目标标绘
-- **设备注册表** — 雷达/光学/水平仪/GPS 统一管理，结构树阵面开关控制
-- **DCMP 风格 UI** — 玻璃拟态面板 (glass-panel)、墨绿主色调、Material Symbols 图标
-- **C++ HTTP + WebSocket 双协议** — REST API 状态获取 + 实时推送
-- **一键启动** — 双击 `core.exe` 自动启动服务并加载前端页面
+- **PPI 多面阵渲染** — 1~4 面阵雷达，独立朝向/扫描角/开关，Canvas 同步扫线 + 旋转明暗
+- **实时航迹显示** — Canvas TrackLayer，彗星拖尾样式，50ms→1s 节流渲染
+- **端到端数据管道** — `test_comm → UDP → core → SystemBus → WebSocket → 前端`
+- **品牌协议索引** — 中电38所 / 中电14所 / 雷鹰
+- **任务系统** — 新建任务/设备筛选/日志归档，任务生命周期管理
+- **设备注册表** — 雷达/光学/水平仪/GPS 统一管理，结构树阵面开关
+- **DCMP 风格 UI** — 玻璃拟态面板、墨绿主色调、Material Symbols 图标
 
 ---
 
-## 架构概览
+## 数据流架构
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Browser (React UI)                       │
-│  ┌─ TitleBar ────────────────────────────────────────────────┐  │
-│  │  连接状态 · 开始采集                                        │  │
-│  ├────────────────────────────────────────────────────────────┤  │
-│  │ ┌─ Sidebar ─┐ ┌─ Map + PPI ─────────────────────────────┐ │  │
-│  │ │ 设备列表    │ │  高德地图 Amap JSAPI v2                  │ │  │
-│  │ │ 资源管理    │ │  └─ PPI Canvas Overlay                 │ │  │
-│  │ │ 数据回放    │ │      · 同心环 + 十字线                   │ │  │
-│  │ │ 校准分析    │ │      · 多面阵扇区边界                    │ │  │
-│  │ │ 日志归档    │ │      · 同步扫线 + 旋转明暗               │ │  │
-│  │ │            │ │      · 尾迹衰减                           │ │  │
-│  │ │ Structure  │ │                                         │ │  │
-│  │ │  ├全局集群  │ │                                         │ │  │
-│  │ │  └NODE_01   │ │                                         │ │  │
-│  │ │    ├阵面A ◉ │ │                                         │ │  │
-│  │ │    ├阵面B ○ │ │                                         │ │  │
-│  │ │    ├阵面C ◉ │ │                                         │ │  │
-│  │ │    └阵面D ◉ │ │                                         │ │  │
-│  │ └────────────┘ └─────────────────────────────────────────┘ │  │
-│  ├────────────────────────────────────────────────────────────┤  │
-│  │ BottomPanel — Activity Feed / Device Table                  │  │
-│  └────────────────────────────────────────────────────────────┘  │
-│                        HTTP REST / WebSocket                     │
-│                            8088 / 8089                            │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │
-┌──────────────────────────▼──────────────────────────────────────┐
-│                    C++ Core (Qt Console)                         │
-│                                                                  │
-│  ┌─ HttpServer ──────────────────────────────────────────────┐  │
-│  │  QTcpServer → HTTP REST API + 静态文件服务                  │  │
-│  │  QWebSocketServer → 实时状态广播                            │  │
-│  └───────────────────────────────────────────────────────────┘  │
-│  ┌─ AppController ───────────────────────────────────────────┐  │
-│  │  雷达业务逻辑 / 工作模式控制 / 通信管理 / 协议编解码         │  │
-│  └───────────────────────────────────────────────────────────┘  │
-│  ┌─ Communication ───────────────────────────────────────────┐  │
-│  │  UDP Endpoint · DPH 心跳 50ms · 协议 pack/unpack           │  │
-│  └───────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────┘
+┌── 前端 React ──────────────────────────────────────────────────┐
+│  TitleBar · Sidebar · MapRadarView(Amap+PPI+TrackLayer) · StatusBar  │
+│       │  POST /api/start|stop          WebSocket :8089  ▲      │
+└───────┼────────────────────────────────────────────────┼──────┘
+        │                                                │
+┌───────▼────────── C++ Core ────────────────────────────┼──────┐
+│  HttpServer (HTTP :8088 / WS :8089)                    │      │
+│       │  subscribeToBus()                              │      │
+│  ┌────▼────────────────────────────────────────────┐   │      │
+│  │              SystemBus (DDS pub/sub)              │   │      │
+│  │  RadarDataProcessor ──→ BusToCommRouter           │   │      │
+│  │       ↑                        ↓                 │   │      │
+│  │  CommManager (UDP :7788)      UDP :1234          │   │      │
+│  └───────┼────────────────────────┼─────────────────┘   │      │
+│          │                        │                     │      │
+│  RadarWorkModeController    DphPublisher (50ms)         │      │
+│  AppController · DataStore(SQLite) · Logger             │      │
+└──────────┼────────────────────────┼─────────────────────┘      │
+           │ track data             │ workStandby cmd            │
+┌──────────▼────────────────────────┼────────────────────────────┐
+│  test_comm (雷达模拟器)             │                            │
+│  · 接收 DPH (:3456)               │                            │
+│  · 接收 workStandby (:1234) ──────┘                            │
+│  · CSV 回放 → UDP → core :7788                                 │
+└────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -70,51 +54,32 @@
 
 | 层 | 技术 | 说明 |
 | --- | --- | --- |
-| 前端 UI | **React 19** + **TypeScript 5.8** + **Vite 6** | SPA with HMR |
-| 样式 | **Tailwind CSS 3** + CSS Variables | DCMP 墨绿主题·玻璃面板 |
-| 地图 | **高德地图 JSAPI v2.0** | GCJ-02 坐标系 |
-| 图标 | **Material Symbols Outlined** | Google Fonts CDN |
-| PPI 渲染 | **Canvas 2D** + requestAnimationFrame | 多面阵扫线·尾迹·扇区 |
-| 通信 | **REST** (QTcpServer) + **WebSocket** (QWebSocketServer) | 状态获取 / 实时广播 |
-| 后端 | **Qt 5.14.2** / C++17 / CMake 3.16 | 跨平台 |
+| 前端 UI | React 19 + TypeScript 5.8 + Vite 6 | SPA with HMR |
+| 样式 | Tailwind CSS 3 + CSS Variables | DCMP 墨绿主题·玻璃面板 |
+| 地图 | 高德地图 JSAPI v2.0 | GCJ-02 坐标系 |
+| PPI | Canvas 2D + requestAnimationFrame | 多面阵扫线·尾迹·扇区 |
+| 航迹 | Canvas 2D TrackLayer | 彗星拖尾·1s 节流 |
+| 通信 | REST (QTcpServer) + WebSocket | :8088 / :8089 |
+| 后端 | Qt 5.14.2 / C++17 / CMake 3.16 | 跨平台 |
 
 ---
 
 ## 数据模型
 
-### RadarDevice
-
 ```typescript
 interface RadarFace {
-  label: string               // 阵面标识: "A" / "B" / "C" / "D"
-  boresightAzimuth: number    // 阵面朝向 (°), 0=North, CW
-  scanAngle: number           // 扫描半角 (°), e.g. 45 for ±45°
+  label: string               // "A" / "B" / "C" / "D"
+  boresightAzimuth: number    // 阵面朝向 (°)
+  scanAngle: number           // 扫描半角 (°)
   active: boolean             // 是否开启扫描
 }
 
 type RadarBrand = 'cetc38' | 'cetc14' | 'leiying'
 
 interface RadarDevice {
-  id: string
-  name: string
-  brand: RadarBrand
-  lng: number; lat: number; altitude: number
-  maxRange: number            // km
-  faces: RadarFace[]          // 阵面列表
-}
-```
-
-### SubDevice
-
-```typescript
-interface SubDevice {
-  id: string
-  name: string
-  kind: 'opto' | 'level' | 'gps'
-  brand: RadarBrand
-  linkedRadarId?: string
-  mountOffsetAzimuth?: number
-  coordinateSystem?: string
+  id: string; name: string; brand: RadarBrand
+  lng: number; lat: number; altitude: number; maxRange: number
+  faces: RadarFace[]
 }
 ```
 
@@ -124,129 +89,112 @@ interface SubDevice {
 
 ```
 newAnti_arch/
-├── CMakeLists.txt                 # 顶层 CMake
-├── CLAUDE.md                      # AI 辅助开发指引
-├── config/                        # 运行时配置
-│   ├── endpoints.json
-│   ├── processor.json
-│   └── database.json
-├── core/                          # C++ 后端核心
-│   ├── main.cpp
-│   ├── HttpServer.{h,cpp}
-│   ├── AppController.{h,cpp}
-│   ├── comm/                      # 通信层 (UDP)
-│   ├── protocol/                  # 协议层
-│   ├── bus/                       # 系统总线
-│   ├── processor/                 # 业务处理
-│   └── data/                      # 数据层 (SQLite)
-├── ui/                            # React 前端
-│   ├── src/
-│   │   ├── App.tsx
-│   │   ├── main.tsx
-│   │   ├── components/
-│   │   │   ├── layout/            # TitleBar, Sidebar, StatusBar
-│   │   │   ├── map/               # MapRadarView, PPIOverlay, types
-│   │   │   ├── panels/            # BottomPanel, DataTable
-│   │   │   └── dialogs/           # DeviceEditDialog, RadarEditForm, SubDeviceEditForm
-│   │   ├── hooks/                 # useCoreApi, useTrackData
-│   │   ├── lib/                   # protocol, columns
-│   │   └── styles/                # globals.css
-│   ├── package.json
-│   ├── vite.config.ts
-│   └── tailwind.config.js
-├── test_comm/                     # 协议联调测试
-├── doc/                           # 设计文档
-└── .vscode/                       # VS Code 配置
+├── CMakeLists.txt
+├── CLAUDE.md
+├── config/                          # 运行时配置
+│   ├── endpoints.json               # UDP 端点 (core :7788)
+│   ├── processor.json               # 处理器流水线
+│   └── database.json                # SQLite 配置
+├── core/                            # C++ 后端
+│   ├── main.cpp                     # 入口: HttpServer + StdinReader
+│   ├── HttpServer.{h,cpp}           # HTTP/WS + subscribeToBus
+│   ├── AppController.{h,cpp}        # 装配 & 生命周期
+│   ├── RadarWorkModeController      # 工作/待机状态机
+│   ├── comm/                        # UDP Endpoint + CommManager
+│   ├── protocol/                    # 雷达协议结构体 (Send/Receive)
+│   ├── bus/                         # SystemBus (DDS pub/sub)
+│   ├── processor/                   # 数据流管道 (+ LatencyStats)
+│   ├── data/                        # DataStore (SQLite) + ConfigManager
+│   ├── business/                    # 工作模式控制
+│   └── log/                         # Logger (日滚动 + 7天清理)
+├── ui/                              # React 前端
+│   └── src/
+│       ├── App.tsx                  # 根组件 + 任务/设备状态管理
+│       ├── components/
+│       │   ├── layout/              # TitleBar, Sidebar, StatusBar
+│       │   ├── map/                 # MapRadarView, PPIOverlay, TrackLayer, types
+│       │   ├── panels/              # BottomPanel, DataTable
+│       │   └── dialogs/             # DeviceEditDialog, TaskCreateDialog, ...
+│       ├── hooks/                   # useCoreApi (WS+节流), useTrackData
+│       └── lib/                     # protocol, taskTypes, columns
+├── test_comm/                       # 雷达模拟器 + CSV 回放
+│   ├── target_data-4.csv            # 真实航迹数据
+│   ├── TestComm.{h,cpp}             # CSV 加载 + UDP 回放
+│   └── main.cpp                     # 命令行入口
+├── doc/                             # 设计文档
+└── .vscode/
 ```
 
 ---
 
 ## 快速开始
 
-### 1. 构建 C++ 后端
-
-#### Windows (MinGW 7.3.0, Qt 5.14.2)
+### 构建
 
 ```powershell
+# C++ 后端 + test_comm
 cmake -S . -B build -G "MinGW Makefiles" `
     -DCMAKE_PREFIX_PATH="C:/Qt/Qt5.14.2/5.14.2/mingw73_64" `
     -DCMAKE_MAKE_PROGRAM="C:/Qt/Qt5.14.2/Tools/mingw730_64/bin/mingw32-make.exe"
-
 cmake --build build -j 8
+
+# 前端
+cd ui && npm install && npm run build
 ```
 
-#### Linux (Ubuntu)
-
-```bash
-sudo apt install qtbase5-dev libqt5sql5-sqlite libqt5websockets5-dev cmake build-essential
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build -j$(nproc)
-```
-
-### 2. 构建前端
-
-```bash
-cd ui
-npm install
-npm run build
-```
-
-### 3. 运行
+### 运行（完整链路测试）
 
 ```powershell
-./build/bin/NewAntiDrone_core
+# 终端 1: core
+.\build\bin\NewAntiDrone_core.exe
+
+# 终端 2: test_comm (指定 CSV 路径)
+.\build\bin\test_comm.exe 127.0.0.1 7788 1234 3456 ..\..\test_comm\target_data-4.csv
+
+# 浏览器: http://localhost:8088
+# 前端 新建任务 → 添加雷达 → 开始采集 → 查看航迹
 ```
 
-后端启动后自动打开浏览器访问 **http://localhost:8088**
-
-开发模式：
+### 开发模式
 
 ```bash
-# 终端 1: 前端 HMR
-cd ui && npm run dev
-
-# 终端 2: C++ 后端
-./build/bin/NewAntiDrone_core
+cd ui && npm run dev      # 终端 1: 前端 HMR (:5173)
+./build/bin/NewAntiDrone_core   # 终端 2: 后端 (:8088)
 ```
 
 ---
 
-## API 接口
+## API
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `GET` | `/` | 前端静态页面 |
-| `GET` | `/api/status` | 系统状态 (采集/连接/运行时间) |
-| `POST` | `/api/start` | 开始采集 |
-| `POST` | `/api/stop` | 停止采集 |
-| `WS` | `ws://localhost:8089` | 实时状态推送 |
+| `GET` | `/api/status` | `{ acquisition, state, connected }` |
+| `POST` | `/api/start` | 开始采集 (Work_Mode=1) |
+| `POST` | `/api/stop` | 停止采集 (Work_Mode=0) |
+| `WS` | `:8089` | `type: status` (1s) + `type: tracks` (实时) |
 
----
+### WebSocket 消息格式
 
-## 高德地图配置
+```typescript
+// 状态推送
+{ type: "status", acquisition: boolean, state: string, connected: boolean }
 
-在 `ui/.env` 中配置：
-
-```env
-VITE_GAODE_API_KEY=你的Key
-VITE_GAODE_SECURITY_CODE=你的安全密钥
+// 航迹推送
+{ type: "tracks", deviceType: number,
+  track: { targetId, range, azimuth, elevation, x, y, z, ... } }
 ```
-
-> Key 需在[高德开放平台](https://console.amap.com/)申请，服务平台选择 **Web端(JS API)**，并配置 `localhost` 白名单。
 
 ---
 
 ## 环境要求
 
-| 组件 | 版本 / 说明 |
+| 组件 | 版本 |
 | --- | --- |
 | Qt | 5.14.2 (core / gui / network / websockets / sql) |
-| 编译器 (Windows) | MinGW 7.3.0 64-bit |
-| 编译器 (Linux) | GCC 7+ / Clang 6+ |
-| 构建工具 | CMake 3.16+ |
-| Node.js | 18+ (仅构建前端) |
-
----
+| MinGW | 7.3.0 64-bit (Windows) |
+| CMake | 3.16+ |
+| Node.js | 18+ |
 
 ## 许可证
 

@@ -1,4 +1,7 @@
 #include "HttpServer.h"
+#include "bus/SystemBus.h"
+#include "bus/GenericPackets.h"
+#include "protocol/StructureReceive.h"
 
 #include <QCoreApplication>
 #include <QTcpServer>
@@ -9,6 +12,7 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QDateTime>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QDebug>
 #include <QRegularExpression>
@@ -361,4 +365,54 @@ QString HttpServer::mimeType(const QString &path)
     if (path.endsWith(QStringLiteral(".woff")))  return QStringLiteral("font/woff");
     if (path.endsWith(QStringLiteral(".ttf")))   return QStringLiteral("font/ttf");
     return QStringLiteral("application/octet-stream");
+}
+
+// ============================================================================
+// SystemBus Subscription — 将航迹数据推送到 WebSocket
+// ============================================================================
+void HttpServer::subscribeToBus()
+{
+    // 订阅所有 UI 方向的数据包 (dispatchTarget = UI_OUTPUTWIDGET)
+    // RadarDataProcessor 发布航迹时使用此 target
+    SystemBus::getInstance().subscribeByTarget(
+        UI_OUTPUTWIDGET,
+        [this](const DataPacket* pkt) {
+            if (!pkt || pkt->payloadType != PAYLOAD_TYPE_GENERAL_PACKAGE) return;
+            if (pkt->payloadSize < sizeof(GeneralPackage)) return;
+
+            // 从 DataPacket 载荷中解包 GeneralPackage
+            GeneralPackage gp;
+            memcpy(&gp, pkt->payload.rawData, sizeof(GeneralPackage));
+            const TargetType& tgt = gp.h_c.TrackInfo;
+
+            QJsonObject msg;
+            msg[QStringLiteral("type")] = QStringLiteral("tracks");
+            msg[QStringLiteral("deviceType")] = static_cast<int>(pkt->sourceType);
+
+            QJsonObject track;
+            track[QStringLiteral("targetId")]     = static_cast<int>(tgt.TargetID);
+            track[QStringLiteral("range")]        = tgt.Range;
+            track[QStringLiteral("azimuth")]      = tgt.Azimuth;
+            track[QStringLiteral("elevation")]    = tgt.Elevation;
+            track[QStringLiteral("radialSpeed")]  = tgt.RadialSpeed;
+            track[QStringLiteral("rcs")]          = tgt.RCS;
+            track[QStringLiteral("altitude")]     = tgt.Altitude;
+            track[QStringLiteral("x")]            = tgt.x;
+            track[QStringLiteral("y")]            = tgt.y;
+            track[QStringLiteral("z")]            = tgt.z;
+            track[QStringLiteral("vx")]           = tgt.vx;
+            track[QStringLiteral("vy")]           = tgt.vy;
+            track[QStringLiteral("vz")]           = tgt.vz;
+            track[QStringLiteral("timestamp")]    = static_cast<double>(pkt->timeStamp);
+
+            msg[QStringLiteral("track")] = track;
+
+            // bus 回调在 worker 线程，broadcast 操作 QWebSocket 必须回主线程
+            QMetaObject::invokeMethod(this, [this, msg]() {
+                broadcast(msg);
+            }, Qt::QueuedConnection);
+        }
+    );
+
+    qDebug() << QStringLiteral("[HttpServer] 已订阅 SystemBus (target=UI_OUTPUTWIDGET)，航迹将推送到 WebSocket");
 }

@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import type { RadarDevice, SubDevice, AppDevice, RadarFace, RadarBrand } from '../map/types'
 import { BRAND_LABELS } from '../map/types'
+import type { Task } from '../../lib/taskTypes'
 
 interface NavItem {
   id: string; icon: string; label: string
@@ -23,6 +24,12 @@ interface SidebarProps {
   onAddSubDevice: (d: Omit<SubDevice, 'id'>) => void
   onRemoveSubDevice: (id: string) => void
   onEditDevice: (d: AppDevice) => void
+  activeTask: Task | null
+  tasks: Task[]
+  onNewTask: () => void
+  onCompleteTask: () => void
+  onArchiveTask: (taskId: string) => void
+  onDeleteTask: (taskId: string) => void
 }
 
 type FormKind = 'radar' | 'opto' | 'level' | 'gps'
@@ -72,7 +79,13 @@ const inputStyle: React.CSSProperties = {
   fontSize: 10, outline: 'none', fontFamily: "'Inter','Microsoft YaHei',sans-serif",
 }
 
-export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevice, onUpdateDevice, onAddSubDevice, onRemoveSubDevice, onEditDevice }: SidebarProps) {
+const STATUS_META: Record<string, { icon: string; label: string }> = {
+  active: { icon: 'radio_button_checked', label: '进行中' },
+  completed: { icon: 'check_circle', label: '已完成' },
+  archived: { icon: 'archive', label: '已归档' },
+}
+
+export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevice, onUpdateDevice, onAddSubDevice, onRemoveSubDevice, onEditDevice, activeTask, tasks, onNewTask, onCompleteTask, onArchiveTask, onDeleteTask }: SidebarProps) {
   const [activeNav, setActiveNav] = useState('devices')
   const [formExpanded, setFormExpanded] = useState(false)
   const [formKind, setFormKind] = useState<FormKind>('radar')
@@ -147,7 +160,8 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                          flex items-center justify-center gap-2 precision-shadow
                          hover:brightness-110 transition-all active:scale-[0.98]
                          border-none cursor-pointer"
-        style={{ background: 'var(--primaryContainer)' }}>
+        style={{ background: 'var(--primaryContainer)' }}
+        onClick={onNewTask}>
         <span className="material-symbols-outlined !text-[16px]">add</span>
         新建任务
       </button>
@@ -168,9 +182,33 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
           <div className="flex-1 px-1 overflow-y-auto mt-3">
             {activeNav === 'devices' && (
               <>
+                {/* Task context bar */}
+                {activeTask && (
+                  <div className="flex items-center gap-2 px-2 py-1.5 mb-1 rounded-md"
+                    style={{ background: 'var(--emeraldSubtle)' }}>
+                    <span className="material-symbols-outlined !text-[14px]" style={{ color: 'var(--primaryContainer)' }}>
+                      {STATUS_META[activeTask.status]?.icon ?? 'radio_button_unchecked'}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] font-semibold truncate" style={{ color: 'var(--ink)' }}>
+                        {activeTask.name}
+                      </div>
+                      <div className="text-[8px]" style={{ color: 'var(--secondary)' }}>
+                        {STATUS_META[activeTask.status]?.label} &middot; {activeTask.operator || '未指定'}
+                      </div>
+                    </div>
+                    {activeTask.status === 'active' && (
+                      <button
+                        className="px-1.5 py-0.5 rounded text-[8px] font-semibold border cursor-pointer"
+                        style={{ borderColor: 'var(--primaryContainer)', color: 'var(--primaryContainer)', background: 'transparent' }}
+                        onClick={onCompleteTask}
+                      >完成</button>
+                    )}
+                  </div>
+                )}
                 <p className="text-[9px] uppercase tracking-[0.18em] mb-0.5 opacity-80 font-semibold"
                   style={{ color: 'var(--outline)', fontFamily: "'Inter', sans-serif" }}>
-                  已注册设备 &middot; {allDevices.length}
+                  {activeTask ? '任务设备' : '已注册设备'} &middot; {allDevices.length}
                 </p>
                 {allDevices.map(d => {
                   if (isRadar(d)) {
@@ -427,8 +465,56 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
             )}
 
             {activeNav === 'archives' && (
-              <PanelPlaceholder icon="archive" title="日志归档"
-                desc="浏览历史航迹记录、任务日志、系统事件，支持按日期/设备检索与数据清理。" />
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined !text-[18px]" style={{ color: 'var(--primaryContainer)' }}>archive</span>
+                  <span className="text-[11px] font-semibold" style={{ color: 'var(--ink)', fontFamily: "'Inter', sans-serif" }}>日志归档</span>
+                </div>
+                {tasks.length === 0 ? (
+                  <p className="text-[10px]" style={{ color: 'var(--secondary)' }}>暂无任务记录，创建任务并完成后将在此归档。</p>
+                ) : (
+                  <div className="space-y-0.5">
+                    {tasks.map(t => (
+                      <div key={t.id}
+                        className="flex items-center gap-2 px-2 py-1.5 rounded-md"
+                        style={{ background: t.id === activeTask?.id ? 'var(--emeraldSubtle)' : 'transparent' }}>
+                        <span className="material-symbols-outlined !text-[14px]" style={{ color: 'var(--secondary)' }}>
+                          {STATUS_META[t.status]?.icon ?? 'radio_button_unchecked'}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[10px] font-semibold truncate" style={{ color: 'var(--ink)' }}>{t.name}</div>
+                          <div className="text-[8px]" style={{ color: 'var(--secondary)' }}>
+                            {STATUS_META[t.status]?.label} &middot; {t.operator || '未指定'} &middot; {t.deviceIds.length} 设备
+                          </div>
+                        </div>
+                        {t.id !== activeTask?.id && (
+                          <>
+                            {t.status === 'completed' && (
+                              <button
+                                className="px-1 py-0.5 rounded text-[8px] font-semibold border cursor-pointer"
+                                style={{ borderColor: 'var(--secondary)', color: 'var(--secondary)', background: 'transparent' }}
+                                onClick={() => onArchiveTask(t.id)}
+                              >归档</button>
+                            )}
+                            <button
+                              className="px-1 py-0.5 rounded text-[8px] font-semibold border cursor-pointer hover:bg-red-50"
+                              style={{ borderColor: 'transparent', color: 'var(--secondary)', background: 'transparent' }}
+                              onClick={() => onDeleteTask(t.id)}
+                              title="删除任务"
+                            >×</button>
+                          </>
+                        )}
+                        {t.id === activeTask?.id && (
+                          <span className="text-[8px] px-1 py-px rounded-full font-medium"
+                            style={{ background: 'rgba(6,78,59,0.08)', color: 'var(--primaryContainer)' }}>
+                            当前
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}

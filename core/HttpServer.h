@@ -37,8 +37,11 @@ public:
     void handleGet(const QString &path, JsonHandler handler);
     void handlePost(const QString &path, JsonHandler handler);
 
-    /// 向所有 WebSocket 客户端广播 JSON 消息
+    /// 向所有 WebSocket 客户端广播 JSON 消息（主线程安全）
     void broadcast(const QJsonObject &msg);
+
+    /// 订阅 SystemBus，将航迹/事件推送到 WebSocket 前端
+    void subscribeToBus();
 
     /// 当前 HTTP 端口
     quint16 httpPort() const { return m_httpPort; }

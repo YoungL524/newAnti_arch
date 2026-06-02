@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import AMapLoader from '@amap/amap-jsapi-loader'
 import PPIOverlay from './PPIOverlay'
+import TrackLayer from './TrackLayer'
 import { type RadarDevice, RADAR_CENTER } from './types'
 import { useCore } from '../../hooks/useCoreApi'
 
@@ -30,7 +31,7 @@ function markNode(AMap: any, device: RadarDevice) {
 }
 
 export default function MapRadarView({ devices }: { devices: RadarDevice[] }) {
-  const { connected, acquisition } = useCore()
+  const { acquisition } = useCore()
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const mapInstanceRef = useRef<any>(null)
@@ -142,6 +143,15 @@ export default function MapRadarView({ devices }: { devices: RadarDevice[] }) {
               mapClass={mapRef.current}
               connected={true}
               acquiring={acquisition}
+            />
+          ))}
+          {/* Track layers — green dots on map */}
+          {devices.map(d => (
+            <TrackLayer
+              key={`track-${d.id}`}
+              device={d}
+              mapInstance={mapInstanceRef.current}
+              mapClass={mapRef.current}
             />
           ))}
 

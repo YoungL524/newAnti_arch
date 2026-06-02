@@ -91,9 +91,21 @@ export type DeviceDataRow = RadarTrack | LevelSensorData | OptoelectronicData | 
 
 // ── WebSocket extension ───────────────────────────────────
 
+export interface WsTrackItem {
+  targetId: number
+  range: number
+  azimuth: number        // rad
+  elevation: number      // rad
+  radialSpeed: number
+  rcs: number
+  altitude: number
+  x: number; y: number; z: number
+  vx: number; vy: number; vz: number
+  timestamp: number
+}
+
 export interface WsTracksMessage {
   type: 'tracks'
   deviceType: number
-  tracks: RadarTrack[]
-  timestamp: number
+  track: WsTrackItem       // 单条航迹（每 UDP 包一个 GeneralPackage）
 }

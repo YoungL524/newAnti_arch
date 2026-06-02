@@ -8,6 +8,7 @@
 #include <windows.h>
 #endif
 
+
 /**
  * @brief 打印命令帮助
  */
@@ -31,6 +32,7 @@ static void printUsage()
     qDebug() << QStringLiteral("  q / quit       - 退出程序");
     qDebug() << QStringLiteral("========================================\n");
 }
+
 
 int main(int argc, char *argv[])
 {
@@ -64,6 +66,7 @@ int main(int argc, char *argv[])
 
     TestComm testComm;
     testComm.setTarget(targetAddress, targetPort);
+    if (argc > 5) testComm.setCsvPath(QString::fromLocal8Bit(argv[5]));
 
     if (!testComm.initialize(workmodePort, dphPort)) {
         qCritical() << QStringLiteral("初始化失败，程序退出");

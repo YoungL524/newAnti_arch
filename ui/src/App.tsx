@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import './styles/globals.css'
 import TitleBar from './components/layout/TitleBar'
 import Sidebar from './components/layout/Sidebar'
@@ -8,10 +8,14 @@ import StatusBar from './components/layout/StatusBar'
 import { CoreProvider } from './hooks/useCoreApi'
 import { type AppDevice, type RadarDevice, type SubDevice, DEFAULT_DEVICE } from './components/map/types'
 import DeviceEditDialog from './components/dialogs/DeviceEditDialog'
+import TaskCreateDialog from './components/dialogs/TaskCreateDialog'
+import type { Task } from './lib/taskTypes'
+import { loadTasks, saveTasks, loadActiveTaskId, saveActiveTaskId } from './lib/taskTypes'
 
 let deviceIdCounter = 0
 function nextDeviceId() { return `dev_${Date.now()}_${++deviceIdCounter}` }
 function nextSubId() { return `sub_${Date.now()}_${++deviceIdCounter}` }
+function nextTaskId() { return `task_${Date.now()}_${++deviceIdCounter}` }
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -20,22 +24,93 @@ export default function App() {
   ])
   const [subDevices, setSubDevices] = useState<SubDevice[]>([])
 
-  const addDevice = useCallback((d: Omit<RadarDevice, 'id'>) => {
-    setDevices(prev => [...prev, { id: nextDeviceId(), ...d }])
+  // ── Task state ──
+  const [tasks, setTasks] = useState<Task[]>(loadTasks)
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(loadActiveTaskId)
+  const [showTaskDialog, setShowTaskDialog] = useState(false)
+
+  const activeTask = useMemo(() => tasks.find(t => t.id === activeTaskId) ?? null, [tasks, activeTaskId])
+
+  // Persist tasks to localStorage
+  useEffect(() => { saveTasks(tasks) }, [tasks])
+  useEffect(() => { saveActiveTaskId(activeTaskId) }, [activeTaskId])
+
+  // Devices visible in the current task context
+  const taskDeviceIds = useMemo(() => new Set(activeTask?.deviceIds ?? []), [activeTask])
+  const taskDevices = useMemo(() =>
+    activeTask
+      ? devices.filter(d => taskDeviceIds.has(d.id))
+      : devices,
+  [devices, activeTask, taskDeviceIds])
+  const taskSubDevices = useMemo(() =>
+    activeTask
+      ? subDevices.filter(s => taskDeviceIds.has(s.id))
+      : subDevices,
+  [subDevices, activeTask, taskDeviceIds])
+  const allTaskDevices = useMemo(() => [...taskDevices, ...taskSubDevices], [taskDevices, taskSubDevices])
+
+  // ── Task operations ──
+  const createTask = useCallback((data: Omit<Task, 'id' | 'createdAt' | 'status'>) => {
+    const task: Task = {
+      ...data,
+      id: nextTaskId(),
+      status: 'active',
+      createdAt: Date.now(),
+    }
+    setTasks(prev => [...prev, task])
+    setActiveTaskId(task.id)
+    setShowTaskDialog(false)
   }, [])
+
+  const completeTask = useCallback(() => {
+    if (!activeTaskId) return
+    setTasks(prev => prev.map(t =>
+      t.id === activeTaskId ? { ...t, status: 'completed' as const, completedAt: Date.now() } : t))
+    setActiveTaskId(null)
+  }, [activeTaskId])
+
+  const archiveTask = useCallback((taskId: string) => {
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'archived' as const } : t))
+  }, [])
+
+  const deleteTask = useCallback((taskId: string) => {
+    setTasks(prev => prev.filter(t => t.id !== taskId))
+    if (activeTaskId === taskId) setActiveTaskId(null)
+  }, [activeTaskId])
+
+  // ── Device operations (task-aware) ──
+  const addDevice = useCallback((d: Omit<RadarDevice, 'id'>) => {
+    const id = nextDeviceId()
+    setDevices(prev => [...prev, { id, ...d }])
+    if (activeTaskId) {
+      setTasks(prev => prev.map(t =>
+        t.id === activeTaskId ? { ...t, deviceIds: [...t.deviceIds, id] } : t))
+    }
+  }, [activeTaskId])
 
   const removeDevice = useCallback((id: string) => {
     setDevices(prev => prev.filter(d => d.id !== id))
-    // also remove sub-devices linked to this radar
     setSubDevices(prev => prev.filter(s => s.linkedRadarId !== id))
+    // Also remove from any task that references it
+    setTasks(prev => prev.map(t => t.deviceIds.includes(id)
+      ? { ...t, deviceIds: t.deviceIds.filter(did => did !== id) }
+      : t))
   }, [])
 
   const addSubDevice = useCallback((d: Omit<SubDevice, 'id'>) => {
-    setSubDevices(prev => [...prev, { id: nextSubId(), ...d }])
-  }, [])
+    const id = nextSubId()
+    setSubDevices(prev => [...prev, { id, ...d }])
+    if (activeTaskId) {
+      setTasks(prev => prev.map(t =>
+        t.id === activeTaskId ? { ...t, deviceIds: [...t.deviceIds, id] } : t))
+    }
+  }, [activeTaskId])
 
   const removeSubDevice = useCallback((id: string) => {
     setSubDevices(prev => prev.filter(s => s.id !== id))
+    setTasks(prev => prev.map(t => t.deviceIds.includes(id)
+      ? { ...t, deviceIds: t.deviceIds.filter(did => did !== id) }
+      : t))
   }, [])
 
   const [editingDevice, setEditingDevice] = useState<AppDevice | null>(null)
@@ -57,20 +132,26 @@ export default function App() {
           {sidebarOpen && (
             <Sidebar
               onClose={() => setSidebarOpen(false)}
-              allDevices={allDevices}
+              allDevices={activeTask ? allTaskDevices : allDevices}
               onAddDevice={addDevice}
               onRemoveDevice={removeDevice}
               onUpdateDevice={updateDevice}
               onAddSubDevice={addSubDevice}
               onRemoveSubDevice={removeSubDevice}
               onEditDevice={setEditingDevice}
+              activeTask={activeTask}
+              tasks={tasks}
+              onNewTask={() => setShowTaskDialog(true)}
+              onCompleteTask={completeTask}
+              onArchiveTask={archiveTask}
+              onDeleteTask={deleteTask}
             />
           )}
 
           <main className="flex-1 flex flex-col relative overflow-hidden" style={{ background: 'var(--surfaceDim)' }}>
-            <TitleBar />
+            <TitleBar activeTask={activeTask} />
             <div className="flex-1 relative overflow-hidden">
-              <MapRadarView devices={devices} />
+              <MapRadarView devices={activeTask ? taskDevices : devices} />
 
               {!sidebarOpen && (
                 <button
@@ -86,7 +167,7 @@ export default function App() {
               )}
             </div>
 
-            <BottomPanel allDevices={allDevices} />
+            <BottomPanel allDevices={activeTask ? allTaskDevices : allDevices} />
           </main>
         </div>
 
@@ -100,6 +181,14 @@ export default function App() {
           onUpdateDevice={updateDevice}
           onUpdateSubDevice={updateSubDevice}
           onClose={() => setEditingDevice(null)}
+        />
+      )}
+
+      {showTaskDialog && (
+        <TaskCreateDialog
+          tasks={tasks}
+          onCreate={createTask}
+          onCancel={() => setShowTaskDialog(false)}
         />
       )}
     </CoreProvider>

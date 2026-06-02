@@ -251,6 +251,9 @@ int main(int argc, char *argv[])
         });
     }
 
+    // 订阅 SystemBus → WebSocket 推送航迹数据
+    httpServer.subscribeToBus();
+
     // 启动 HTTP 服务
     if (!httpServer.start(8088, 8089)) {
         qWarning() << QStringLiteral("HTTP 服务启动失败, 前端不可用");

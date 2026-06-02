@@ -1,6 +1,13 @@
+import type { Task } from '../../lib/taskTypes'
 import { useCore } from '../../hooks/useCoreApi'
 
-export default function TitleBar() {
+const STATUS_LABEL: Record<string, string> = {
+  active: '进行中',
+  completed: '已完成',
+  archived: '已归档',
+}
+
+export default function TitleBar({ activeTask }: { activeTask: Task | null }) {
   const { connected, acquisition, toggleAcquisition } = useCore()
 
   return (
@@ -20,9 +27,20 @@ export default function TitleBar() {
             }} />
           <span className="text-[10px] font-bold tracking-wider"
             style={{ color: 'var(--primaryContainer)', fontFamily: "'Inter', sans-serif" }}>
-            {connected ? '实时传输中' : '已断开'}
+            {connected ? '已连接' : '已断开'}
           </span>
         </div>
+
+        {activeTask && (
+          <div className="flex items-center gap-2 text-[11px]">
+            <span style={{ color: 'var(--secondary)' }}>任务:</span>
+            <span className="font-semibold" style={{ color: 'var(--ink)' }}>{activeTask.name}</span>
+            <span className="text-[9px] px-1.5 py-px rounded-full font-medium"
+              style={{ background: 'rgba(6,78,59,0.08)', color: 'var(--primaryContainer)' }}>
+              {STATUS_LABEL[activeTask.status]}
+            </span>
+          </div>
+        )}
       </div>
 
       <button
