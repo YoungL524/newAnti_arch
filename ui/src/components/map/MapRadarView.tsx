@@ -31,7 +31,7 @@ function markNode(AMap: any, device: RadarDevice) {
 }
 
 export default function MapRadarView({ devices }: { devices: RadarDevice[] }) {
-  const { acquisition } = useCore()
+  const { acquisition, devices: deviceStates, checkedDeviceIds } = useCore()
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const mapInstanceRef = useRef<any>(null)
@@ -134,19 +134,24 @@ export default function MapRadarView({ devices }: { devices: RadarDevice[] }) {
 
       {ready && (
         <>
-          {/* PPI overlays — one per device */}
-          {devices.map(d => (
-            <PPIOverlay
-              key={d.id}
-              device={d}
-              mapInstance={mapInstanceRef.current}
-              mapClass={mapRef.current}
-              connected={true}
-              acquiring={acquisition}
-            />
-          ))}
-          {/* Track layers — green dots on map */}
-          {devices.map(d => (
+          {/* PPI overlays — 仅勾选的设备扫描 */}
+          {devices.map(d => {
+            const checked = checkedDeviceIds.includes(d.id)
+            const hasFault = deviceStates.some(ds => ds.state === 'Fault')
+            return (
+              <PPIOverlay
+                key={d.id}
+                device={d}
+                mapInstance={mapInstanceRef.current}
+                mapClass={mapRef.current}
+                connected={true}
+                acquiring={checked && acquisition}
+                hasFault={hasFault}
+              />
+            )
+          })}
+          {/* Track layers — 仅勾选的设备显示航迹 */}
+          {devices.filter(d => checkedDeviceIds.includes(d.id)).map(d => (
             <TrackLayer
               key={`track-${d.id}`}
               device={d}

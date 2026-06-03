@@ -2,16 +2,25 @@ import type { Task } from '../../lib/taskTypes'
 import { useCore } from '../../hooks/useCoreApi'
 
 const STATUS_LABEL: Record<string, string> = {
-  active: '进行中',
-  completed: '已完成',
-  archived: '已归档',
+  active: '进行中', completed: '已完成', archived: '已归档',
 }
 
 export default function TitleBar({ activeTask }: { activeTask: Task | null }) {
-  const { connected, acquisition, toggleAcquisition } = useCore()
+  const { connected, acquisition, state, checkedDeviceIds, devices, noSelectionHint, dismissNoSelectionHint, toggleAcquisition } = useCore()
+
+  const isTransient = state === 'Starting' || state === 'Stopping'
+  const isFault = state === 'Fault'
+  const checkedCount = checkedDeviceIds.length
+
+  const btnLabel = isFault ? '复位'
+    : acquisition ? '停止采集'
+    : '开始采集'
+
+  const btnBg = isFault ? '#ef4444'
+    : 'var(--primaryContainer)'
 
   return (
-    <header className="h-11 glass-panel flex justify-between items-center w-full px-4 z-20 shrink-0"
+    <header className="h-11 glass-panel flex justify-between items-center w-full px-4 z-20 shrink-0 relative"
       style={{ borderBottom: '1px solid rgba(229, 231, 226, 0.5)' }}
     >
       <div className="flex items-center gap-3">
@@ -41,16 +50,39 @@ export default function TitleBar({ activeTask }: { activeTask: Task | null }) {
             </span>
           </div>
         )}
+
+        {/* Device count badge */}
+        {devices.length > 0 && (
+          <span className="text-[9px]" style={{ color: 'var(--secondary)' }}>
+            {acquisition
+              ? `${devices.filter(d => d.acquisition).length}/${devices.length} 工作中`
+              : `${devices.length} 设备`}
+            {checkedCount > 0 && ` · 已选 ${checkedCount}`}
+          </span>
+        )}
       </div>
 
       <button
         className="px-3.5 py-1 rounded-lg text-white font-semibold text-[11px] border-none cursor-pointer
-                   precision-shadow active:scale-95 transition-all"
-        style={{ background: 'var(--primaryContainer)' }}
+                   precision-shadow active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+        style={{ background: btnBg }}
         onClick={toggleAcquisition}
+        disabled={isTransient}
       >
-        {acquisition ? '停止采集' : '开始采集'}
+        {btnLabel}
       </button>
+
+      {/* 未勾选设备提示 */}
+      {noSelectionHint && (
+        <div className="absolute top-full right-4 mt-1 px-3 py-2 rounded-lg text-[11px] z-50"
+          style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b' }}>
+          请先在设备列表中勾选要控制的雷达
+          <button className="ml-2 px-1.5 py-0.5 rounded text-[10px] border-none cursor-pointer"
+            style={{ background: '#fee2e2', color: '#991b1b' }}
+            onClick={dismissNoSelectionHint}
+          >×</button>
+        </div>
+      )}
     </header>
   )
 }

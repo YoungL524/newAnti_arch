@@ -144,3 +144,17 @@ input[type=range]::-webkit-slider-runnable-track {
   0%, 100% { transform: scale(1); opacity: 0.6; }
   50% { transform: scale(1.5); opacity: 0.2; }
 }
+
+@keyframes alert-flash {
+  0%   { background-color: transparent; }
+  15%  { background-color: rgba(239,68,68,0.18); }
+  30%  { background-color: transparent; }
+  45%  { background-color: rgba(239,68,68,0.12); }
+  60%  { background-color: transparent; }
+  75%  { background-color: rgba(239,68,68,0.06); }
+  100% { background-color: transparent; }
+}
+
+.animate-alert-flash {
+  animation: alert-flash 1.2s ease-in-out;
+}

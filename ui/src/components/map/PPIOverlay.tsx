@@ -7,9 +7,10 @@ interface PPIOverlayProps {
   mapClass: any
   connected: boolean
   acquiring: boolean
+  hasFault?: boolean
 }
 
-export default function PPIOverlay({ device, mapInstance, mapClass, connected, acquiring }: PPIOverlayProps) {
+export default function PPIOverlay({ device, mapInstance, mapClass, connected, acquiring, hasFault }: PPIOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animRef = useRef<number>(0)
   const phaseRef = useRef<number>(0)
@@ -239,7 +240,7 @@ export default function PPIOverlay({ device, mapInstance, mapClass, connected, a
       // --- Center dot ---
       ctx.beginPath()
       ctx.arc(cx, cy, 3, 0, Math.PI * 2)
-      ctx.fillStyle = connected ? '#1E5A46' : '#999'
+      ctx.fillStyle = hasFault ? '#ef4444' : connected ? '#1E5A46' : '#999'
       ctx.fill()
 
       // --- Scan sector arc highlight (subtle) — one per active face ---

@@ -1,60 +1,101 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { StatusResponse, WsMessage, RadarTrack } from '../lib/protocol'
+import type { StatusResponse, WsMessage, RadarTrack, DeviceStatus } from '../lib/protocol'
+
+interface DeviceState {
+  id: string
+  state: string
+  acquisition: boolean
+}
 
 interface CoreState {
   connected: boolean
-  acquisition: boolean
+  acquisition: boolean        // 聚合：是否有设备在工作
   state: string
+  devices: DeviceState[]       // per-device 状态
+  checkedDeviceIds: string[]   // 用户勾选的设备
+  noSelectionHint: boolean     // 未勾选设备时的弹窗提示
   tracks: RadarTrack[]
-  trackRate: number           // 每秒接收航迹数 (证明后端数据流)
+  trackRate: number
+  setCheckedDevices: (ids: string[]) => void
+  dismissNoSelectionHint: () => void
   toggleAcquisition: () => void
 }
 
 const defaultState: CoreState = {
-  connected: false,
-  acquisition: false,
-  state: 'Unknown',
-  tracks: [],
-  trackRate: 0,
-  toggleAcquisition: () => {},
+  connected: false, acquisition: false, state: 'Unknown',
+  devices: [], checkedDeviceIds: [], noSelectionHint: false,
+  tracks: [], trackRate: 0,
+  setCheckedDevices: () => {}, dismissNoSelectionHint: () => {}, toggleAcquisition: () => {},
 }
 
 const CoreContext = createContext<CoreState>(defaultState)
 
+function computeAggregate(devices: DeviceState[]): { acquisition: boolean; state: string } {
+  if (devices.length === 0) return { acquisition: false, state: 'Unknown' }
+  const anyWorking = devices.some(d => d.acquisition)
+  const allStandby = devices.every(d => d.state === 'Standby')
+  const anyFault = devices.some(d => d.state === 'Fault')
+  const anyTransient = devices.some(d => d.state === 'Starting' || d.state === 'Stopping')
+  return {
+    acquisition: anyWorking || anyTransient,
+    state: anyFault ? 'Fault' : allStandby ? 'Standby' : anyTransient ? 'Starting' : 'Working',
+  }
+}
+
 export function CoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<CoreState>(() => ({
     ...defaultState,
-    toggleAcquisition: () => {},
+    setCheckedDevices: () => {}, toggleAcquisition: () => {},
   }))
 
-  // 全量缓冲：WS 到达全速写入，1s interval 节流刷到 React state
   const tracksRef = useRef<RadarTrack[]>([])
   const trackCountRef = useRef(0)
+  const checkedRef = useRef<string[]>([])
+
+  const setCheckedDevices = useCallback((ids: string[]) => {
+    checkedRef.current = ids
+    setState(prev => ({ ...prev, checkedDeviceIds: ids, noSelectionHint: false }))
+  }, [])
+
+  const dismissNoSelectionHint = useCallback(() => {
+    setState(prev => ({ ...prev, noSelectionHint: false }))
+  }, [])
 
   const toggleAcquisition = useCallback(() => {
     setState(prev => {
-      const next = !prev.acquisition
-      fetch(`/api/${next ? 'start' : 'stop'}`, { method: 'POST' })
-        .catch(() => {})
-      if (!next) {
+      const cids = checkedRef.current
+      // 聚合判断：如果当前有设备在工作 → 停止；否则启动勾选的设备
+      const anyWorking = prev.devices.some(d => d.acquisition)
+      // 无勾选 → 弹窗提示
+      if (!anyWorking && cids.length === 0) {
+        setTimeout(() => setState(p => ({ ...p, noSelectionHint: true })), 0)
+        return prev
+      }
+      const endpoint = anyWorking ? 'stop' : 'start'
+
+      fetch(`/api/${endpoint}`, { method: 'POST' }).catch(() => {})
+
+      if (!anyWorking) {
         tracksRef.current = []
         trackCountRef.current = 0
       }
-      return { ...prev, acquisition: next, tracks: next ? prev.tracks : [], trackRate: 0 }
+      return { ...prev, acquisition: !anyWorking, tracks: !anyWorking ? [] : prev.tracks, trackRate: 0 }
     })
   }, [])
 
-  // ── HTTP 轮询状态 ──
+  // ── HTTP 轮询 ──
   useEffect(() => {
     const fetchStatus = async () => {
       try {
         const res = await fetch('/api/status')
         const data: StatusResponse = await res.json()
         if (data.ok) {
-          setState(prev => ({ ...prev,
-            connected: data.connected,
-            acquisition: data.acquisition,
-            state: data.state,
+          const devices: DeviceState[] = (data.devices || []).map((d: DeviceStatus) => ({
+            id: d.id, state: d.state, acquisition: d.acquisition,
+          }))
+          const agg = computeAggregate(devices)
+          setState(prev => ({
+            ...prev, connected: data.connected, devices, ...agg,
           }))
         }
       } catch {
@@ -72,36 +113,32 @@ export function CoreProvider({ children }: { children: ReactNode }) {
     let reconnectTimer: ReturnType<typeof setTimeout>
 
     const connect = () => {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const url = `${protocol}//${window.location.host}/ws`
-      const wsUrl = import.meta.env.DEV ? url : 'ws://localhost:8089'
+      const url = import.meta.env.DEV
+        ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
+        : 'ws://localhost:8089'
 
-      ws = new WebSocket(wsUrl)
+      ws = new WebSocket(url)
       ws.onopen = () => console.debug('[WS] connected')
       ws.onmessage = (e) => {
         try {
           const msg: WsMessage = JSON.parse(e.data)
           if (msg.type === 'status') {
-            setState(prev => ({ ...prev,
-              connected: msg.connected,
-              acquisition: msg.acquisition,
-              state: msg.state,
+            const devices: DeviceState[] = (msg.devices || []).map((d: DeviceStatus) => ({
+              id: d.id, state: d.state, acquisition: d.acquisition,
+            }))
+            const agg = computeAggregate(devices)
+            setState(prev => ({
+              ...prev, connected: msg.connected, devices, ...agg,
             }))
           } else if (msg.type === 'tracks') {
-            // 全速写入 ref，不触发 React 渲染
             const t = msg.track
             if (t) {
               const row: RadarTrack = {
-                batchId: t.targetId,
-                slantRange: t.range,
-                azimuth: t.azimuth * 180 / Math.PI,
-                elevation: t.elevation * 180 / Math.PI,
-                altitude: t.altitude,
-                radialSpeed: t.radialSpeed,
+                batchId: t.targetId, slantRange: t.range,
+                azimuth: t.azimuth * 180 / Math.PI, elevation: t.elevation * 180 / Math.PI,
+                altitude: t.altitude, radialSpeed: t.radialSpeed,
                 amplitude: 0, snr: 0, extrapolateFlag: 0,
-                targetType: t.targetId,
-                signalId: 0, sceneNum: 0,
-                timestamp: t.timestamp,
+                targetType: t.targetId, signalId: 0, sceneNum: 0, timestamp: t.timestamp,
               }
               tracksRef.current = [...tracksRef.current, row].slice(-500)
               trackCountRef.current++
@@ -117,29 +154,24 @@ export function CoreProvider({ children }: { children: ReactNode }) {
     }
 
     connect()
-    return () => {
-      ws?.close()
-      clearTimeout(reconnectTimer)
-    }
+    return () => { ws?.close(); clearTimeout(reconnectTimer) }
   }, [])
 
-  // ── 1s 节流：flush 到 React state + 统计速率 ──
+  // ── 1s 节流 flush ──
   useEffect(() => {
     const id = setInterval(() => {
       setState(prev => {
         if (!prev.acquisition) return prev
-        return {
-          ...prev,
-          tracks: [...tracksRef.current],          // 节流快照
-          trackRate: trackCountRef.current,         // 上一秒的接收量
-        }
+        return { ...prev, tracks: [...tracksRef.current], trackRate: trackCountRef.current }
       })
       trackCountRef.current = 0
     }, 1000)
     return () => clearInterval(id)
   }, [])
 
-  const contextValue = useMemo(() => ({ ...state, toggleAcquisition }), [state, toggleAcquisition])
+  const contextValue = useMemo(() => ({
+    ...state, setCheckedDevices, dismissNoSelectionHint, toggleAcquisition,
+  }), [state, setCheckedDevices, dismissNoSelectionHint, toggleAcquisition])
 
   return (
     <CoreContext.Provider value={contextValue}>

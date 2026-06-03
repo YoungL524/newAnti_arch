@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import type { RadarDevice, SubDevice, AppDevice, RadarFace, RadarBrand } from '../map/types'
 import { BRAND_LABELS } from '../map/types'
 import type { Task } from '../../lib/taskTypes'
+import { useCore } from '../../hooks/useCoreApi'
 
 interface NavItem {
   id: string; icon: string; label: string
@@ -93,6 +94,15 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
   const [subForm, setSubForm] = useState<Omit<SubDevice, 'id'>>({ name: '', kind: 'opto', brand: 'cetc38', linkedRadarId: '' })
 
   const radarDevices = useMemo(() => allDevices.filter(isRadar), [allDevices])
+  const { devices: deviceStates, checkedDeviceIds, noSelectionHint, acquisition, state: globalState, setCheckedDevices } = useCore()
+
+  const toggleDeviceCheck = (id: string) => {
+    setCheckedDevices(
+      checkedDeviceIds.includes(id)
+        ? checkedDeviceIds.filter(did => did !== id)
+        : [...checkedDeviceIds, id]
+    )
+  }
 
   const resetForm = () => {
     setRadarForm(RADAR_DEFAULTS)
@@ -206,18 +216,28 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                     )}
                   </div>
                 )}
+                <div key={noSelectionHint ? 'flash' : 'ok'} className={noSelectionHint ? 'animate-alert-flash rounded-md' : ''}>
                 <p className="text-[9px] uppercase tracking-[0.18em] mb-0.5 opacity-80 font-semibold"
                   style={{ color: 'var(--outline)', fontFamily: "'Inter', sans-serif" }}>
                   {activeTask ? '任务设备' : '已注册设备'} &middot; {allDevices.length}
                 </p>
                 {allDevices.map(d => {
                   if (isRadar(d)) {
+                    const checked = checkedDeviceIds.includes(d.id)
+                    const stateColor =
+                      globalState === 'Fault' ? '#ef4444' :
+                      acquisition ? '#22c55e' : '#94a3b8'
                     return (
                       <div key={d.id}>
-                        {/* Radar device row */}
-                        <div className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-black/3 transition-colors cursor-pointer"
+                        <div className="flex items-center gap-1.5 px-1.5 py-1 rounded-md hover:bg-black/3 transition-colors cursor-pointer"
                           onDoubleClick={() => onEditDevice(d)} title="双击编辑设备参数">
-                          <span className="material-symbols-outlined !text-[14px]" style={{ color: 'var(--primaryContainer)' }}>sensors</span>
+                          {/* Checkbox */}
+                          <input type="checkbox" checked={checked}
+                            onChange={() => toggleDeviceCheck(d.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{ width: 11, height: 11, cursor: 'pointer', accentColor: '#064e3b' }}
+                          />
+                          <span className="material-symbols-outlined !text-[13px]" style={{ color: 'var(--primaryContainer)' }}>sensors</span>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-1.5">
                               <span className="text-[11px] font-semibold truncate" style={{ color: 'var(--ink)' }}>{d.name}</span>
@@ -227,10 +247,12 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                               {BRAND_LABELS[d.brand]} &middot; {d.faces.length}面 &middot; {d.maxRange}km
                             </div>
                           </div>
+                          {/* Status dot */}
+                          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: stateColor }} title={deviceStates.length > 0 ? globalState : '未连接'} />
                           <button
                             className="p-0.5 rounded border-none bg-transparent cursor-pointer hover:bg-red-50 flex-shrink-0"
                             style={{ color: 'var(--onSurfaceVariant)' }}
-                            onClick={() => onRemoveDevice(d.id)}
+                            onClick={() => { onRemoveDevice(d.id); setCheckedDevices(checkedDeviceIds.filter(did => did !== d.id)) }}
                           >
                             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
                               <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" />
@@ -260,7 +282,7 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                       <button
                         className="p-0.5 rounded border-none bg-transparent cursor-pointer hover:bg-red-50 flex-shrink-0"
                         style={{ color: 'var(--onSurfaceVariant)' }}
-                        onClick={() => onRemoveSubDevice(s.id)}
+                        onClick={() => { onRemoveSubDevice(s.id); setCheckedDevices(checkedDeviceIds.filter(did => did !== s.id)) }}
                       >
                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
                           <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" />
@@ -269,6 +291,8 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                     </div>
                   )
                 })}
+
+                </div>
 
                 {!formExpanded ? (
                   <button

@@ -1,5 +1,11 @@
 /** Protocol types matching C++ HttpServer API */
 
+export interface DeviceStatus {
+  id: string
+  state: string       // Standby | Starting | Working | Stopping | Fault
+  acquisition: boolean
+}
+
 export interface StatusResponse {
   ok: boolean
   acquisition: boolean
@@ -8,6 +14,7 @@ export interface StatusResponse {
   uptime: number
   endpoints: number
   dbConnected: boolean
+  devices: DeviceStatus[]
 }
 
 export interface WsStatusMessage {
@@ -16,6 +23,7 @@ export interface WsStatusMessage {
   state: string
   connected: boolean
   upTime: number
+  devices: DeviceStatus[]
 }
 
 export type WsMessage = WsStatusMessage | WsTracksMessage
