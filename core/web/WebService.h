@@ -72,6 +72,7 @@ private:
     QTcpServer*  m_httpServer = nullptr;
     quint16      m_httpPort   = 8088;
     QHash<QTcpSocket*, QByteArray> m_buffers;
+    QHash<QTcpSocket*, QTimer*>    m_idleTimers;
     QHash<QString, JsonHandler>    m_getHandlers;
     QHash<QString, JsonHandler>    m_postHandlers;
     QString      m_staticDir;

@@ -162,6 +162,7 @@ private slots:
         QVERIFY2(r2.has_value(), "second pipelined request must also parse");
         QCOMPARE(r2->request.method, Method::GET);
         QCOMPARE(r2->request.path, QStringLiteral("/next"));
+        QCOMPARE(r2->consumed, static_cast<size_t>(rest.size()));
     }
 
     void parse_chunked_pipelined_get() {

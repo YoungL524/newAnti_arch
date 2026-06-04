@@ -1,0 +1,42 @@
+#pragma once
+
+#include <QObject>
+#include <QJsonObject>
+#include <functional>
+
+namespace web { class WebService; }
+class RadarWorkModeController;
+struct AppHealth;
+
+/**
+ * @brief Web API 胶水层：REST 路由注册 + WS 消息拼装。
+ *
+ * 负责将 core 业务层的数据（工作模式状态、航迹、日志、健康报告）
+ * 拼装为 JSON 并通过 WebService 发布。
+ * 不管理生命周期，交给 AppController 组合。
+ */
+class WebApiController : public QObject {
+    Q_OBJECT
+public:
+    using HealthProvider = std::function<AppHealth()>;
+
+    WebApiController(web::WebService* ws,
+                     RadarWorkModeController* wmc,
+                     HealthProvider healthProvider,
+                     QObject* parent = nullptr);
+
+    /// 注册 REST 路由（/api/status, /api/logs, /api/start, /api/stop）
+    void registerRestRoutes();
+
+    /// 连接 WS 推送（SystemBus 航迹、Logger 日志、1s 状态定时器）
+    void connectWebPush();
+
+    /// 关闭时释放订阅（取消 SystemBus 订阅、清 Logger 回调）
+    void shutdown();
+
+private:
+    web::WebService*           m_ws = nullptr;
+    RadarWorkModeController*   m_wmc = nullptr;
+    HealthProvider             m_health;
+    uint32_t                   m_trackSubId = 0;
+};

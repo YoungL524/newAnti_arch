@@ -1,6 +1,7 @@
 set(CORE_HEADERS
     web/HttpParser.h
     web/WebService.h
+    web/WebApiController.h
     comm/CommTypes.h
     comm/Endpoint.h
     comm/UdpEndpoint.h
@@ -29,6 +30,7 @@ set(CORE_SOURCES
     main.cpp
     web/HttpParser.cpp
     web/WebService.cpp
+    web/WebApiController.cpp
     log/Logger.cpp
     comm/Endpoint.cpp
     comm/UdpEndpoint.cpp

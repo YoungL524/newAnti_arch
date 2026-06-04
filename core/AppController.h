@@ -16,6 +16,7 @@ class RadarWorkModeController;
 class IWorkModeCommandSender;
 
 namespace web { class WebService; }
+class WebApiController;
 
 /**
  * @brief Web 服务启动结果
@@ -132,14 +133,10 @@ public:
     AppHealth healthReport() const;
 
     /**
-     * @brief 启动 Web 服务（创建 web::WebService、注册 REST 路由、WS 定时器、subscribeToBus）
+     * @brief 启动 Web 服务（创建 web::WebService + WebApiController）
      * @return 启动结果（含实际端口号）
      */
     WebServiceResult startWebService(quint16 httpPort = 8088, quint16 wsPort = 8089);
-
-private:
-    void registerRestRoutes();
-    void connectWebServiceSignals();
 
 private slots:
     /**
@@ -292,5 +289,6 @@ private:
     bool m_dphEnabled = true;
     bool m_running = false;
 
-    std::unique_ptr<web::WebService> m_webService;   ///< HTTP/WS 服务
+    std::unique_ptr<web::WebService> m_webService;       ///< HTTP/WS 服务
+    std::unique_ptr<WebApiController> m_webApi;           ///< REST 路由 + WS 消息组装
 };

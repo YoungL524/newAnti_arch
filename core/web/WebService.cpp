@@ -4,6 +4,7 @@
 #include <QTcpSocket>
 #include <QWebSocketServer>
 #include <QWebSocket>
+#include <QTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QDir>
@@ -11,6 +12,13 @@
 #include <QJsonDocument>
 #include <QCoreApplication>
 #include <QDebug>
+
+namespace {
+    constexpr int kMaxHeaderBytes  = 16 * 1024;       // 16 KiB
+    constexpr int kMaxBodyBytes    = 1024 * 1024;      // 1 MiB
+    constexpr int kMaxBufferedBytes = 2 * 1024 * 1024; // 2 MiB
+    constexpr int kIdleTimeoutMs   = 30 * 1000;        // 30 s
+}
 
 namespace web {
 
@@ -161,12 +169,23 @@ void WebService::onHttpConnection() {
         connect(sock, &QTcpSocket::readyRead, this, &WebService::onHttpReadyRead);
         connect(sock, &QTcpSocket::disconnected, this, &WebService::onHttpDisconnected);
         m_buffers[sock] = QByteArray();
+
+        // Per-socket idle timer
+        auto* timer = new QTimer(sock);
+        timer->setSingleShot(true);
+        QObject::connect(timer, &QTimer::timeout, sock, [sock, this]() {
+            qDebug() << "[WebService] HTTP 空闲超时" << sock->peerAddress().toString();
+            sock->disconnectFromHost();
+        });
+        timer->start(kIdleTimeoutMs);
+        m_idleTimers[sock] = timer;
     }
 }
 
 void WebService::onHttpDisconnected() {
     auto* sock = qobject_cast<QTcpSocket*>(sender());
     if (sock) {
+        if (auto* t = m_idleTimers.take(sock)) t->stop();
         m_buffers.remove(sock);
         sock->deleteLater();
     }
@@ -176,13 +195,32 @@ void WebService::onHttpReadyRead() {
     auto* sock = qobject_cast<QTcpSocket*>(sender());
     if (!sock) return;
 
-    m_buffers[sock].append(sock->readAll());
+    // Reset idle timer
+    if (auto* t = m_idleTimers.value(sock)) t->start(kIdleTimeoutMs);
+
+    QByteArray& buf = m_buffers[sock];
+    buf.append(sock->readAll());
+
+    // Oversized total buffer guard
+    if (buf.size() > kMaxBufferedBytes) {
+        qWarning() << "[WebService] 缓冲区超限，断开客户端" << sock->peerAddress().toString();
+        m_buffers.remove(sock);
+        sock->disconnectFromHost();
+        return;
+    }
+
+    // Oversized header guard: if no \r\n\r\n found and buffer exceeds max header size
+    if (!buf.contains("\r\n\r\n") && buf.size() > kMaxHeaderBytes) {
+        qWarning() << "[WebService] 请求头部超限，断开客户端" << sock->peerAddress().toString();
+        m_buffers.remove(sock);
+        sock->disconnectFromHost();
+        return;
+    }
 
     // Process all complete requests in the buffer (handle pipelining)
     while (true) {
-        QByteArray& buf = m_buffers[sock];
         bool processed = dispatchRequest(sock, buf);
-        if (!processed) break;  // incomplete request or socket was closed
+        if (!processed) break;
     }
 }
 
@@ -201,6 +239,15 @@ bool WebService::dispatchRequest(QTcpSocket* sock, QByteArray& raw) {
 
     const auto& req = result->request;
     const bool keepAlive = result->keepAlive;
+
+    // Body size limit
+    if (req.body.size() > kMaxBodyBytes) {
+        sendError(sock, 413, QStringLiteral("Payload Too Large"), keepAlive);
+        m_buffers.remove(sock);
+        sock->disconnectFromHost();
+        return false;
+    }
+
     QString cleanPath = req.path;
 
     // Route
