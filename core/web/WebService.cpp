@@ -17,9 +17,8 @@ namespace web {
 // ============================================================
 // Construction
 // ============================================================
-WebService::WebService(AppController* controller, QObject* parent)
+WebService::WebService(QObject* parent)
     : QObject(parent)
-    , m_controller(controller)
 {
     // Default static dir relative to executable
     m_staticDir = QCoreApplication::applicationDirPath()

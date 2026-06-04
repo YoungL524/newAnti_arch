@@ -137,6 +137,10 @@ public:
      */
     WebServiceResult startWebService(quint16 httpPort = 8088, quint16 wsPort = 8089);
 
+private:
+    void registerRestRoutes();
+    void connectWebServiceSignals();
+
 private slots:
     /**
      * @brief 处理通信层错误

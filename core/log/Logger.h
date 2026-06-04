@@ -115,6 +115,7 @@ private:
     int      m_keepDays = 7;
     bool     m_initialized = false;
     std::function<void(const QString&, const QString&)> m_externalCb;
+    QMutex   m_cbMutex;                ///< 保护 m_externalCb 读写
 
     // 环形缓冲区：保存最近日志用于 WS 初连接推送
     mutable QMutex m_recentMutex;

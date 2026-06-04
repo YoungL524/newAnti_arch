@@ -580,13 +580,21 @@ void AppController::insertSystemEvent(const QString& category,
 
 WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort)
 {
-    m_webService = std::make_unique<web::WebService>(this, this);
+    m_webService = std::make_unique<web::WebService>(this);
     auto result = m_webService->start(httpPort, wsPort);
     if (!result.ok) return {};
 
+    registerRestRoutes();
+    connectWebServiceSignals();
+
+    qInfo() << "[AppController] Web 服务已启动";
+    return {true, httpPort, wsPort};
+}
+
+void AppController::registerRestRoutes()
+{
     auto wmc = m_workModeController.get();
 
-    // REST 路由
     m_webService->handleGet(QStringLiteral("/api/status"), [this, wmc](const QJsonObject &) {
         QJsonObject s;
         auto health = healthReport();
@@ -614,11 +622,9 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
     });
 
     m_webService->handleGet(QStringLiteral("/api/logs"), [](const QJsonObject &) {
-        QJsonObject r;
-        r[QStringLiteral("ok")] = true;
+        QJsonObject r; r[QStringLiteral("ok")] = true;
         QJsonArray arr;
-        auto recent = Logger::instance().recentLogs(100);
-        for (const auto& p : recent) {
+        for (const auto& p : Logger::instance().recentLogs(100)) {
             QJsonObject item;
             item[QStringLiteral("level")] = p.first;
             item[QStringLiteral("message")] = p.second;
@@ -633,7 +639,7 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
         m_webService->handlePost(QStringLiteral("/api/start"), [wmc](const QJsonObject &body) {
             static qint64 lastCmdMs = 0;
             qint64 now = QDateTime::currentMSecsSinceEpoch();
-            if (now - lastCmdMs < 500) { QJsonObject r; r[QStringLiteral("ok")] = true; return r; }
+            if (now - lastCmdMs < 500) return QJsonObject{{QStringLiteral("ok"), true}};
             lastCmdMs = now;
             QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
             bool ok = ids.isEmpty();
@@ -645,7 +651,7 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
         m_webService->handlePost(QStringLiteral("/api/stop"), [wmc](const QJsonObject &body) {
             static qint64 lastCmdMs = 0;
             qint64 now = QDateTime::currentMSecsSinceEpoch();
-            if (now - lastCmdMs < 500) { QJsonObject r; r[QStringLiteral("ok")] = true; return r; }
+            if (now - lastCmdMs < 500) return QJsonObject{{QStringLiteral("ok"), true}};
             lastCmdMs = now;
             QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
             bool ok = ids.isEmpty();
@@ -655,9 +661,15 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
             return QJsonObject{{QStringLiteral("ok"), true}};
         });
     }
+}
+
+void AppController::connectWebServiceSignals()
+{
+    auto* ws = m_webService.get();
+    auto wmc = m_workModeController.get();
 
     // HTTP 日志转发
-    QObject::connect(m_webService.get(), &web::WebService::serverLog,
+    QObject::connect(ws, &web::WebService::serverLog,
                      [](const QString &level, const QString &msg) {
         if (level == QStringLiteral("error"))
             qWarning().noquote() << QStringLiteral("[HTTP]") << msg;
@@ -665,7 +677,6 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
     });
 
     // SystemBus → WS 航迹推送
-    auto* ws = m_webService.get();
     SystemBus::getInstance().subscribeByTarget(UI_OUTPUTWIDGET,
         [ws](const DataPacket* pkt) {
             if (!pkt || pkt->payloadType != PAYLOAD_TYPE_GENERAL_PACKAGE) return;
@@ -732,7 +743,4 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
         ws->broadcast(msg);
     });
     timer->start(1000);
-
-    qInfo() << "[AppController] Web 服务已启动";
-    return {true, httpPort, wsPort};
 }

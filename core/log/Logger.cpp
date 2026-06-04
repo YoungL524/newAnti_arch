@@ -215,8 +215,11 @@ void Logger::handle(QtMsgType type, const QMessageLogContext& ctx, const QString
     case QtFatalMsg:   levelStr = QStringLiteral("FATAL"); break;
     default:           levelStr = QStringLiteral("DEBUG"); break;
     }
-    if (m_externalCb) {
-        m_externalCb(levelStr, msg);
+    {
+        QMutexLocker cbLock(&m_cbMutex);
+        if (m_externalCb) {
+            m_externalCb(levelStr, msg);
+        }
     }
 
     // 环形缓冲区 (INFO 及以上级别)
@@ -236,5 +239,6 @@ QVector<QPair<QString, QString>> Logger::recentLogs(int count) const
 
 void Logger::setExternalCallback(std::function<void(const QString&, const QString&)> cb)
 {
+    QMutexLocker lock(&m_cbMutex);
     m_externalCb = std::move(cb);
 }

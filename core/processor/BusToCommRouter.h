@@ -86,7 +86,7 @@ private slots:
      * @brief 在本对象所属线程处理 DataPacket
      * @details 由 SystemBus 回调通过 Qt::QueuedConnection 投递过来
      */
-    void handlePacket(DataPacket packet);
+    void handlePacket(const DataPacket& packet);
 
 private:
     /**

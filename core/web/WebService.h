@@ -12,8 +12,6 @@ class QWebSocketServer;
 class QWebSocket;
 class QTimer;
 
-class AppController;
-
 namespace web {
 
 /**
@@ -34,7 +32,7 @@ public:
         quint16 wsPort   = 0;
     };
 
-    explicit WebService(AppController* controller, QObject* parent = nullptr);
+    explicit WebService(QObject* parent = nullptr);
     ~WebService() override;
 
     /// Start both HTTP and WebSocket servers. Returns false if either fails.
@@ -83,8 +81,6 @@ private:
     QList<QWebSocket*>      m_wsClients;
     quint16                 m_wsPort   = 8089;
 
-    // Back reference (for REST handlers that need AppController)
-    AppController* m_controller = nullptr;
 };
 
 } // namespace web

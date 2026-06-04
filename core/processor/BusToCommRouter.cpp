@@ -116,7 +116,7 @@ QByteArray BusToCommRouter::extractBytes(const DataPacket& packet) const
     return QByteArray();
 }
 
-void BusToCommRouter::handlePacket(DataPacket packet)
+void BusToCommRouter::handlePacket(const DataPacket& packet)
 {
     if (!m_commManager) return;
 

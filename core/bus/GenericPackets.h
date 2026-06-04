@@ -1,6 +1,7 @@
 ﻿#ifndef GENERICPACKETS_H
 #define GENERICPACKETS_H
 
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <type_traits>
@@ -263,7 +264,7 @@ inline DataPacket createErrorPacket(ErrorLevel level, ErrorType errorType,
     DataPacket packet;
     packet.sourceType = sourceModule;
     packet.dispatchTarget = UI_OUTPUTWIDGET;
-    static uint32_t errorSequence = 0;
+    static std::atomic<uint32_t> errorSequence{0};
     packet.packetSequence = ++errorSequence;
     packet.timeStamp = static_cast<uint64_t>(QDateTime::currentMSecsSinceEpoch());
     packet.errorType = errorType;
