@@ -14,6 +14,7 @@
 
 class RadarWorkModeController;
 class IWorkModeCommandSender;
+class HttpServer;
 
 /**
  * @brief 系统健康报告
@@ -117,10 +118,23 @@ public:
     /**
      * @brief 获取系统健康报告
      * @return 各子系统运行状态快照
-     * @details 聚合 SystemBus、通信端点、数据处理、数据库和延时统计数据。
-     *          UI 阶段可通过定时器轮询此方法刷新状态栏/指示灯。
      */
     AppHealth healthReport() const;
+
+    /**
+     * @brief 关联 HttpServer（必须在 initialize() 之后、start() 之前调用）
+     */
+    void setHttpServer(HttpServer* server);
+
+    /**
+     * @brief 启动 Web 服务（注册 REST 路由 + WS 定时器 + subscribeToBus）
+     */
+    void startWebService();
+
+    /**
+     * @brief 注册 REST API 路由（GET/POST handler + Logger 回调 → WS）
+     */
+    void registerApiRoutes();
 
 private slots:
     /**
@@ -269,7 +283,10 @@ private:
     std::unique_ptr<DphPublisher> m_dphPublisher;           ///< DPH 定时发送器（阶段 D3）
     std::unique_ptr<IWorkModeCommandSender> m_workModeSender;    ///< 工作模式命令发送器
     std::unique_ptr<RadarWorkModeController> m_workModeController; ///< 工作模式状态机
-    uint16_t m_reverseTargetDevice = DEVICE_RADAR_NH_KU_1;  ///< 反向流目标设备（由 processor.json 装配）
-    bool m_dphEnabled = true;                                ///< DPH 发送开关（由 processor.json 装配）
-    bool m_running = false;                                 ///< 运行状态标志
+    uint16_t m_reverseTargetDevice = DEVICE_RADAR_NH_KU_1;
+    bool m_dphEnabled = true;
+    bool m_running = false;
+
+    HttpServer* m_httpServer = nullptr;   ///< Web 服务（外部注入，由 main 创建）
+    QTimer* m_statusTimer = nullptr;      ///< WS 状态广播定时器
 };

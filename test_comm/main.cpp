@@ -32,7 +32,7 @@ static void printUsage()
     qDebug() << QStringLiteral("  q / quit       - 退出程序");
     qDebug() << QStringLiteral("========================================\n");
 }
-
+ 
 
 int main(int argc, char *argv[])
 {

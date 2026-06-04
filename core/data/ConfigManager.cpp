@@ -2,6 +2,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QDebug>
@@ -121,4 +122,34 @@ QJsonObject ConfigManager::loadJsonFile(const QString& filePath) const
 
     qDebug() << QStringLiteral("[ConfigManager] 已加载: %1").arg(filePath);
     return doc.object();
+}
+
+QStringList ConfigManager::validateConfig(const QString& name, const QJsonObject& obj)
+{
+    QStringList errors;
+
+    if (name == QStringLiteral("endpoints")) {
+        QJsonArray eps = obj[QStringLiteral("endpoints")].toArray();
+        if (eps.isEmpty()) {
+            errors << QStringLiteral("endpoints.json: endpoints 数组为空");
+        }
+        for (int i = 0; i < eps.size(); ++i) {
+            QJsonObject ep = eps[i].toObject();
+            QString id = ep[QStringLiteral("id")].toString();
+            int port = ep[QStringLiteral("localPort")].toInt();
+            if (id.isEmpty())
+                errors << QStringLiteral("endpoints.json[%1]: id 为空").arg(i);
+            if (port <= 0)
+                errors << QStringLiteral("endpoints.json[%1](%2): localPort <= 0").arg(i).arg(id);
+        }
+    } else if (name == QStringLiteral("processor")) {
+        int target = obj[QStringLiteral("reverseTargetDevice")].toInt(0);
+        if (target <= 0)
+            errors << QStringLiteral("processor.json: reverseTargetDevice <= 0，反向流路由无法工作");
+        int dphIvl = obj[QStringLiteral("dphPublisher")].toObject()[QStringLiteral("intervalMs")].toInt(0);
+        if (dphIvl < 10 || dphIvl > 1000)
+            errors << QStringLiteral("processor.json: dphPublisher.intervalMs 应在 10-1000 之间，当前为 %1").arg(dphIvl);
+    }
+
+    return errors;
 }

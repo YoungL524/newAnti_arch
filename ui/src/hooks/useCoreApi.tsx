@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { StatusResponse, WsMessage, RadarTrack, DeviceStatus } from '../lib/protocol'
+import type { StatusResponse, LogsResponse, WsMessage, RadarTrack, DeviceStatus } from '../lib/protocol'
 
 interface DeviceState {
   id: string
@@ -16,6 +16,7 @@ interface CoreState {
   noSelectionHint: boolean     // 未勾选设备时的弹窗提示
   tracks: RadarTrack[]
   trackRate: number
+  logEntries: { level: string; message: string; timestamp: number }[]
   setCheckedDevices: (ids: string[]) => void
   dismissNoSelectionHint: () => void
   toggleAcquisition: () => void
@@ -24,7 +25,7 @@ interface CoreState {
 const defaultState: CoreState = {
   connected: false, acquisition: false, state: 'Unknown',
   devices: [], checkedDeviceIds: [], noSelectionHint: false,
-  tracks: [], trackRate: 0,
+  tracks: [], trackRate: 0, logEntries: [],
   setCheckedDevices: () => {}, dismissNoSelectionHint: () => {}, toggleAcquisition: () => {},
 }
 
@@ -50,7 +51,10 @@ export function CoreProvider({ children }: { children: ReactNode }) {
 
   const tracksRef = useRef<RadarTrack[]>([])
   const trackCountRef = useRef(0)
+  const logRef = useRef<{ level: string; message: string; timestamp: number }[]>([])
   const checkedRef = useRef<string[]>([])
+  const pendingRef = useRef(false)
+  const workingRef = useRef(false)  // 与 state.acquisition 同步，供 toggleAcquisition 读取
 
   const setCheckedDevices = useCallback((ids: string[]) => {
     checkedRef.current = ids
@@ -61,26 +65,33 @@ export function CoreProvider({ children }: { children: ReactNode }) {
     setState(prev => ({ ...prev, noSelectionHint: false }))
   }, [])
 
+  // 同步 workingRef 与 state.acquisition
+  useEffect(() => { workingRef.current = state.acquisition }, [state.acquisition])
+
   const toggleAcquisition = useCallback(() => {
-    setState(prev => {
-      const cids = checkedRef.current
-      // 聚合判断：如果当前有设备在工作 → 停止；否则启动勾选的设备
-      const anyWorking = prev.devices.some(d => d.acquisition)
-      // 无勾选 → 弹窗提示
-      if (!anyWorking && cids.length === 0) {
-        setTimeout(() => setState(p => ({ ...p, noSelectionHint: true })), 0)
-        return prev
-      }
-      const endpoint = anyWorking ? 'stop' : 'start'
+    if (pendingRef.current) return
+    pendingRef.current = true
+    setTimeout(() => { pendingRef.current = false }, 1500)
 
-      fetch(`/api/${endpoint}`, { method: 'POST' }).catch(() => {})
+    const cids = checkedRef.current
+    const isWorking = workingRef.current
 
-      if (!anyWorking) {
-        tracksRef.current = []
-        trackCountRef.current = 0
-      }
-      return { ...prev, acquisition: !anyWorking, tracks: !anyWorking ? [] : prev.tracks, trackRate: 0 }
-    })
+    if (!isWorking && cids.length === 0) {
+      setState(prev => ({ ...prev, noSelectionHint: true }))
+      return
+    }
+
+    if (!isWorking) { tracksRef.current = []; trackCountRef.current = 0 }
+
+    setState(prev => ({
+      ...prev,
+      acquisition: !isWorking,
+      tracks: !isWorking ? [] : prev.tracks,
+      trackRate: 0,
+    }))
+
+    // fetch 在 setState 外部！避免 StrictMode 双重调用
+    fetch(`/api/${isWorking ? 'stop' : 'start'}`, { method: 'POST' }).catch(() => {})
   }, [])
 
   // ── HTTP 轮询 ──
@@ -105,6 +116,19 @@ export function CoreProvider({ children }: { children: ReactNode }) {
     fetchStatus()
     const id = setInterval(fetchStatus, 5000)
     return () => clearInterval(id)
+  }, [])
+
+  // ── 初始加载：拉取最近日志 backlog ──
+  useEffect(() => {
+    fetch('/api/logs')
+      .then(r => r.json())
+      .then((data: LogsResponse) => {
+        if (data.ok && data.logs) {
+          logRef.current = data.logs
+          setState(prev => ({ ...prev, logEntries: data.logs }))
+        }
+      })
+      .catch(() => {})
   }, [])
 
   // ── WebSocket ──
@@ -143,6 +167,10 @@ export function CoreProvider({ children }: { children: ReactNode }) {
               tracksRef.current = [...tracksRef.current, row].slice(-500)
               trackCountRef.current++
             }
+          } else if (msg.type === 'log') {
+            logRef.current = [...logRef.current, {
+              level: msg.level, message: msg.message, timestamp: msg.timestamp,
+            }].slice(-200)
           }
         } catch { /* ignore */ }
       }
@@ -162,7 +190,7 @@ export function CoreProvider({ children }: { children: ReactNode }) {
     const id = setInterval(() => {
       setState(prev => {
         if (!prev.acquisition) return prev
-        return { ...prev, tracks: [...tracksRef.current], trackRate: trackCountRef.current }
+        return { ...prev, tracks: [...tracksRef.current], trackRate: trackCountRef.current, logEntries: [...logRef.current] }
       })
       trackCountRef.current = 0
     }, 1000)

@@ -66,6 +66,14 @@ public:
      */
     const LatencyStats& uplinkLatency() const { return m_uplinkLatency; }
 
+signals:
+    /**
+     * @brief 收到雷达回显的 workStandby 模式
+     * @param deviceId 设备 ID
+     * @param mode     回显的 Work_Standby_Mode (1=工作, 0=待机)
+     */
+    void radarWorkModeEcho(uint16_t deviceId, uint32_t mode);
+
 public slots:
     /**
      * @brief 处理来自通信层的原始数据

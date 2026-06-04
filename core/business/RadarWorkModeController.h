@@ -115,6 +115,12 @@ public slots:
      */
     void reset();
 
+    /**
+     * @brief 处理雷达回显的 workStandby 模式（ACK 替代超时）
+     * @param mode 回显的 Work_Standby_Mode (1=工作, 0=待机)
+     */
+    void onWorkModeEcho(uint32_t mode);
+
 signals:
     /**
      * @brief 状态发生真实变化时发出

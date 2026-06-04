@@ -111,6 +111,35 @@ void RadarWorkModeController::reset()
     emit requestRejected(RejectReason::ResetIgnoredOutsideFault, m_state);
 }
 
+void RadarWorkModeController::onWorkModeEcho(uint32_t mode)
+{
+    switch (m_state) {
+    case State::Starting:
+        if (mode == 1) {
+            transitionTo(State::Working);
+        } else {
+            transitionTo(State::Fault);
+            qWarning().noquote() << QStringLiteral("[RadarWorkMode] device=%1 雷达回显 mode=0，拒绝工作→Fault")
+                                    .arg(m_deviceId);
+        }
+        break;
+    case State::Working:
+        if (mode == 0) {
+            transitionTo(State::Fault);
+            qWarning().noquote() << QStringLiteral("[RadarWorkMode] device=%1 雷达异常回显 mode=0，Working→Fault")
+                                    .arg(m_deviceId);
+        }
+        break;
+    case State::Stopping:
+        if (mode == 0) {
+            transitionTo(State::Standby);
+        }
+        break;
+    default:
+        break;
+    }
+}
+
 void RadarWorkModeController::onTransitionTimeout()
 {
     // 仅在过渡态生效；若状态已被外部改变（例如同步进入 Fault），不再触发

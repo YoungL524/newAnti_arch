@@ -1,17 +1,21 @@
 ﻿#include "AppController.h"
+#include "HttpServer.h"
 #include "EndpointConfigLoader.h"
 #include "GenericPackets.h"
 #include "BusWorkModeSender.h"
 #include "RadarWorkModeController.h"
+#include "log/Logger.h"
+#include <QTimer>
 #include <QDateTime>
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QDebug>
-#include <QDateTime>
 #include <QVariantMap>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QDesktopServices>
+#include <QUrl>
 #include <cstring>
 
 AppController::AppController(QObject* parent)
@@ -26,6 +30,13 @@ AppController::~AppController()
 
 bool AppController::initialize()
 {
+    // 协议结构体尺寸诊断 (static_assert 的基准值)
+    qInfo() << "[Protocol] GeneralPackage =" << sizeof(GeneralPackage)
+            << " DataPackageHeader =" << sizeof(DataPackageHeader)
+            << " workStandby =" << sizeof(workStandby)
+            << " TargetType =" << sizeof(TargetType)
+            << " host_computer =" << sizeof(host_computer);
+
     if (!initializeDataAccess()) {
         return false;
     }
@@ -444,9 +455,7 @@ bool AppController::initializeBusinessLogic()
     connect(m_workModeController.get(), &RadarWorkModeController::stateChanged,
             this, [](RadarWorkModeController::State oldState,
                      RadarWorkModeController::State newState) {
-        qInfo() << QStringLiteral("[AppController] 雷达工作状态: %1 → %2")
-                    .arg(RadarWorkModeController::stateName(oldState),
-                         RadarWorkModeController::stateName(newState));
+        // WS 已通过 Logger 回调推送，此处不重复输出
     });
 
     // 命令被拒绝 → 日志（UI 阶段可改为 toast/状态提示）
@@ -464,6 +473,13 @@ bool AppController::initializeBusinessLogic()
         qDebug() << QStringLiteral("[AppController] 已下发 workmode=%1 到 device=%2")
                     .arg(mode).arg(deviceId);
     });
+
+    // 数据流 → 状态机关联：雷达回显替代超时
+    if (m_radarProcessor) {
+        connect(m_radarProcessor.get(), &RadarDataProcessor::radarWorkModeEcho,
+                m_workModeController.get(), &RadarWorkModeController::onWorkModeEcho);
+        qDebug() << "[AppController] RadarDataProcessor ↔ RadarWorkModeController 已关联";
+    }
 
     qDebug() << QStringLiteral("[AppController] 工作模式控制器已就绪, device=%1")
                 .arg(m_reverseTargetDevice);
@@ -545,4 +561,163 @@ void AppController::insertSystemEvent(const QString& category,
         qWarning() << QStringLiteral("[AppController] 写入 system_events 失败: %1/%2")
                       .arg(category, source);
     }
+}
+
+// ════════════════════════════════════════════════════════════════
+// Web 服务 (HttpServer + REST API + WS 定时器)
+// ════════════════════════════════════════════════════════════════
+
+void AppController::setHttpServer(HttpServer* server)
+{
+    m_httpServer = server;
+}
+
+void AppController::registerApiRoutes()
+{
+    if (!m_httpServer) return;
+
+    auto wmc = m_workModeController.get();
+
+    // GET /api/status
+    m_httpServer->handleGet(QStringLiteral("/api/status"), [this, wmc](const QJsonObject &) {
+        QJsonObject s;
+        auto health = healthReport();
+        s[QStringLiteral("ok")] = true;
+        s[QStringLiteral("connected")] = health.comm.openEndpoints > 0;
+        s[QStringLiteral("uptime")] = QDateTime::currentSecsSinceEpoch();
+        s[QStringLiteral("endpoints")] = health.comm.openEndpoints;
+        s[QStringLiteral("dbConnected")] = health.database.connected;
+
+        QJsonArray devices;
+        if (wmc) {
+            QJsonObject dev;
+            dev[QStringLiteral("id")] = QStringLiteral("radar_cpu");
+            dev[QStringLiteral("state")] = RadarWorkModeController::stateName(wmc->state());
+            auto st = wmc->state();
+            dev[QStringLiteral("acquisition")] = (st == RadarWorkModeController::State::Starting
+                                               || st == RadarWorkModeController::State::Working);
+            devices.append(dev);
+        }
+        s[QStringLiteral("devices")] = devices;
+        auto st2 = wmc ? wmc->state() : RadarWorkModeController::State::Standby;
+        s[QStringLiteral("acquisition")] = (st2 == RadarWorkModeController::State::Starting
+                                         || st2 == RadarWorkModeController::State::Working);
+        s[QStringLiteral("state")] = wmc ? RadarWorkModeController::stateName(wmc->state()) : QStringLiteral("Unknown");
+        return s;
+    });
+
+    // GET /api/logs
+    m_httpServer->handleGet(QStringLiteral("/api/logs"), [](const QJsonObject &) {
+        QJsonObject r;
+        r[QStringLiteral("ok")] = true;
+        QJsonArray arr;
+        auto recent = Logger::instance().recentLogs(100);
+        for (const auto& p : recent) {
+            QJsonObject item;
+            item[QStringLiteral("level")] = p.first;
+            item[QStringLiteral("message")] = p.second;
+            item[QStringLiteral("timestamp")] = QDateTime::currentMSecsSinceEpoch();
+            arr.append(item);
+        }
+        r[QStringLiteral("logs")] = arr;
+        return r;
+    });
+
+    if (wmc) {
+        // POST /api/start
+        m_httpServer->handlePost(QStringLiteral("/api/start"), [wmc](const QJsonObject &body) {
+            static qint64 lastCmdMs = 0;
+            qint64 now = QDateTime::currentMSecsSinceEpoch();
+            if (now - lastCmdMs < 500) { QJsonObject r; r[QStringLiteral("ok")] = true; return r; }
+            lastCmdMs = now;
+            QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
+            bool shouldStart = ids.isEmpty();
+            for (const auto &v : ids) {
+                if (v.toString() == QStringLiteral("radar_cpu")) { shouldStart = true; break; }
+            }
+            if (shouldStart) wmc->requestWork();
+            QJsonObject r; r[QStringLiteral("ok")] = true; return r;
+        });
+
+        // POST /api/stop
+        m_httpServer->handlePost(QStringLiteral("/api/stop"), [wmc](const QJsonObject &body) {
+            static qint64 lastCmdMs = 0;
+            qint64 now = QDateTime::currentMSecsSinceEpoch();
+            if (now - lastCmdMs < 500) { QJsonObject r; r[QStringLiteral("ok")] = true; return r; }
+            lastCmdMs = now;
+            QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
+            bool shouldStop = ids.isEmpty();
+            for (const auto &v : ids) {
+                if (v.toString() == QStringLiteral("radar_cpu")) { shouldStop = true; break; }
+            }
+            if (shouldStop) wmc->requestStandby();
+            QJsonObject r; r[QStringLiteral("ok")] = true; return r;
+        });
+    }
+}
+
+void AppController::startWebService()
+{
+    if (!m_httpServer) return;
+
+    // 注册路由
+    registerApiRoutes();
+
+    // 输出 HTTP server 日志
+    QObject::connect(m_httpServer, &HttpServer::serverLog,
+                     [](const QString &level, const QString &msg) {
+        if (level == QStringLiteral("error"))
+            qWarning().noquote() << QStringLiteral("[HTTP]") << msg;
+        else
+            qDebug().noquote() << QStringLiteral("[HTTP]") << msg;
+    });
+
+    // 订阅 SystemBus → WebSocket 推送航迹
+    m_httpServer->subscribeToBus();
+
+    // Logger 回调 → WS 实时日志
+    Logger::instance().setExternalCallback([this](const QString& level, const QString& msg) {
+        if (level == QStringLiteral("DEBUG")) return;
+        QJsonObject m;
+        m[QStringLiteral("type")] = QStringLiteral("log");
+        m[QStringLiteral("level")] = level;
+        m[QStringLiteral("message")] = msg;
+        m[QStringLiteral("timestamp")] = QDateTime::currentMSecsSinceEpoch();
+        QMetaObject::invokeMethod(m_httpServer, [this, m]() {
+            m_httpServer->broadcast(m);
+        }, Qt::QueuedConnection);
+    });
+
+    // WS 定时推送状态
+    auto wmc = m_workModeController.get();
+    m_statusTimer = new QTimer(this);
+    QObject::connect(m_statusTimer, &QTimer::timeout, [this, wmc]() {
+        if (!m_httpServer) return;
+        auto health = healthReport();
+        QJsonObject msg;
+        msg[QStringLiteral("type")] = QStringLiteral("status");
+        msg[QStringLiteral("connected")] = health.comm.openEndpoints > 0;
+        msg[QStringLiteral("upTime")] = health.timestampMs;
+
+        QJsonArray devices;
+        if (wmc) {
+            QJsonObject dev;
+            dev[QStringLiteral("id")] = QStringLiteral("radar_cpu");
+            dev[QStringLiteral("state")] = RadarWorkModeController::stateName(wmc->state());
+            auto st = wmc->state();
+            dev[QStringLiteral("acquisition")] = (st == RadarWorkModeController::State::Starting
+                                               || st == RadarWorkModeController::State::Working);
+            devices.append(dev);
+        }
+        msg[QStringLiteral("devices")] = devices;
+        auto st3 = wmc ? wmc->state() : RadarWorkModeController::State::Standby;
+        msg[QStringLiteral("acquisition")] = (st3 == RadarWorkModeController::State::Starting
+                                           || st3 == RadarWorkModeController::State::Working);
+        msg[QStringLiteral("state")] = wmc ? RadarWorkModeController::stateName(wmc->state()) : QStringLiteral("Unknown");
+
+        m_httpServer->broadcast(msg);
+    });
+    m_statusTimer->start(1000);
+
+    qInfo() << "[AppController] Web 服务已启动";
 }

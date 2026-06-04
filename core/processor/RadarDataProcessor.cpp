@@ -80,6 +80,14 @@ void RadarDataProcessor::onCommDataReceived(const QString& endpointId,
     } else {
         qWarning() << QStringLiteral("[RadarDataProcessor] 未识别的数据长度: %1 字节, 端点='%2'")
                       .arg(sz).arg(endpointId);
+        // 近匹配诊断：协议结构体改动后 sizeof 可能微变
+        auto near = [sz](int expected) {
+            return std::abs(static_cast<int>(sz) - expected) < 32;
+        };
+        if (near(sizeof(GeneralPackage)))
+            qWarning() << "  → 接近 GeneralPackage(" << sizeof(GeneralPackage) << ")，检查协议结构体是否被修改";
+        if (near(sizeof(workStandby)))
+            qWarning() << "  → 接近 workStandby(" << sizeof(workStandby) << ")，检查协议结构体是否被修改";
     }
 
     // 记录上行处理延时（仅对已识别的合法包统计）
@@ -143,9 +151,12 @@ void RadarDataProcessor::handleWorkStandby(const QString& endpointId,
     qDebug() << QStringLiteral("[RadarDataProcessor] 收到 workStandby: 端点='%1', 模式=%2")
                 .arg(endpointId).arg(cmd.Work_Standby_Mode);
 
-    // 纯转发到总线，作为状态事件（无业务解析）
+    // 转发到总线，同时通知状态机进行回显验证
+    uint16_t devId = resolveSourceType(endpointId);
+    emit radarWorkModeEcho(devId, cmd.Work_Standby_Mode);
+
     DataPacket packet;
-    packet.sourceType     = resolveSourceType(endpointId);
+    packet.sourceType     = devId;
     packet.dispatchTarget = UI_OUTPUTWIDGET;
     packet.packetSequence = ++m_sequence;
     packet.timeStamp      = static_cast<uint64_t>(receivedMs);
@@ -189,13 +200,14 @@ void RadarDataProcessor::flushTracks()
     if (m_trackBuffer.isEmpty() || !m_dataStore || !m_dataStore->isConnected()) {
         return;
     }
-
-    const int n = m_trackBuffer.size();
-    if (m_dataStore->insertBatch(QStringLiteral("tracks"), m_trackBuffer)) {
+    const auto batch = m_trackBuffer;   // 先拷贝，不直接用成员
+    const int n = batch.size();
+    if (m_dataStore->insertBatch(QStringLiteral("tracks"), batch)) {
         m_trackInsertCount += n;
+        m_trackBuffer.clear();
         qDebug() << QStringLiteral("[RadarDataProcessor] 批量写入 tracks: %1 条").arg(n);
     } else {
         qWarning() << QStringLiteral("[RadarDataProcessor] 批量写入 tracks 失败: %1 条").arg(n);
     }
-    m_trackBuffer.clear();
+    
 }

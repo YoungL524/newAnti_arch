@@ -4,7 +4,10 @@
 #include <QFile>
 #include <QMutex>
 #include <QDate>
+#include <QVector>
+#include <QPair>
 #include <QtMsgHandler>
+#include <functional>
 
 /**
  * @file Logger.h
@@ -57,6 +60,17 @@ public:
      */
     QString currentLogFile() const;
 
+    /**
+     * @brief 注册外部回调：每条日志写入后调用 (线程安全: 回调在 mutex 外执行)
+     * @param cb 参数为 (levelStr, message), levelStr ∈ {DEBUG,INFO,WARN,ERROR,FATAL}
+     */
+    void setExternalCallback(std::function<void(const QString& level, const QString& msg)> cb);
+
+    /**
+     * @brief 获取最近 N 条日志 (线程安全)
+     */
+    QVector<QPair<QString, QString>> recentLogs(int count = 50) const;
+
 private:
     Logger() = default;
     ~Logger();
@@ -100,4 +114,9 @@ private:
     QDate    m_currentDate;
     int      m_keepDays = 7;
     bool     m_initialized = false;
+    std::function<void(const QString&, const QString&)> m_externalCb;
+
+    // 环形缓冲区：保存最近日志用于 WS 初连接推送
+    mutable QMutex m_recentMutex;
+    QVector<QPair<QString, QString>> m_recentLogs;
 };

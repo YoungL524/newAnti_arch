@@ -65,6 +65,14 @@ public:
     QString configFilePath(const QString& name) const;
 
     /**
+     * @brief 校验配置（启动时调用，非阻塞性：仅日志警告）
+     * @param name 配置名（"endpoints" 或 "processor"）
+     * @param obj  已加载的 JSON 对象
+     * @return 错误消息列表（空=无异常）
+     */
+    static QStringList validateConfig(const QString& name, const QJsonObject& obj);
+
+    /**
      * @brief 清除缓存，强制下次重新读取文件
      */
     void clearCache();

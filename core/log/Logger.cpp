@@ -204,4 +204,37 @@ void Logger::handle(QtMsgType type, const QMessageLogContext& ctx, const QString
     const QByteArray bytes = line.toUtf8();
     m_file.write(bytes);
     m_file.flush();  // 现场排错优先：每条都 flush，避免崩溃丢日志
+
+    // 外部回调 (mutex 外执行)
+    QString levelStr;
+    switch (type) {
+    case QtDebugMsg:   levelStr = QStringLiteral("DEBUG"); break;
+    case QtInfoMsg:    levelStr = QStringLiteral("INFO");  break;
+    case QtWarningMsg: levelStr = QStringLiteral("WARN");  break;
+    case QtCriticalMsg:levelStr = QStringLiteral("ERROR"); break;
+    case QtFatalMsg:   levelStr = QStringLiteral("FATAL"); break;
+    default:           levelStr = QStringLiteral("DEBUG"); break;
+    }
+    if (m_externalCb) {
+        m_externalCb(levelStr, msg);
+    }
+
+    // 环形缓冲区 (INFO 及以上级别)
+    if (type >= QtInfoMsg) {
+        QMutexLocker lock(&m_recentMutex);
+        m_recentLogs.append(qMakePair(levelStr, msg));
+        if (m_recentLogs.size() > 200) m_recentLogs.remove(0, 50);
+    }
+}
+
+QVector<QPair<QString, QString>> Logger::recentLogs(int count) const
+{
+    QMutexLocker lock(&m_recentMutex);
+    if (m_recentLogs.size() <= count) return m_recentLogs;
+    return m_recentLogs.mid(m_recentLogs.size() - count);
+}
+
+void Logger::setExternalCallback(std::function<void(const QString&, const QString&)> cb)
+{
+    m_externalCb = std::move(cb);
 }

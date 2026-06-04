@@ -6,6 +6,11 @@ export interface DeviceStatus {
   acquisition: boolean
 }
 
+export interface LogsResponse {
+  ok: boolean
+  logs: { level: string; message: string; timestamp: number }[]
+}
+
 export interface StatusResponse {
   ok: boolean
   acquisition: boolean
@@ -26,7 +31,14 @@ export interface WsStatusMessage {
   devices: DeviceStatus[]
 }
 
-export type WsMessage = WsStatusMessage | WsTracksMessage
+export interface WsLogMessage {
+  type: 'log'
+  level: string        // INFO | WARN | ERROR
+  message: string
+  timestamp: number
+}
+
+export type WsMessage = WsStatusMessage | WsTracksMessage | WsLogMessage
 
 // ── Device types ──────────────────────────────────────────
 
