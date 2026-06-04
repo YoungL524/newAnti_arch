@@ -10,7 +10,6 @@
 
 #include "AppController.h"
 #include "StdinReader.h"
-#include "HttpServer.h"
 #include "RadarWorkModeController.h"
 #include "log/Logger.h"
 
@@ -89,15 +88,9 @@ int main(int argc, char *argv[])
     controller.start();
     printUsage();
 
-    // Web 服务（HttpServer 外部创建但装配由 AppController 完成）
-    HttpServer httpServer;
-    controller.setHttpServer(&httpServer);
-    if (!httpServer.start(8088, 8089)) {
-        qWarning() << QStringLiteral("HTTP 服务启动失败, 前端不可用");
-    } else {
-        controller.startWebService();
+    auto ws = controller.startWebService();
+    if (ws.ok)
         QDesktopServices::openUrl(QUrl(QStringLiteral("http://localhost:8088")));
-    }
 
     // 命令行 stdin 输入
     StdinReader reader;

@@ -14,7 +14,17 @@
 
 class RadarWorkModeController;
 class IWorkModeCommandSender;
-class HttpServer;
+
+namespace web { class WebService; }
+
+/**
+ * @brief Web 服务启动结果
+ */
+struct WebServiceResult {
+    bool ok = false;
+    quint16 httpPort = 0;
+    quint16 wsPort = 0;
+};
 
 /**
  * @brief 系统健康报告
@@ -122,19 +132,10 @@ public:
     AppHealth healthReport() const;
 
     /**
-     * @brief 关联 HttpServer（必须在 initialize() 之后、start() 之前调用）
+     * @brief 启动 Web 服务（创建 HttpServer、注册 REST 路由、WS 定时器、subscribeToBus）
+     * @return 启动结果（含实际端口号）
      */
-    void setHttpServer(HttpServer* server);
-
-    /**
-     * @brief 启动 Web 服务（注册 REST 路由 + WS 定时器 + subscribeToBus）
-     */
-    void startWebService();
-
-    /**
-     * @brief 注册 REST API 路由（GET/POST handler + Logger 回调 → WS）
-     */
-    void registerApiRoutes();
+    WebServiceResult startWebService(quint16 httpPort = 8088, quint16 wsPort = 8089);
 
 private slots:
     /**
@@ -287,6 +288,5 @@ private:
     bool m_dphEnabled = true;
     bool m_running = false;
 
-    HttpServer* m_httpServer = nullptr;   ///< Web 服务（外部注入，由 main 创建）
-    QTimer* m_statusTimer = nullptr;      ///< WS 状态广播定时器
+    std::unique_ptr<web::WebService> m_webService;   ///< HTTP/WS 服务
 };

@@ -1,7 +1,9 @@
 ﻿#include "AppController.h"
-#include "HttpServer.h"
+#include "web/WebService.h"
 #include "EndpointConfigLoader.h"
+#include "bus/SystemBus.h"
 #include "GenericPackets.h"
+#include "protocol/StructureReceive.h"
 #include "BusWorkModeSender.h"
 #include "RadarWorkModeController.h"
 #include "log/Logger.h"
@@ -267,6 +269,11 @@ bool AppController::initializeCommunication()
     qDebug() << QStringLiteral("[AppController] 端点配置: %1")
                 .arg(QDir::toNativeSeparators(configPath));
 
+    // 配置校验
+    QJsonObject endpointsJson = m_configManager.getConfig(QStringLiteral("endpoints"));
+    for (const auto& err : ConfigManager::validateConfig(QStringLiteral("endpoints"), endpointsJson))
+        qWarning().noquote() << QStringLiteral("[Config] endpoints: %1").arg(err);
+
     // 加载端点配置（EndpointConfigLoader 保留为端点专用解析器）
     QVector<EndpointConfig> configs = EndpointConfigLoader::loadFromJson(configPath);
     if (configs.isEmpty()) {
@@ -303,6 +310,9 @@ bool AppController::initializeProcessorPipeline()
     const QJsonObject processorConfig = m_configManager.getConfig(QStringLiteral("processor"));
     if (processorConfig.isEmpty()) {
         qWarning() << QStringLiteral("[AppController] processor.json 为空或不存在，将使用内置默认装配");
+    } else {
+        for (const auto& err : ConfigManager::validateConfig(QStringLiteral("processor"), processorConfig))
+            qWarning().noquote() << QStringLiteral("[Config] processor: %1").arg(err);
     }
 
     configureRadarProcessor(processorConfig);
@@ -564,22 +574,20 @@ void AppController::insertSystemEvent(const QString& category,
 }
 
 // ════════════════════════════════════════════════════════════════
-// Web 服务 (HttpServer + REST API + WS 定时器)
+// ════════════════════════════════════════════════════════════════
+// Web 服务 (组合根持有 web::WebService)
 // ════════════════════════════════════════════════════════════════
 
-void AppController::setHttpServer(HttpServer* server)
+WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort)
 {
-    m_httpServer = server;
-}
-
-void AppController::registerApiRoutes()
-{
-    if (!m_httpServer) return;
+    m_webService = std::make_unique<web::WebService>(this, this);
+    auto result = m_webService->start(httpPort, wsPort);
+    if (!result.ok) return {};
 
     auto wmc = m_workModeController.get();
 
-    // GET /api/status
-    m_httpServer->handleGet(QStringLiteral("/api/status"), [this, wmc](const QJsonObject &) {
+    // REST 路由
+    m_webService->handleGet(QStringLiteral("/api/status"), [this, wmc](const QJsonObject &) {
         QJsonObject s;
         auto health = healthReport();
         s[QStringLiteral("ok")] = true;
@@ -587,7 +595,6 @@ void AppController::registerApiRoutes()
         s[QStringLiteral("uptime")] = QDateTime::currentSecsSinceEpoch();
         s[QStringLiteral("endpoints")] = health.comm.openEndpoints;
         s[QStringLiteral("dbConnected")] = health.database.connected;
-
         QJsonArray devices;
         if (wmc) {
             QJsonObject dev;
@@ -606,8 +613,7 @@ void AppController::registerApiRoutes()
         return s;
     });
 
-    // GET /api/logs
-    m_httpServer->handleGet(QStringLiteral("/api/logs"), [](const QJsonObject &) {
+    m_webService->handleGet(QStringLiteral("/api/logs"), [](const QJsonObject &) {
         QJsonObject r;
         r[QStringLiteral("ok")] = true;
         QJsonArray arr;
@@ -624,81 +630,90 @@ void AppController::registerApiRoutes()
     });
 
     if (wmc) {
-        // POST /api/start
-        m_httpServer->handlePost(QStringLiteral("/api/start"), [wmc](const QJsonObject &body) {
+        m_webService->handlePost(QStringLiteral("/api/start"), [wmc](const QJsonObject &body) {
             static qint64 lastCmdMs = 0;
             qint64 now = QDateTime::currentMSecsSinceEpoch();
             if (now - lastCmdMs < 500) { QJsonObject r; r[QStringLiteral("ok")] = true; return r; }
             lastCmdMs = now;
             QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
-            bool shouldStart = ids.isEmpty();
-            for (const auto &v : ids) {
-                if (v.toString() == QStringLiteral("radar_cpu")) { shouldStart = true; break; }
-            }
-            if (shouldStart) wmc->requestWork();
-            QJsonObject r; r[QStringLiteral("ok")] = true; return r;
+            bool ok = ids.isEmpty();
+            for (const auto &v : ids)
+                if (v.toString() == QStringLiteral("radar_cpu")) { ok = true; break; }
+            if (ok) wmc->requestWork();
+            return QJsonObject{{QStringLiteral("ok"), true}};
         });
-
-        // POST /api/stop
-        m_httpServer->handlePost(QStringLiteral("/api/stop"), [wmc](const QJsonObject &body) {
+        m_webService->handlePost(QStringLiteral("/api/stop"), [wmc](const QJsonObject &body) {
             static qint64 lastCmdMs = 0;
             qint64 now = QDateTime::currentMSecsSinceEpoch();
             if (now - lastCmdMs < 500) { QJsonObject r; r[QStringLiteral("ok")] = true; return r; }
             lastCmdMs = now;
             QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
-            bool shouldStop = ids.isEmpty();
-            for (const auto &v : ids) {
-                if (v.toString() == QStringLiteral("radar_cpu")) { shouldStop = true; break; }
-            }
-            if (shouldStop) wmc->requestStandby();
-            QJsonObject r; r[QStringLiteral("ok")] = true; return r;
+            bool ok = ids.isEmpty();
+            for (const auto &v : ids)
+                if (v.toString() == QStringLiteral("radar_cpu")) { ok = true; break; }
+            if (ok) wmc->requestStandby();
+            return QJsonObject{{QStringLiteral("ok"), true}};
         });
     }
-}
 
-void AppController::startWebService()
-{
-    if (!m_httpServer) return;
-
-    // 注册路由
-    registerApiRoutes();
-
-    // 输出 HTTP server 日志
-    QObject::connect(m_httpServer, &HttpServer::serverLog,
+    // HTTP 日志转发
+    QObject::connect(m_webService.get(), &web::WebService::serverLog,
                      [](const QString &level, const QString &msg) {
         if (level == QStringLiteral("error"))
             qWarning().noquote() << QStringLiteral("[HTTP]") << msg;
-        else
-            qDebug().noquote() << QStringLiteral("[HTTP]") << msg;
+        else qDebug().noquote() << QStringLiteral("[HTTP]") << msg;
     });
 
-    // 订阅 SystemBus → WebSocket 推送航迹
-    m_httpServer->subscribeToBus();
+    // SystemBus → WS 航迹推送
+    auto* ws = m_webService.get();
+    SystemBus::getInstance().subscribeByTarget(UI_OUTPUTWIDGET,
+        [ws](const DataPacket* pkt) {
+            if (!pkt || pkt->payloadType != PAYLOAD_TYPE_GENERAL_PACKAGE) return;
+            if (pkt->payloadSize < sizeof(GeneralPackage)) return;
+            GeneralPackage gp;
+            memcpy(&gp, pkt->payload.rawData, sizeof(GeneralPackage));
+            const TargetType& tgt = gp.h_c.TrackInfo;
+            QJsonObject msg;
+            msg[QStringLiteral("type")] = QStringLiteral("tracks");
+            msg[QStringLiteral("deviceType")] = static_cast<int>(pkt->sourceType);
+            QJsonObject track;
+            track[QStringLiteral("targetId")]    = static_cast<int>(tgt.TargetID);
+            track[QStringLiteral("range")]       = tgt.Range;
+            track[QStringLiteral("azimuth")]     = tgt.Azimuth;
+            track[QStringLiteral("elevation")]   = tgt.Elevation;
+            track[QStringLiteral("radialSpeed")] = tgt.RadialSpeed;
+            track[QStringLiteral("rcs")]         = tgt.RCS;
+            track[QStringLiteral("altitude")]    = tgt.Altitude;
+            track[QStringLiteral("x")]           = tgt.x;
+            track[QStringLiteral("y")]           = tgt.y;
+            track[QStringLiteral("z")]           = tgt.z;
+            track[QStringLiteral("vx")]          = tgt.vx;
+            track[QStringLiteral("vy")]          = tgt.vy;
+            track[QStringLiteral("vz")]          = tgt.vz;
+            track[QStringLiteral("timestamp")]   = static_cast<double>(pkt->timeStamp);
+            msg[QStringLiteral("track")] = track;
+            QMetaObject::invokeMethod(ws, [ws, msg]() { ws->broadcast(msg); }, Qt::QueuedConnection);
+        });
 
-    // Logger 回调 → WS 实时日志
-    Logger::instance().setExternalCallback([this](const QString& level, const QString& msg) {
+    // Logger → WS 日志推送
+    Logger::instance().setExternalCallback([ws](const QString& level, const QString& msg) {
         if (level == QStringLiteral("DEBUG")) return;
         QJsonObject m;
         m[QStringLiteral("type")] = QStringLiteral("log");
         m[QStringLiteral("level")] = level;
         m[QStringLiteral("message")] = msg;
         m[QStringLiteral("timestamp")] = QDateTime::currentMSecsSinceEpoch();
-        QMetaObject::invokeMethod(m_httpServer, [this, m]() {
-            m_httpServer->broadcast(m);
-        }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(ws, [ws, m]() { ws->broadcast(m); }, Qt::QueuedConnection);
     });
 
-    // WS 定时推送状态
-    auto wmc = m_workModeController.get();
-    m_statusTimer = new QTimer(this);
-    QObject::connect(m_statusTimer, &QTimer::timeout, [this, wmc]() {
-        if (!m_httpServer) return;
+    // WS 定时状态推送
+    auto* timer = new QTimer(this);
+    QObject::connect(timer, &QTimer::timeout, [this, wmc, ws]() {
         auto health = healthReport();
         QJsonObject msg;
         msg[QStringLiteral("type")] = QStringLiteral("status");
         msg[QStringLiteral("connected")] = health.comm.openEndpoints > 0;
         msg[QStringLiteral("upTime")] = health.timestampMs;
-
         QJsonArray devices;
         if (wmc) {
             QJsonObject dev;
@@ -714,10 +729,10 @@ void AppController::startWebService()
         msg[QStringLiteral("acquisition")] = (st3 == RadarWorkModeController::State::Starting
                                            || st3 == RadarWorkModeController::State::Working);
         msg[QStringLiteral("state")] = wmc ? RadarWorkModeController::stateName(wmc->state()) : QStringLiteral("Unknown");
-
-        m_httpServer->broadcast(msg);
+        ws->broadcast(msg);
     });
-    m_statusTimer->start(1000);
+    timer->start(1000);
 
     qInfo() << "[AppController] Web 服务已启动";
+    return {true, httpPort, wsPort};
 }

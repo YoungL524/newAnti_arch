@@ -115,6 +115,7 @@ void RadarWorkModeController::onWorkModeEcho(uint32_t mode)
 {
     switch (m_state) {
     case State::Starting:
+        m_transitionTimer.stop();
         if (mode == 1) {
             transitionTo(State::Working);
         } else {
@@ -131,6 +132,7 @@ void RadarWorkModeController::onWorkModeEcho(uint32_t mode)
         }
         break;
     case State::Stopping:
+        m_transitionTimer.stop();
         if (mode == 0) {
             transitionTo(State::Standby);
         }

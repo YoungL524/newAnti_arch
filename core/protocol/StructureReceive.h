@@ -67,3 +67,8 @@ struct GeneralPackage
 };
 
 #pragma pack(pop) // 恢复之前的对齐
+
+// 诊断行：编译后在 AppController 启动日志中查看 "GeneralPackage = XXXX"
+// 拿到该值后替换下行右侧数字 2664 并取消注释以锁死协议大小
+// static_assert(sizeof(GeneralPackage) == 2664,
+//     "GeneralPackage 大小与硬件协议不一致！更新右侧 2664 为正确的 sizeof 值。");

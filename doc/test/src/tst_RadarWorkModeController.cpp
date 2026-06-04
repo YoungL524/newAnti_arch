@@ -90,6 +90,12 @@ private slots:
     // ===== 多设备隔离 =====
     void two_controllers_are_independent();
 
+    // ===== workModeEcho 回显验证 =====
+    void echo_in_starting_mode1_goes_to_working();
+    void echo_in_starting_mode0_goes_to_fault();
+    void echo_in_stopping_mode0_goes_to_standby();
+    void echo_in_other_states_is_ignored();
+
 private:
     /**
      * @brief 创建一个 controller 并把超时设小，便于推进过渡
@@ -453,6 +459,78 @@ void TestRadarWorkModeController::two_controllers_are_independent()
 
     QCOMPARE(senderA.calls.size(), 1);
     QCOMPARE(senderA.calls.first().first, kDevice);
+}
+
+// ============================================================================
+// workModeEcho 回显验证（替代超时）
+// ============================================================================
+
+void TestRadarWorkModeController::echo_in_starting_mode1_goes_to_working()
+{
+    FakeWorkModeCommandSender sender;
+    auto c = makeController(kDevice, sender);
+    c->requestWork();
+    QCOMPARE(c->state(), RadarWorkModeController::State::Starting);
+
+    QSignalSpy stateSpy(c.get(), &RadarWorkModeController::stateChanged);
+    c->onWorkModeEcho(1);
+
+    QCOMPARE(c->state(), RadarWorkModeController::State::Working);
+    QCOMPARE(stateSpy.count(), 1);
+    // 超时不应再触发
+    QTest::qWait(kFastTimeoutMs + 10);
+    QCOMPARE(c->state(), RadarWorkModeController::State::Working);
+}
+
+void TestRadarWorkModeController::echo_in_starting_mode0_goes_to_fault()
+{
+    FakeWorkModeCommandSender sender;
+    auto c = makeController(kDevice, sender);
+    c->requestWork();
+    QCOMPARE(c->state(), RadarWorkModeController::State::Starting);
+
+    c->onWorkModeEcho(0);
+
+    QCOMPARE(c->state(), RadarWorkModeController::State::Fault);
+    // 超时不应再触发
+    QTest::qWait(kFastTimeoutMs + 10);
+    QCOMPARE(c->state(), RadarWorkModeController::State::Fault);
+}
+
+void TestRadarWorkModeController::echo_in_stopping_mode0_goes_to_standby()
+{
+    FakeWorkModeCommandSender sender;
+    auto c = makeController(kDevice, sender);
+    driveTo(*c, sender, RadarWorkModeController::State::Stopping);
+
+    QSignalSpy stateSpy(c.get(), &RadarWorkModeController::stateChanged);
+    c->onWorkModeEcho(0);
+
+    QCOMPARE(c->state(), RadarWorkModeController::State::Standby);
+    QCOMPARE(stateSpy.count(), 1);
+    // 超时不应再触发
+    QTest::qWait(kFastTimeoutMs + 10);
+    QCOMPARE(c->state(), RadarWorkModeController::State::Standby);
+}
+
+void TestRadarWorkModeController::echo_in_other_states_is_ignored()
+{
+    FakeWorkModeCommandSender sender;
+    auto c = makeController(kDevice, sender);
+
+    // Standby 忽略回显
+    c->onWorkModeEcho(0);
+    QCOMPARE(c->state(), RadarWorkModeController::State::Standby);
+
+    // Working 忽略 mode=1 回显
+    driveTo(*c, sender, RadarWorkModeController::State::Working);
+    c->onWorkModeEcho(1);
+    QCOMPARE(c->state(), RadarWorkModeController::State::Working);
+
+    // Fault 忽略回显
+    driveTo(*c, sender, RadarWorkModeController::State::Fault);
+    c->onWorkModeEcho(0);
+    QCOMPARE(c->state(), RadarWorkModeController::State::Fault);
 }
 
 QTEST_MAIN(TestRadarWorkModeController)
