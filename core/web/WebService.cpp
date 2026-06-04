@@ -267,12 +267,12 @@ void WebService::serveStaticFile(QTcpSocket* sock, const QString& path, bool kee
     }
     QString filePath = m_staticDir + path.mid(1);
     if (!QFileInfo::exists(filePath)) {
-        sendError(sock, 404, QStringLiteral("Not Found"));
+        sendError(sock, 404, QStringLiteral("Not Found"), keepAlive);
         return;
     }
     QFile f(filePath);
     if (!f.open(QIODevice::ReadOnly)) {
-        sendError(sock, 500, QStringLiteral("Internal Server Error"));
+        sendError(sock, 500, QStringLiteral("Internal Server Error"), keepAlive);
         return;
     }
     QByteArray content = f.readAll();

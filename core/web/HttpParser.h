@@ -29,16 +29,19 @@ struct HttpRequest {
 
     std::optional<QString> headerValue(const QString& key) const;
     int contentLength() const;
+    bool isKeepAlive() const;
 };
 
 struct HttpResponse {
     int                    statusCode = 200;
     QMap<QString, QString> headers;
     QByteArray             body;
+    bool                   keepAlive = false;  ///< if true, serialized with Connection: keep-alive + Keep-Alive: timeout=5
 
     void setStatus(int code) noexcept;
     void setContent(const QByteArray& content, const QString& mimeType);
     void setJson(const QByteArray& jsonBody);
+    void applyKeepAlive();  ///< set Connection and Keep-Alive headers
 };
 
 // ============================================================
@@ -46,7 +49,8 @@ struct HttpResponse {
 // ============================================================
 struct ParseResult {
     HttpRequest request;
-    size_t      consumed;  ///< 0 = incomplete request
+    size_t      consumed;   ///< 0 = incomplete; non-zero = bytes consumed from buffer
+    bool        keepAlive = false;  ///< true if Connection is keep-alive
 };
 
 std::optional<ParseResult> tryParseRequest(const QByteArray& buffer);

@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xml:lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="generator" content="md2html · docs theme" />
+
+
+
+
+  <title>DCMP — 反无人机雷达指控系统</title>
+  <style>
+  :root {
+    --bg: #f6f8fb;
+    --surface: #ffffff;
+    --surface-soft: #f8fafc;
+    --ink: #111827;
+    --ink-soft: #334155;
+    --muted: #64748b;
+    --faint: #94a3b8;
+    --border: #e2e8f0;
+    --border-strong: #cbd5e1;
+    --accent: #2563eb;
+    --accent-soft: #eff6ff;
+    --accent-ink: #1d4ed8;
+    --code-bg: #0f172a;
+    --code-ink: #e5e7eb;
+    --code-muted: #94a3b8;
+    --shadow: 0 24px 70px rgba(15, 23, 42, 0.08);
+    --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html {
+    font-size: 16px;
+    scroll-behavior: smooth;
+    text-size-adjust: 100%;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    color: var(--ink);
+    background:
+      radial-gradient(circle at top left, rgba(37, 99, 235, 0.08), transparent 30rem),
+      linear-gradient(180deg, #f8fafc 0%, var(--bg) 24rem);
+    font-family: var(--font-sans);
+    line-height: 1.72;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  #reading-progress {
+    position: fixed;
+    inset: 0 auto auto 0;
+    width: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--accent), #06b6d4);
+    z-index: 1000;
+  }
+
+  .doc-shell {
+    width: min(1180px, calc(100% - 40px));
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 230px minmax(0, 1fr);
+    gap: 28px;
+    padding: 48px 0 80px;
+  }
+
+  .doc-sidebar {
+    position: relative;
+  }
+
+  .toc-card {
+    position: sticky;
+    top: 32px;
+    max-height: calc(100vh - 64px);
+    overflow: auto;
+    padding: 18px 16px;
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.78);
+    box-shadow: 0 12px 40px rgba(15, 23, 42, 0.05);
+    backdrop-filter: blur(18px);
+  }
+
+  .toc-title {
+    margin: 0 0 12px;
+    color: var(--ink);
+    font-size: 0.78rem;
+    font-weight: 750;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  #TOC ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  #TOC li {
+    margin: 0;
+    padding: 0;
+  }
+
+  #TOC ul ul {
+    margin: 3px 0 6px 10px;
+    padding-left: 10px;
+    border-left: 1px solid var(--border);
+  }
+
+  #TOC a {
+    display: block;
+    padding: 6px 8px;
+    border-radius: 9px;
+    color: var(--muted);
+    font-size: 0.84rem;
+    line-height: 1.35;
+    text-decoration: none;
+  }
+
+  #TOC a:hover,
+  #TOC a.active {
+    color: var(--accent-ink);
+    background: var(--accent-soft);
+  }
+
+  .doc-main {
+    min-width: 0;
+  }
+
+  .doc-article {
+    max-width: 820px;
+    min-height: calc(100vh - 128px);
+    padding: clamp(34px, 5vw, 64px);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+
+  .doc-header {
+    margin-bottom: 42px;
+    padding-bottom: 30px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .doc-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+    color: var(--accent-ink);
+    font-size: 0.76rem;
+    font-weight: 760;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .doc-kicker::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--accent);
+    box-shadow: 0 0 0 5px var(--accent-soft);
+  }
+
+  .title {
+    margin: 0;
+    color: var(--ink);
+    font-size: clamp(2.15rem, 5vw, 3.5rem);
+    font-weight: 780;
+    line-height: 1.12;
+    letter-spacing: -0.045em;
+  }
+
+  .subtitle {
+    margin: 18px 0 0;
+    max-width: 680px;
+    color: var(--muted);
+    font-size: 1.1rem;
+  }
+
+  .doc-meta,
+  .doc-date {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+
+  .doc-article h2,
+  .doc-article h3,
+  .doc-article h4 {
+    position: relative;
+    color: var(--ink);
+    scroll-margin-top: 28px;
+  }
+
+  .doc-article h2 {
+    margin: 42px 0 16px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    font-size: 1.55rem;
+    line-height: 1.32;
+    letter-spacing: -0.025em;
+  }
+
+  .doc-article h2:first-child {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .doc-article h3 {
+    margin: 28px 0 12px;
+    font-size: 1.08rem;
+    line-height: 1.45;
+  }
+
+  .doc-article h4 {
+    margin: 22px 0 10px;
+    color: var(--ink-soft);
+    font-size: 0.98rem;
+  }
+
+  .heading-anchor {
+    margin-left: 8px;
+    color: var(--faint);
+    font-weight: 600;
+    opacity: 0;
+    text-decoration: none;
+  }
+
+  .doc-article h2:hover .heading-anchor,
+  .doc-article h3:hover .heading-anchor,
+  .doc-article h4:hover .heading-anchor {
+    opacity: 1;
+  }
+
+  .doc-article p {
+    margin: 0 0 18px;
+    color: var(--ink-soft);
+  }
+
+  .doc-article a {
+    color: var(--accent-ink);
+    text-underline-offset: 3px;
+  }
+
+  .doc-article ul,
+  .doc-article ol {
+    margin: 14px 0 22px;
+    padding-left: 1.35rem;
+    color: var(--ink-soft);
+  }
+
+  .doc-article li {
+    margin: 8px 0;
+    padding-left: 0.15rem;
+  }
+
+  .doc-article li::marker {
+    color: var(--accent);
+  }
+
+  .doc-article code {
+    padding: 0.16em 0.42em;
+    border: 1px solid #dbeafe;
+    border-radius: 7px;
+    color: #1e40af;
+    background: #eff6ff;
+    font-family: var(--font-mono);
+    font-size: 0.88em;
+  }
+
+  .doc-article pre {
+    position: relative;
+    margin: 18px 0 26px;
+    padding: 22px 20px;
+    overflow: auto;
+    border-radius: 16px;
+    background: var(--code-bg);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 18px 40px rgba(15, 23, 42, 0.12);
+  }
+
+  .doc-article pre code {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    color: var(--code-ink);
+    background: transparent;
+    font-size: 0.86rem;
+    line-height: 1.65;
+  }
+
+  .copy-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    padding: 5px 9px;
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    border-radius: 8px;
+    color: #cbd5e1;
+    background: rgba(15, 23, 42, 0.72);
+    font: 600 0.72rem var(--font-sans);
+    cursor: pointer;
+  }
+
+  .copy-btn:hover {
+    color: #ffffff;
+    border-color: rgba(203, 213, 225, 0.45);
+  }
+
+  .doc-article blockquote {
+    margin: 22px 0;
+    padding: 16px 18px;
+    border-left: 4px solid var(--accent);
+    border-radius: 0 14px 14px 0;
+    color: var(--ink-soft);
+    background: var(--surface-soft);
+  }
+
+  .doc-article table {
+    width: 100%;
+    margin: 22px 0;
+    border-collapse: separate;
+    border-spacing: 0;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    font-size: 0.94rem;
+  }
+
+  .doc-article th,
+  .doc-article td {
+    padding: 11px 13px;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .doc-article th {
+    color: var(--ink);
+    background: var(--surface-soft);
+    font-weight: 720;
+  }
+
+  .doc-article tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .doc-article hr {
+    margin: 34px 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .doc-article img {
+    max-width: 100%;
+    border-radius: 16px;
+    border: 1px solid var(--border);
+  }
+
+  @media (max-width: 900px) {
+    .doc-shell {
+      width: min(100% - 28px, 820px);
+      display: block;
+      padding-top: 22px;
+    }
+
+    .doc-sidebar {
+      margin-bottom: 16px;
+    }
+
+    .toc-card {
+      position: static;
+      max-height: 260px;
+    }
+
+    .doc-article {
+      padding: 30px 22px;
+      border-radius: 20px;
+    }
+  }
+
+  @media (max-width: 560px) {
+    body {
+      background: var(--surface);
+    }
+
+    .doc-shell {
+      width: 100%;
+      padding: 0;
+    }
+
+    .doc-sidebar {
+      display: none;
+    }
+
+    .doc-article {
+      min-height: 100vh;
+      border: 0;
+      border-radius: 0;
+      box-shadow: none;
+    }
+
+    .title {
+      font-size: 2rem;
+    }
+  }
+
+  @media print {
+    body {
+      background: #ffffff;
+    }
+
+    #reading-progress,
+    .doc-sidebar,
+    .copy-btn,
+    .heading-anchor {
+      display: none !important;
+    }
+
+    .doc-shell {
+      display: block;
+      width: 100%;
+      padding: 0;
+    }
+
+    .doc-article {
+      max-width: none;
+      padding: 0;
+      border: 0;
+      box-shadow: none;
+    }
+  }
+
+  </style>
+</head>
+<body>
+  <div id="reading-progress" aria-hidden="true"></div>
+
+
+  <div class="doc-shell">
+    <aside class="doc-sidebar" aria-label="文档导航">
+      <div class="toc-card">
+        <div class="toc-title">目录</div>
+        <nav id="TOC" role="doc-toc" aria-label="目录">
+<ul>
+<li><a href="#核心特性" id="toc-核心特性">核心特性</a></li>
+<li><a href="#架构概览" id="toc-架构概览">架构概览</a></li>
+<li><a href="#技术栈" id="toc-技术栈">技术栈</a></li>
+<li><a href="#数据模型" id="toc-数据模型">数据模型</a>
+<ul>
+<li><a href="#radardevice" id="toc-radardevice">RadarDevice</a></li>
+<li><a href="#subdevice" id="toc-subdevice">SubDevice</a></li>
+</ul></li>
+<li><a href="#目录结构" id="toc-目录结构">目录结构</a></li>
+<li><a href="#快速开始" id="toc-快速开始">快速开始</a>
+<ul>
+<li><a href="#构建-c-后端" id="toc-构建-c-后端">1. 构建 C++
+后端</a></li>
+<li><a href="#构建前端" id="toc-构建前端">2. 构建前端</a></li>
+<li><a href="#运行" id="toc-运行">3. 运行</a></li>
+</ul></li>
+<li><a href="#api-接口" id="toc-api-接口">API 接口</a></li>
+<li><a href="#高德地图配置" id="toc-高德地图配置">高德地图配置</a></li>
+<li><a href="#环境要求" id="toc-环境要求">环境要求</a></li>
+<li><a href="#许可证" id="toc-许可证">许可证</a></li>
+</ul>
+        </nav>
+      </div>
+    </aside>
+
+    <main class="doc-main" role="main">
+      <article class="doc-article">
+        <header class="doc-header">
+          <div class="doc-kicker">Technical Document</div>
+          <h1 class="title">DCMP — 反无人机雷达指控系统</h1>
+
+
+
+        </header>
+
+<blockquote>
+<p><strong>D</strong>rone <strong>C</strong>ountermeasure
+<strong>M</strong>onitoring <strong>P</strong>latform</p>
+</blockquote>
+<p>基于 <strong>Qt 5.14.2 (C++17)</strong> 内核 + <strong>React 19 +
+Vite</strong> 前端的雷达上位机系统，集成 <strong>高德地图 JSAPI
+v2</strong> 实现雷达站定位、PPI 多面阵扫描显示、目标标绘和实时监控。</p>
+<hr />
+<h2 id="核心特性">核心特性</h2>
+<ul>
+<li><strong>PPI 多面阵渲染</strong> — 支持 1~4
+面阵雷达，每面阵独立朝向/扫描角/开关，Canvas 实时扫线 + 尾迹</li>
+<li><strong>品牌协议索引</strong> — 中电38所 / 中电14所 /
+雷鹰，品牌字段映射后端数据协议</li>
+<li><strong>高德地图集成</strong> — Amap JSAPI v2，GCJ-02
+坐标系，雷达站标定与目标标绘</li>
+<li><strong>设备注册表</strong> — 雷达/光学/水平仪/GPS
+统一管理，结构树阵面开关控制</li>
+<li><strong>DCMP 风格 UI</strong> — 玻璃拟态面板
+(glass-panel)、墨绿主色调、Material Symbols 图标</li>
+<li><strong>C++ HTTP + WebSocket 双协议</strong> — REST API 状态获取 +
+实时推送</li>
+<li><strong>一键启动</strong> — 双击 <code>core.exe</code>
+自动启动服务并加载前端页面</li>
+</ul>
+<hr />
+<h2 id="架构概览">架构概览</h2>
+<pre><code>┌─────────────────────────────────────────────────────────────────┐
+│                        Browser (React UI)                       │
+│  ┌─ TitleBar ────────────────────────────────────────────────┐  │
+│  │  连接状态 · 开始采集                                        │  │
+│  ├────────────────────────────────────────────────────────────┤  │
+│  │ ┌─ Sidebar ─┐ ┌─ Map + PPI ─────────────────────────────┐ │  │
+│  │ │ 设备列表    │ │  高德地图 Amap JSAPI v2                  │ │  │
+│  │ │ 资源管理    │ │  └─ PPI Canvas Overlay                 │ │  │
+│  │ │ 数据回放    │ │      · 同心环 + 十字线                   │ │  │
+│  │ │ 校准分析    │ │      · 多面阵扇区边界                    │ │  │
+│  │ │ 日志归档    │ │      · 同步扫线 + 旋转明暗               │ │  │
+│  │ │            │ │      · 尾迹衰减                           │ │  │
+│  │ │ Structure  │ │                                         │ │  │
+│  │ │  ├全局集群  │ │                                         │ │  │
+│  │ │  └NODE_01   │ │                                         │ │  │
+│  │ │    ├阵面A ◉ │ │                                         │ │  │
+│  │ │    ├阵面B ○ │ │                                         │ │  │
+│  │ │    ├阵面C ◉ │ │                                         │ │  │
+│  │ │    └阵面D ◉ │ │                                         │ │  │
+│  │ └────────────┘ └─────────────────────────────────────────┘ │  │
+│  ├────────────────────────────────────────────────────────────┤  │
+│  │ BottomPanel — Activity Feed / Device Table                  │  │
+│  └────────────────────────────────────────────────────────────┘  │
+│                        HTTP REST / WebSocket                     │
+│                            8088 / 8089                            │
+└──────────────────────────┬──────────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────────┐
+│                    C++ Core (Qt Console)                         │
+│                                                                  │
+│  ┌─ HttpServer ──────────────────────────────────────────────┐  │
+│  │  QTcpServer → HTTP REST API + 静态文件服务                  │  │
+│  │  QWebSocketServer → 实时状态广播                            │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│  ┌─ AppController ───────────────────────────────────────────┐  │
+│  │  雷达业务逻辑 / 工作模式控制 / 通信管理 / 协议编解码         │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│  ┌─ Communication ───────────────────────────────────────────┐  │
+│  │  UDP Endpoint · DPH 心跳 50ms · 协议 pack/unpack           │  │
+│  └───────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────┘</code></pre>
+<hr />
+<h2 id="技术栈">技术栈</h2>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr>
+<th>层</th>
+<th>技术</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>前端 UI</td>
+<td><strong>React 19</strong> + <strong>TypeScript 5.8</strong> +
+<strong>Vite 6</strong></td>
+<td>SPA with HMR</td>
+</tr>
+<tr>
+<td>样式</td>
+<td><strong>Tailwind CSS 3</strong> + CSS Variables</td>
+<td>DCMP 墨绿主题·玻璃面板</td>
+</tr>
+<tr>
+<td>地图</td>
+<td><strong>高德地图 JSAPI v2.0</strong></td>
+<td>GCJ-02 坐标系</td>
+</tr>
+<tr>
+<td>图标</td>
+<td><strong>Material Symbols Outlined</strong></td>
+<td>Google Fonts CDN</td>
+</tr>
+<tr>
+<td>PPI 渲染</td>
+<td><strong>Canvas 2D</strong> + requestAnimationFrame</td>
+<td>多面阵扫线·尾迹·扇区</td>
+</tr>
+<tr>
+<td>通信</td>
+<td><strong>REST</strong> (QTcpServer) + <strong>WebSocket</strong>
+(QWebSocketServer)</td>
+<td>状态获取 / 实时广播</td>
+</tr>
+<tr>
+<td>后端</td>
+<td><strong>Qt 5.14.2</strong> / C++17 / CMake 3.16</td>
+<td>跨平台</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="数据模型">数据模型</h2>
+<h3 id="radardevice">RadarDevice</h3>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode typescript"><code class="sourceCode typescript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">interface</span> RadarFace {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  label<span class="op">:</span> <span class="dt">string</span>               <span class="co">// 阵面标识: &quot;A&quot; / &quot;B&quot; / &quot;C&quot; / &quot;D&quot;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  boresightAzimuth<span class="op">:</span> <span class="dt">number</span>    <span class="co">// 阵面朝向 (°), 0=North, CW</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  scanAngle<span class="op">:</span> <span class="dt">number</span>           <span class="co">// 扫描半角 (°), e.g. 45 for ±45°</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  active<span class="op">:</span> <span class="dt">boolean</span>             <span class="co">// 是否开启扫描</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="kw">type</span> RadarBrand <span class="op">=</span> <span class="st">&#39;cetc38&#39;</span> <span class="op">|</span> <span class="st">&#39;cetc14&#39;</span> <span class="op">|</span> <span class="st">&#39;leiying&#39;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="kw">interface</span> RadarDevice {</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>  id<span class="op">:</span> <span class="dt">string</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>  name<span class="op">:</span> <span class="dt">string</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  brand<span class="op">:</span> RadarBrand</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>  lng<span class="op">:</span> <span class="dt">number</span><span class="op">;</span> lat<span class="op">:</span> <span class="dt">number</span><span class="op">;</span> altitude<span class="op">:</span> <span class="dt">number</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>  maxRange<span class="op">:</span> <span class="dt">number</span>            <span class="co">// km</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>  faces<span class="op">:</span> RadarFace[]          <span class="co">// 阵面列表</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="subdevice">SubDevice</h3>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode typescript"><code class="sourceCode typescript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">interface</span> SubDevice {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  id<span class="op">:</span> <span class="dt">string</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  name<span class="op">:</span> <span class="dt">string</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  kind<span class="op">:</span> <span class="st">&#39;opto&#39;</span> <span class="op">|</span> <span class="st">&#39;level&#39;</span> <span class="op">|</span> <span class="st">&#39;gps&#39;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  brand<span class="op">:</span> RadarBrand</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  linkedRadarId<span class="op">?:</span> <span class="dt">string</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  mountOffsetAzimuth<span class="op">?:</span> <span class="dt">number</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>  coordinateSystem<span class="op">?:</span> <span class="dt">string</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<hr />
+<h2 id="目录结构">目录结构</h2>
+<pre><code>newAnti_arch/
+├── CMakeLists.txt                 # 顶层 CMake
+├── CLAUDE.md                      # AI 辅助开发指引
+├── config/                        # 运行时配置
+│   ├── endpoints.json
+│   ├── processor.json
+│   └── database.json
+├── core/                          # C++ 后端核心
+│   ├── main.cpp
+│   ├── HttpServer.{h,cpp}
+│   ├── AppController.{h,cpp}
+│   ├── comm/                      # 通信层 (UDP)
+│   ├── protocol/                  # 协议层
+│   ├── bus/                       # 系统总线
+│   ├── processor/                 # 业务处理
+│   └── data/                      # 数据层 (SQLite)
+├── ui/                            # React 前端
+│   ├── src/
+│   │   ├── App.tsx
+│   │   ├── main.tsx
+│   │   ├── components/
+│   │   │   ├── layout/            # TitleBar, Sidebar, StatusBar
+│   │   │   ├── map/               # MapRadarView, PPIOverlay, types
+│   │   │   ├── panels/            # BottomPanel, DataTable
+│   │   │   └── dialogs/           # DeviceEditDialog, RadarEditForm, SubDeviceEditForm
+│   │   ├── hooks/                 # useCoreApi, useTrackData
+│   │   ├── lib/                   # protocol, columns
+│   │   └── styles/                # globals.css
+│   ├── package.json
+│   ├── vite.config.ts
+│   └── tailwind.config.js
+├── test_comm/                     # 协议联调测试
+├── doc/                           # 设计文档
+└── .vscode/                       # VS Code 配置</code></pre>
+<hr />
+<h2 id="快速开始">快速开始</h2>
+<h3 id="构建-c-后端">1. 构建 C++ 后端</h3>
+<h4 id="windows-mingw-7.3.0-qt-5.14.2">Windows (MinGW 7.3.0, Qt
+5.14.2)</h4>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode powershell"><code class="sourceCode powershell"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>cmake <span class="op">-</span>S <span class="op">.</span> <span class="op">-</span>B build <span class="op">-</span>G <span class="st">&quot;MinGW Makefiles&quot;</span> `</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>    <span class="op">-</span>DCMAKE_PREFIX_PATH<span class="op">=</span><span class="st">&quot;C:/Qt/Qt5.14.2/5.14.2/mingw73_64&quot;</span> `</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>    <span class="op">-</span>DCMAKE_MAKE_PROGRAM<span class="op">=</span><span class="st">&quot;C:/Qt/Qt5.14.2/Tools/mingw730_64/bin/mingw32-make.exe&quot;</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>cmake <span class="op">--</span>build build <span class="op">-</span>j <span class="dv">8</span></span></code></pre></div>
+<h4 id="linux-ubuntu">Linux (Ubuntu)</h4>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> apt install qtbase5-dev libqt5sql5-sqlite libqt5websockets5-dev cmake build-essential</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="fu">cmake</span> <span class="at">-S</span> . <span class="at">-B</span> build <span class="at">-DCMAKE_BUILD_TYPE</span><span class="op">=</span>Debug</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="fu">cmake</span> <span class="at">--build</span> build <span class="at">-j</span><span class="va">$(</span><span class="fu">nproc</span><span class="va">)</span></span></code></pre></div>
+<h3 id="构建前端">2. 构建前端</h3>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> ui</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> install</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> run build</span></code></pre></div>
+<h3 id="运行">3. 运行</h3>
+<div class="sourceCode" id="cb8"><pre
+class="sourceCode powershell"><code class="sourceCode powershell"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="op">./</span>build<span class="op">/</span>bin<span class="op">/</span>NewAntiDrone_core</span></code></pre></div>
+<p>后端启动后自动打开浏览器访问
+<strong>http://localhost:8088</strong></p>
+<p>开发模式：</p>
+<div class="sourceCode" id="cb9"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="co"># 终端 1: 前端 HMR</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> ui <span class="kw">&amp;&amp;</span> <span class="ex">npm</span> run dev</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a><span class="co"># 终端 2: C++ 后端</span></span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a><span class="ex">./build/bin/NewAntiDrone_core</span></span></code></pre></div>
+<hr />
+<h2 id="api-接口">API 接口</h2>
+<table>
+<thead>
+<tr>
+<th>方法</th>
+<th>路径</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GET</code></td>
+<td><code>/</code></td>
+<td>前端静态页面</td>
+</tr>
+<tr>
+<td><code>GET</code></td>
+<td><code>/api/status</code></td>
+<td>系统状态 (采集/连接/运行时间)</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/start</code></td>
+<td>开始采集</td>
+</tr>
+<tr>
+<td><code>POST</code></td>
+<td><code>/api/stop</code></td>
+<td>停止采集</td>
+</tr>
+<tr>
+<td><code>WS</code></td>
+<td><code>ws://localhost:8089</code></td>
+<td>实时状态推送</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="高德地图配置">高德地图配置</h2>
+<p>在 <code>ui/.env</code> 中配置：</p>
+<pre class="env"><code>VITE_GAODE_API_KEY=你的Key
+VITE_GAODE_SECURITY_CODE=你的安全密钥</code></pre>
+<blockquote>
+<p>Key 需在<a
+href="https://console.amap.com/">高德开放平台</a>申请，服务平台选择
+<strong>Web端(JS API)</strong>，并配置 <code>localhost</code>
+白名单。</p>
+</blockquote>
+<hr />
+<h2 id="环境要求">环境要求</h2>
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>版本 / 说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Qt</td>
+<td>5.14.2 (core / gui / network / websockets / sql)</td>
+</tr>
+<tr>
+<td>编译器 (Windows)</td>
+<td>MinGW 7.3.0 64-bit</td>
+</tr>
+<tr>
+<td>编译器 (Linux)</td>
+<td>GCC 7+ / Clang 6+</td>
+</tr>
+<tr>
+<td>构建工具</td>
+<td>CMake 3.16+</td>
+</tr>
+<tr>
+<td>Node.js</td>
+<td>18+ (仅构建前端)</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="许可证">许可证</h2>
+<p>仅供学习和研究使用。</p>
+      </article>
+    </main>
+  </div>
+
+
+  <script>
+    (function () {
+      var bar = document.getElementById('reading-progress');
+      if (bar) {
+        var updateProgress = function () {
+          var doc = document.documentElement;
+          var top = doc.scrollTop || document.body.scrollTop;
+          var height = doc.scrollHeight - doc.clientHeight;
+          bar.style.width = (height > 0 ? (top / height) * 100 : 0) + '%';
+        };
+        document.addEventListener('scroll', updateProgress, { passive: true });
+        updateProgress();
+      }
+
+      document.querySelectorAll('pre > code').forEach(function (code) {
+        var pre = code.parentElement;
+        if (pre.querySelector('.copy-btn')) return;
+        var btn = document.createElement('button');
+        btn.className = 'copy-btn';
+        btn.type = 'button';
+        btn.textContent = 'Copy';
+        btn.addEventListener('click', function () {
+          navigator.clipboard.writeText(code.innerText).then(function () {
+            btn.textContent = 'Copied';
+            setTimeout(function () { btn.textContent = 'Copy'; }, 1400);
+          }, function () {
+            btn.textContent = 'Failed';
+          });
+        });
+        pre.appendChild(btn);
+      });
+
+      var headings = document.querySelectorAll('.doc-article h2[id], .doc-article h3[id], .doc-article h4[id]');
+      headings.forEach(function (heading) {
+        var anchor = document.createElement('a');
+        anchor.className = 'heading-anchor';
+        anchor.href = '#' + heading.id;
+        anchor.setAttribute('aria-label', 'Link to this section');
+        anchor.textContent = '#';
+        heading.appendChild(anchor);
+      });
+
+      var tocLinks = Array.prototype.slice.call(document.querySelectorAll('#TOC a[href^="#"]'));
+      if (tocLinks.length && headings.length) {
+        var byId = new Map(tocLinks.map(function (a) { return [decodeURIComponent(a.getAttribute('href').slice(1)), a]; }));
+        var observer = new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            if (!entry.isIntersecting) return;
+            tocLinks.forEach(function (a) { a.classList.remove('active'); });
+            var active = byId.get(entry.target.id);
+            if (active) active.classList.add('active');
+          });
+        }, { rootMargin: '-20% 0px -70% 0px', threshold: 0.01 });
+        headings.forEach(function (h) { observer.observe(h); });
+      }
+    })();
+  </script>
+</body>
+</html>
