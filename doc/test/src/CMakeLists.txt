@@ -55,3 +55,53 @@ set_target_properties(tst_ProtocolLayout PROPERTIES
 
 add_test(NAME ProtocolLayout
          COMMAND tst_ProtocolLayout)
+
+# ----- ConfigManager 测试 -----
+add_executable(tst_ConfigManager
+    tst_ConfigManager.cpp
+    ${CMAKE_SOURCE_DIR}/core/data/ConfigManager.cpp
+    ${CMAKE_SOURCE_DIR}/core/data/ConfigManager.h
+)
+
+target_include_directories(tst_ConfigManager PRIVATE
+    ${CMAKE_SOURCE_DIR}/core
+    ${CMAKE_SOURCE_DIR}/core/data
+)
+
+target_link_libraries(tst_ConfigManager PRIVATE
+    Qt5::Core
+    Qt5::Test
+)
+
+set_target_properties(tst_ConfigManager PROPERTIES
+    WIN32_EXECUTABLE OFF
+    MACOSX_BUNDLE OFF
+)
+
+add_test(NAME ConfigManager
+         COMMAND tst_ConfigManager)
+
+# ----- HttpParser 测试 -----
+add_executable(tst_HttpParser
+    tst_HttpParser.cpp
+    ${CMAKE_SOURCE_DIR}/core/web/HttpParser.cpp
+    ${CMAKE_SOURCE_DIR}/core/web/HttpParser.h
+)
+
+target_include_directories(tst_HttpParser PRIVATE
+    ${CMAKE_SOURCE_DIR}/core
+    ${CMAKE_SOURCE_DIR}/core/web
+)
+
+target_link_libraries(tst_HttpParser PRIVATE
+    Qt5::Core
+    Qt5::Test
+)
+
+set_target_properties(tst_HttpParser PROPERTIES
+    WIN32_EXECUTABLE OFF
+    MACOSX_BUNDLE OFF
+)
+
+add_test(NAME HttpParser
+         COMMAND tst_HttpParser)

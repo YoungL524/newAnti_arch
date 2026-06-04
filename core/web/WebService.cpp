@@ -117,7 +117,21 @@ void WebService::setStaticDir(const QString& dir) {
 // ============================================================
 void WebService::broadcast(const QJsonObject& msg) {
     QByteArray data = QJsonDocument(msg).toJson(QJsonDocument::Compact);
-    for (auto* ws : m_wsClients) {
+    constexpr qint64 kCongestionThreshold = 64 * 1024;  // 64KB pending write data
+
+    for (int i = m_wsClients.size() - 1; i >= 0; --i) {
+        auto* ws = m_wsClients[i];
+
+        // 慢客户端检测：写缓冲区积压超过阈值时断开
+        if (ws->bytesToWrite() > kCongestionThreshold) {
+            qWarning() << QStringLiteral("[WebService] WS 慢客户端断开: %1 (%2 bytes pending)")
+                          .arg(ws->peerAddress().toString())
+                          .arg(ws->bytesToWrite());
+            ws->close();
+            m_wsClients.removeAt(i);
+            continue;
+        }
+
         ws->sendTextMessage(QString::fromUtf8(data));
     }
 }
@@ -163,55 +177,70 @@ void WebService::onHttpReadyRead() {
     if (!sock) return;
 
     m_buffers[sock].append(sock->readAll());
-    dispatchRequest(sock, m_buffers[sock]);
+
+    // Process all complete requests in the buffer (handle pipelining)
+    while (true) {
+        QByteArray& buf = m_buffers[sock];
+        bool processed = dispatchRequest(sock, buf);
+        if (!processed) break;  // incomplete request or socket was closed
+    }
 }
 
-void WebService::dispatchRequest(QTcpSocket* sock, const QByteArray& raw) {
+/// @return true if a request was fully processed; false if incomplete or errored.
+bool WebService::dispatchRequest(QTcpSocket* sock, QByteArray& raw) {
     auto result = tryParseRequest(raw);
     if (!result) {
         sendError(sock, 400, QStringLiteral("Bad Request"));
+        m_buffers.remove(sock);
         sock->disconnectFromHost();
-        return;
+        return false;
     }
     if (result->consumed == 0) {
-        return;  // incomplete, wait for more data
+        return false;  // incomplete, wait for more data
     }
 
-    // Request fully parsed; remove buffer to free memory
-    m_buffers.remove(sock);
-
     const auto& req = result->request;
+    const bool keepAlive = result->keepAlive;
     QString cleanPath = req.path;
 
     // Route
     if (req.method == Method::GET && cleanPath == QStringLiteral("/")) {
-        serveIndex(sock);
+        serveIndex(sock, keepAlive);
     } else if (req.method == Method::GET && m_getHandlers.contains(cleanPath)) {
         QJsonObject params;
-        auto result = m_getHandlers[cleanPath](params);
-        sendJson(sock, 200, result);
+        auto hresult = m_getHandlers[cleanPath](params);
+        sendJson(sock, 200, hresult, keepAlive);
     } else if (req.method == Method::POST && m_postHandlers.contains(cleanPath)) {
         QJsonObject params;
         if (!req.body.isEmpty()) {
             QJsonDocument doc = QJsonDocument::fromJson(req.body);
             if (doc.isObject()) params = doc.object();
         }
-        auto result = m_postHandlers[cleanPath](params);
-        int status = result.value(QStringLiteral("ok")).toBool() ? 200 : 400;
-        sendJson(sock, status, result);
+        auto hresult = m_postHandlers[cleanPath](params);
+        int status = hresult.value(QStringLiteral("ok")).toBool() ? 200 : 400;
+        sendJson(sock, status, hresult, keepAlive);
     } else if (req.method == Method::GET) {
-        serveStaticFile(sock, cleanPath);
+        serveStaticFile(sock, cleanPath, keepAlive);
     } else {
-        sendError(sock, 404, QStringLiteral("Not Found"));
+        sendError(sock, 404, QStringLiteral("Not Found"), keepAlive);
     }
 
-    sock->disconnectFromHost();
+    if (keepAlive) {
+        // Trim consumed bytes but keep socket open for next request
+        raw.remove(0, static_cast<int>(result->consumed));
+        if (raw.isEmpty())
+            m_buffers.remove(sock);
+    } else {
+        m_buffers.remove(sock);
+        sock->disconnectFromHost();
+    }
+    return true;
 }
 
 // ============================================================
 // Static Files
 // ============================================================
-void WebService::serveIndex(QTcpSocket* sock) {
+void WebService::serveIndex(QTcpSocket* sock, bool keepAlive) {
     QString idx = m_staticDir + QStringLiteral("index.html");
     if (QFileInfo::exists(idx)) {
         QFile f(idx);
@@ -219,6 +248,7 @@ void WebService::serveIndex(QTcpSocket* sock) {
             QByteArray content = f.readAll();
             HttpResponse resp;
             resp.setContent(content, QStringLiteral("text/html; charset=utf-8"));
+            if (keepAlive) resp.applyKeepAlive();
             sock->write(serializeResponse(resp));
             return;
         }
@@ -227,12 +257,12 @@ void WebService::serveIndex(QTcpSocket* sock) {
     obj[QStringLiteral("ok")]    = false;
     obj[QStringLiteral("error")] = QStringLiteral(
         "前端静态文件未构建。请在 ui/ 目录执行: npm install && npm run build");
-    sendJson(sock, 503, obj);
+    sendJson(sock, 503, obj, false);
 }
 
-void WebService::serveStaticFile(QTcpSocket* sock, const QString& path) {
+void WebService::serveStaticFile(QTcpSocket* sock, const QString& path, bool keepAlive) {
     if (path.contains(QStringLiteral(".."))) {
-        sendError(sock, 403, QStringLiteral("Forbidden"));
+        sendError(sock, 403, QStringLiteral("Forbidden"), keepAlive);
         return;
     }
     QString filePath = m_staticDir + path.mid(1);
@@ -248,25 +278,27 @@ void WebService::serveStaticFile(QTcpSocket* sock, const QString& path) {
     QByteArray content = f.readAll();
     HttpResponse resp;
     resp.setContent(content, web::mimeType(filePath));
+    if (keepAlive) resp.applyKeepAlive();
     sock->write(serializeResponse(resp));
 }
 
 // ============================================================
 // Response Helpers
 // ============================================================
-void WebService::sendJson(QTcpSocket* sock, int status, const QJsonObject& obj) {
+void WebService::sendJson(QTcpSocket* sock, int status, const QJsonObject& obj, bool keepAlive) {
     QByteArray body = QJsonDocument(obj).toJson(QJsonDocument::Compact);
     HttpResponse resp;
     resp.statusCode = status;
     resp.setJson(body);
+    if (keepAlive) resp.applyKeepAlive();
     sock->write(serializeResponse(resp));
 }
 
-void WebService::sendError(QTcpSocket* sock, int status, const QString& text) {
+void WebService::sendError(QTcpSocket* sock, int status, const QString& text, bool keepAlive) {
     QJsonObject obj;
     obj[QStringLiteral("ok")]    = false;
     obj[QStringLiteral("error")] = text;
-    sendJson(sock, status, obj);
+    sendJson(sock, status, obj, keepAlive);
 }
 
 } // namespace web

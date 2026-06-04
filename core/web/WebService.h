@@ -62,11 +62,11 @@ private slots:
     void onWsDisconnected();
 
 private:
-    void dispatchRequest(QTcpSocket* sock, const QByteArray& raw);
-    void serveStaticFile(QTcpSocket* sock, const QString& path);
-    void serveIndex(QTcpSocket* sock);
-    void sendJson(QTcpSocket* sock, int status, const QJsonObject& obj);
-    void sendError(QTcpSocket* sock, int status, const QString& text);
+    bool dispatchRequest(QTcpSocket* sock, QByteArray& raw);
+    void serveIndex(QTcpSocket* sock, bool keepAlive = false);
+    void serveStaticFile(QTcpSocket* sock, const QString& path, bool keepAlive = false);
+    void sendJson(QTcpSocket* sock, int status, const QJsonObject& obj, bool keepAlive = false);
+    void sendError(QTcpSocket* sock, int status, const QString& text, bool keepAlive = false);
 
     // HTTP
     QTcpServer*  m_httpServer = nullptr;

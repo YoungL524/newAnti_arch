@@ -639,7 +639,8 @@ void AppController::registerRestRoutes()
         m_webService->handlePost(QStringLiteral("/api/start"), [wmc](const QJsonObject &body) {
             static qint64 lastCmdMs = 0;
             qint64 now = QDateTime::currentMSecsSinceEpoch();
-            if (now - lastCmdMs < 500) return QJsonObject{{QStringLiteral("ok"), true}};
+            if (now - lastCmdMs < 500)
+                return QJsonObject{{QStringLiteral("ok"), true}, {QStringLiteral("throttled"), true}};
             lastCmdMs = now;
             QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
             bool ok = ids.isEmpty();
@@ -651,7 +652,8 @@ void AppController::registerRestRoutes()
         m_webService->handlePost(QStringLiteral("/api/stop"), [wmc](const QJsonObject &body) {
             static qint64 lastCmdMs = 0;
             qint64 now = QDateTime::currentMSecsSinceEpoch();
-            if (now - lastCmdMs < 500) return QJsonObject{{QStringLiteral("ok"), true}};
+            if (now - lastCmdMs < 500)
+                return QJsonObject{{QStringLiteral("ok"), true}, {QStringLiteral("throttled"), true}};
             lastCmdMs = now;
             QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
             bool ok = ids.isEmpty();
