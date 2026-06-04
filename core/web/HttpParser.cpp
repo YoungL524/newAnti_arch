@@ -176,7 +176,10 @@ std::optional<ParseResult> tryParseRequest(const QByteArray& buffer) {
     } else {
         auto clIt = headers.find("content-length");
         if (clIt != headers.end()) {
-            int bodyLen = clIt->toInt();
+            bool ok = false;
+            int bodyLen = clIt->toInt(&ok);
+            if (!ok || bodyLen < 0)
+                return std::nullopt;  // 400 Bad Request
             if (bodyStart + bodyLen > buffer.size())
                 return ParseResult{{}, 0, false};
             body = buffer.mid(bodyStart, bodyLen);
