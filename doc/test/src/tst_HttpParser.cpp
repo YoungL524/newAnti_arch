@@ -127,6 +127,64 @@ private slots:
         QByteArray wire = serializeResponse(HttpResponse{400, {}, QByteArray("{\"ok\":false}")});
         QVERIFY(wire.startsWith("HTTP/1.1 400 Bad Request"));
     }
+
+    // ── Lowercase headers ──
+    void parse_lowercase_content_length() {
+        QByteArray raw = "POST /api/start HTTP/1.1\r\nhost: localhost\r\ncontent-length: 6\r\n\r\nabcdef";
+        auto result = tryParseRequest(raw);
+        QVERIFY(result.has_value());
+        QCOMPARE(result->request.body, QByteArray("abcdef"));
+    }
+
+    void parse_lowercase_transfer_encoding_chunked() {
+        QByteArray raw = "POST /api/data HTTP/1.1\r\nhost: localhost\r\ntransfer-encoding: chunked\r\n\r\n4\r\ntest\r\n0\r\n\r\n";
+        auto result = tryParseRequest(raw);
+        QVERIFY(result.has_value());
+        QCOMPARE(result->request.body, QByteArray("test"));
+    }
+
+    void parse_lowercase_connection_close() {
+        QByteArray raw = "GET / HTTP/1.1\r\nconnection: close\r\n\r\n";
+        auto result = tryParseRequest(raw);
+        QVERIFY(result.has_value());
+        QVERIFY(!result->keepAlive);
+    }
+
+    // ── Consumed bounds ──
+    void parse_POST_consumed_exact_with_trailing_data() {
+        QByteArray raw = "POST /api/start HTTP/1.1\r\nhost: localhost\r\ncontent-length: 3\r\n\r\nabcGET /next HTTP/1.1\r\n\r\n";
+        auto result = tryParseRequest(raw);
+        QVERIFY(result.has_value());
+        QCOMPARE(result->request.body, QByteArray("abc"));
+        // consumed should be exactly after the body, not including the pipelined GET
+        QByteArray rest = raw.mid(static_cast<int>(result->consumed));
+        QVERIFY(rest.startsWith("GET /next"));
+    }
+
+    void parse_chunked_consumed_exact_with_pipelined_get() {
+        QByteArray raw = "POST /api/data HTTP/1.1\r\nhost: localhost\r\ntransfer-encoding: chunked\r\n\r\n4\r\ntest\r\n0\r\n\r\nGET /api/status HTTP/1.1\r\n\r\n";
+        auto result = tryParseRequest(raw);
+        QVERIFY(result.has_value());
+        QCOMPARE(result->request.body, QByteArray("test"));
+        QByteArray rest = raw.mid(static_cast<int>(result->consumed));
+        QVERIFY(rest.startsWith("GET /api/status"));
+    }
+
+    void parse_chunked_consumed_exact_with_trailer_and_pipelined_get() {
+        QByteArray raw = "POST /api/data HTTP/1.1\r\nhost: localhost\r\ntransfer-encoding: chunked\r\n\r\n4\r\ntest\r\n0\r\nX-Trailer: ok\r\n\r\nGET /api/status HTTP/1.1\r\n\r\n";
+        auto result = tryParseRequest(raw);
+        QVERIFY(result.has_value());
+        QCOMPARE(result->request.body, QByteArray("test"));
+        QByteArray rest = raw.mid(static_cast<int>(result->consumed));
+        QVERIFY(rest.startsWith("GET /api/status"));
+    }
+
+    // ── Malformed chunk CRLF ──
+    void parse_chunked_missing_crlf_returns_malformed() {
+        QByteArray raw = "POST /api/data HTTP/1.1\r\nhost: localhost\r\ntransfer-encoding: chunked\r\n\r\n4\r\ntest0\r\n\r\n";  // missing CRLF after 'test'
+        auto result = tryParseRequest(raw);
+        QVERIFY(!result.has_value());
+    }
 };
 
 QTEST_MAIN(TestHttpParser)

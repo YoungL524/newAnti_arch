@@ -79,10 +79,12 @@ static ChunkResult decodeChunked(const QByteArray& data, int offset, int dataSiz
     int pos = offset;
 
     while (pos < dataSize) {
+        // chunk-size line ends with CRLF
         int lf = data.indexOf('\n', pos);
         if (lf < 0) return ChunkResult::Incomplete;
+        if (lf > pos && data[lf - 1] != '\r') return ChunkResult::Malformed;
 
-        QByteArray chunkLine = data.mid(pos, lf - pos).trimmed();
+        QByteArray chunkLine = data.mid(pos, lf - pos - 1).trimmed();  // strip \r\n
         int semi = chunkLine.indexOf(';');
         if (semi >= 0) chunkLine = chunkLine.left(semi);
 
@@ -91,17 +93,31 @@ static ChunkResult decodeChunked(const QByteArray& data, int offset, int dataSiz
         if (!ok) return ChunkResult::Malformed;
 
         if (chunkSize == 0) {
-            // After the final "\r\n" after the zero-size chunk
-            int trailEnd = lf + 1;
-            while (trailEnd < dataSize && (data[trailEnd] == '\r' || data[trailEnd] == '\n'))
-                trailEnd++;
-            endPos = trailEnd;
-            return ChunkResult::Ok;
+            // Parse trailer section: zero or more headers, terminated by empty line
+            int trailerPos = lf + 1;
+            while (true) {
+                // Need at least CRLF to terminate a trailer / empty line
+                if (trailerPos + 1 >= dataSize) return ChunkResult::Incomplete;
+                if (data[trailerPos] == '\r' && data[trailerPos + 1] == '\n') {
+                    // Empty line = end of trailer
+                    endPos = trailerPos + 2;
+                    return ChunkResult::Ok;
+                }
+                // Non-empty trailer header — scan for its CRLF
+                int tl = data.indexOf('\n', trailerPos);
+                if (tl < 0) return ChunkResult::Incomplete;
+                if (tl > trailerPos && data[tl - 1] != '\r') return ChunkResult::Malformed;
+                trailerPos = tl + 1;
+            }
         }
 
+        // Validate CRLF after chunk data
         int chunkStart = lf + 1;
         if (chunkStart + static_cast<int>(chunkSize) + 2 > dataSize)
             return ChunkResult::Incomplete;
+        if (data[chunkStart + static_cast<int>(chunkSize)]     != '\r'
+         || data[chunkStart + static_cast<int>(chunkSize) + 1] != '\n')
+            return ChunkResult::Malformed;
 
         outBody.append(data.mid(chunkStart, static_cast<int>(chunkSize)));
         pos = chunkStart + static_cast<int>(chunkSize) + 2;
