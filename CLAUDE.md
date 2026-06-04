@@ -63,3 +63,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+## 5. No Automatic Git Push
+
+**Never push to GitHub unless the user explicitly asks you to.** Stage and commit locally (to preserve work), but do not `git push`. The user will decide when to push.

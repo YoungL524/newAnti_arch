@@ -28,7 +28,7 @@
 └───────┼────────────────────────────────────────────────┼──────┘
         │                                                │
 ┌───────▼────────── C++ Core ────────────────────────────┼──────┐
-│  HttpServer (HTTP :8088 / WS :8089)                    │      │
+│  WebService (HTTP :8088 / WS :8089)                    │      │
 │       │  subscribeToBus()                              │      │
 │  ┌────▼────────────────────────────────────────────┐   │      │
 │  │              SystemBus (DDS pub/sub)              │   │      │
@@ -97,8 +97,8 @@ newAnti_arch/
 │   ├── processor.json               # 处理器流水线
 │   └── database.json                # SQLite 配置
 ├── core/                            # C++ 后端
-│   ├── main.cpp                     # 入口: HttpServer + StdinReader
-│   ├── HttpServer.{h,cpp}           # HTTP/WS + subscribeToBus
+│   ├── main.cpp                     # 入口: AppController + StdinReader
+│   ├── web/                         # HTTP/WS 服务层
 │   ├── AppController.{h,cpp}        # 装配 & 生命周期
 │   ├── RadarWorkModeController      # 工作/待机状态机
 │   ├── comm/                        # UDP Endpoint + CommManager

@@ -109,8 +109,8 @@ private slots:
         resp.setContent(QByteArray("hello"), "text/plain");
         QByteArray wire = serializeResponse(resp);
         QVERIFY(wire.contains("HTTP/1.1 200 OK"));
-        QVERIFY(wire.contains("Content-Type: text/plain"));
-        QVERIFY(wire.contains("Content-Length: 5"));
+        QVERIFY(wire.contains("content-type: text/plain"));
+        QVERIFY(wire.contains("content-length: 5"));
         QVERIFY(wire.endsWith("hello"));
     }
 
@@ -119,8 +119,8 @@ private slots:
         resp.setContent(QByteArray("{}"), "application/json");
         resp.applyKeepAlive();
         QByteArray wire = serializeResponse(resp);
-        QVERIFY(wire.contains("Connection: keep-alive"));
-        QVERIFY(wire.contains("Keep-Alive: timeout=5"));
+        QVERIFY(wire.contains("connection: keep-alive"));
+        QVERIFY(wire.contains("keep-alive: timeout=5"));
     }
 
     void serialize_error_response() {

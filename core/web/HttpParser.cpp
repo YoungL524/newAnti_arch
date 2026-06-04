@@ -5,39 +5,40 @@
 
 namespace web {
 
+// Lowercase header name for case-insensitive lookup
+static QString normalizeHeaderKey(const QString& raw) {
+    return raw.toLower();
+}
+
 // ============================================================
-// HttpRequest helpers
+// HttpRequest helpers (case-insensitive header lookup)
 // ============================================================
 std::optional<QString> HttpRequest::headerValue(const QString& key) const {
-    auto it = headers.find(key);
+    auto it = headers.find(key.toLower());
     if (it != headers.end())
         return it.value();
     return std::nullopt;
 }
 
 int HttpRequest::contentLength() const {
-    auto v = headerValue("Content-Length");
+    auto v = headerValue("content-length");
     return v ? v->toInt() : 0;
 }
 
 bool HttpRequest::isKeepAlive() const {
-    auto conn = headerValue("Connection");
-    if (!conn) return false;
-    return conn->compare("keep-alive", Qt::CaseInsensitive) == 0
-        || conn->compare("Keep-Alive") == 0;
+    auto conn = headerValue("connection");
+    return conn.has_value() && conn->compare("keep-alive", Qt::CaseInsensitive) == 0;
 }
 
 // ============================================================
 // Response helpers
 // ============================================================
-void HttpResponse::setStatus(int code) noexcept {
-    statusCode = code;
-}
+void HttpResponse::setStatus(int code) noexcept { statusCode = code; }
 
 void HttpResponse::setContent(const QByteArray& content, const QString& mimeType) {
     body = content;
-    headers["Content-Type"]   = mimeType;
-    headers["Content-Length"] = QString::number(body.size());
+    headers["content-type"]   = mimeType;
+    headers["content-length"] = QString::number(body.size());
 }
 
 void HttpResponse::setJson(const QByteArray& jsonBody) {
@@ -46,9 +47,9 @@ void HttpResponse::setJson(const QByteArray& jsonBody) {
 
 void HttpResponse::applyKeepAlive() {
     keepAlive = true;
-    headers["Connection"] = QStringLiteral("keep-alive");
-    if (!headers.contains("Keep-Alive"))
-        headers["Keep-Alive"] = QStringLiteral("timeout=5");
+    headers["connection"] = QStringLiteral("keep-alive");
+    if (!headers.contains("keep-alive"))
+        headers["keep-alive"] = QStringLiteral("timeout=5");
 }
 
 // ============================================================
@@ -60,81 +61,79 @@ static Method methodFromString(const QString& s) {
     return Method::UNKNOWN;
 }
 
+enum class ChunkResult { Ok, Incomplete, Malformed };
+
 /**
- * @brief Decode HTTP chunked body starting at `data[offset]`.
- * @return Decoded body, or empty QByteArray if incomplete.
+ * @brief Decode HTTP chunked body.
+ * @param data   Raw buffer
+ * @param offset Offset where chunked body starts
+ * @param dataSize Total bytes available in data
+ * @param outBody [out] Decoded body
+ * @param endPos  [out] Position after the last byte consumed (complete/final trail)
+ * @return Ok=body complete, Incomplete=wait for more, Malformed=bad data
  */
-static QByteArray decodeChunked(const QByteArray& data, int offset, int dataSize, bool& complete) {
-    complete = false;
-    QByteArray body;
+static ChunkResult decodeChunked(const QByteArray& data, int offset, int dataSize,
+                                  QByteArray& outBody, int& endPos) {
+    outBody.clear();
+    endPos = offset;
     int pos = offset;
 
     while (pos < dataSize) {
-        // Find chunk-size line ending
         int lf = data.indexOf('\n', pos);
-        if (lf < 0) return {};
+        if (lf < 0) return ChunkResult::Incomplete;
 
         QByteArray chunkLine = data.mid(pos, lf - pos).trimmed();
-        // Split off optional chunk-extensions (semicolon)
         int semi = chunkLine.indexOf(';');
         if (semi >= 0) chunkLine = chunkLine.left(semi);
 
         bool ok = false;
         uint32_t chunkSize = chunkLine.toUInt(&ok, 16);
-        if (!ok) return {};  // malformed
+        if (!ok) return ChunkResult::Malformed;
 
         if (chunkSize == 0) {
-            complete = true;
-            // Skip trailing CRLF after last-chunk (and optional trailer)
-            return body;
+            // After the final "\r\n" after the zero-size chunk
+            int trailEnd = lf + 1;
+            while (trailEnd < dataSize && (data[trailEnd] == '\r' || data[trailEnd] == '\n'))
+                trailEnd++;
+            endPos = trailEnd;
+            return ChunkResult::Ok;
         }
 
         int chunkStart = lf + 1;
         if (chunkStart + static_cast<int>(chunkSize) + 2 > dataSize)
-            return {};  // chunk body + CRLF not yet complete
+            return ChunkResult::Incomplete;
 
-        body.append(data.mid(chunkStart, static_cast<int>(chunkSize)));
-        pos = chunkStart + static_cast<int>(chunkSize) + 2;  // skip body + CRLF
+        outBody.append(data.mid(chunkStart, static_cast<int>(chunkSize)));
+        pos = chunkStart + static_cast<int>(chunkSize) + 2;
     }
-
-    return {};
+    return ChunkResult::Incomplete;
 }
 
 std::optional<ParseResult> tryParseRequest(const QByteArray& buffer) {
-    // Locate header terminator
     int headerEnd = buffer.indexOf("\r\n\r\n");
-    if (headerEnd < 0)
-        return ParseResult{{}, 0, false};  // incomplete
+    if (headerEnd < 0) return ParseResult{{}, 0, false};
 
-    // Parse request line: "METHOD /path HTTP/1.1\r\n"
     int firstLf = buffer.indexOf("\r\n");
-    if (firstLf < 0)
-        return ParseResult{{}, 0, false};
+    if (firstLf < 0) return ParseResult{{}, 0, false};
 
     QByteArray reqLine = buffer.left(firstLf);
     auto parts = reqLine.split(' ');
-    if (parts.size() < 2)
-        return std::nullopt;  // malformed
+    if (parts.size() < 2) return std::nullopt;
 
-    // Path + query string
     QString fullPath = QString::fromUtf8(parts[1]);
     QString path, queryString;
     int qpos = fullPath.indexOf('?');
-    if (qpos >= 0) {
-        path        = fullPath.left(qpos);
-        queryString = fullPath.mid(qpos + 1);
-    } else {
-        path = fullPath;
-    }
+    if (qpos >= 0) { path = fullPath.left(qpos); queryString = fullPath.mid(qpos + 1); }
+    else           { path = fullPath; }
 
-    // Parse headers
+    // Parse headers — normalize keys to lowercase
     QByteArray headerSection = buffer.mid(firstLf + 2, headerEnd - firstLf - 2);
     QMap<QString, QString> headers;
     for (const auto& line : headerSection.split('\n')) {
         auto trimmed = line.trimmed();
         int colon = trimmed.indexOf(':');
         if (colon > 0) {
-            QString key = QString::fromUtf8(trimmed.left(colon)).trimmed();
+            QString key = normalizeHeaderKey(QString::fromUtf8(trimmed.left(colon)).trimmed());
             QString val = QString::fromUtf8(trimmed.mid(colon + 1)).trimmed();
             headers.insert(std::move(key), std::move(val));
         }
@@ -143,39 +142,40 @@ std::optional<ParseResult> tryParseRequest(const QByteArray& buffer) {
     // Detect body encoding
     int bodyStart = headerEnd + 4;
     QByteArray body;
+    size_t consumed = 0;
+    bool keepAlive = false;
 
-    auto teIt = headers.find("Transfer-Encoding");
+    auto teIt = headers.find("transfer-encoding");
     bool isChunked = (teIt != headers.end() &&
                       teIt->compare("chunked", Qt::CaseInsensitive) == 0);
-    auto clIt = headers.find("Content-Length");
-
-    size_t consumed = 0;
 
     if (isChunked) {
-        bool complete = false;
-        body = decodeChunked(buffer, bodyStart, buffer.size(), complete);
-        if (!complete)
-            return ParseResult{{}, 0, false};  // chunked body not yet complete
-        consumed = static_cast<size_t>(bodyStart + (buffer.size() - bodyStart));
-    } else if (clIt != headers.end()) {
-        int bodyLen = clIt->toInt();
-        if (bodyStart + bodyLen > buffer.size())
-            return ParseResult{{}, 0, false};  // body not yet complete
-        body = buffer.mid(bodyStart, bodyLen);
-        consumed = static_cast<size_t>(bodyStart + bodyLen);
+        int endPos = 0;
+        ChunkResult cr = decodeChunked(buffer, bodyStart, buffer.size(), body, endPos);
+        if (cr == ChunkResult::Incomplete)
+            return ParseResult{{}, 0, false};
+        if (cr == ChunkResult::Malformed)
+            return std::nullopt;  // 400 Bad Request
+        consumed = static_cast<size_t>(endPos);
     } else {
-        // No body (GET, HEAD, etc.)
-        consumed = static_cast<size_t>(headerEnd + 4);
+        auto clIt = headers.find("content-length");
+        if (clIt != headers.end()) {
+            int bodyLen = clIt->toInt();
+            if (bodyStart + bodyLen > buffer.size())
+                return ParseResult{{}, 0, false};
+            body = buffer.mid(bodyStart, bodyLen);
+            consumed = static_cast<size_t>(bodyStart + bodyLen);
+        } else {
+            // GET / HEAD / no body
+            consumed = static_cast<size_t>(headerEnd + 4);
+        }
     }
 
-    // Detect keep-alive
-    bool keepAlive = false;
-    auto connIt = headers.find("Connection");
+    // Keep-alive detection
+    auto connIt = headers.find("connection");
     if (connIt != headers.end()) {
-        keepAlive = connIt->compare("keep-alive", Qt::CaseInsensitive) == 0;
-    }
-    // HTTP/1.1 defaults to keep-alive unless Connection: close
-    else if (parts.size() >= 3) {
+        keepAlive = (connIt->compare("keep-alive", Qt::CaseInsensitive) == 0);
+    } else if (parts.size() >= 3) {
         QString version = QString::fromUtf8(parts[2]);
         keepAlive = version.contains("HTTP/1.1");
     }
@@ -195,11 +195,11 @@ std::optional<ParseResult> tryParseRequest(const QByteArray& buffer) {
 // ============================================================
 static QByteArray statusText(int code) {
     switch (code) {
-    case 200: return QByteArrayLiteral("OK");
-    case 400: return QByteArrayLiteral("Bad Request");
-    case 404: return QByteArrayLiteral("Not Found");
-    case 503: return QByteArrayLiteral("Service Unavailable");
-    default:  return QByteArrayLiteral("Error");
+    case 200: return "OK";
+    case 400: return "Bad Request";
+    case 404: return "Not Found";
+    case 503: return "Service Unavailable";
+    default:  return "Error";
     }
 }
 
@@ -209,18 +209,17 @@ QByteArray serializeResponse(const HttpResponse& resp) {
             + statusText(resp.statusCode) + "\r\n";
 
     QMap<QString, QString> h = resp.headers;
-    if (!h.contains("Content-Type"))
-        h["Content-Type"] = resp.body.isEmpty() ? "text/plain" : "application/octet-stream";
-    if (!h.contains("Content-Length"))
-        h["Content-Length"] = QByteArray::number(resp.body.size());
-    if (!h.contains("Connection"))
-        h["Connection"] = "close";
-    if (!h.contains("Access-Control-Allow-Origin"))
-        h["Access-Control-Allow-Origin"] = "*";
+    if (!h.contains("content-type"))
+        h["content-type"] = resp.body.isEmpty() ? "text/plain" : "application/octet-stream";
+    if (!h.contains("content-length"))
+        h["content-length"] = QByteArray::number(resp.body.size());
+    if (!h.contains("connection"))
+        h["connection"] = "close";
+    if (!h.contains("access-control-allow-origin"))
+        h["access-control-allow-origin"] = "*";
 
-    for (auto it = h.begin(); it != h.end(); ++it) {
+    for (auto it = h.begin(); it != h.end(); ++it)
         result += it.key().toUtf8() + ": " + it.value().toUtf8() + "\r\n";
-    }
     result += "\r\n";
     result += resp.body;
     return result;

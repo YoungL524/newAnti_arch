@@ -132,7 +132,7 @@ public:
     AppHealth healthReport() const;
 
     /**
-     * @brief 启动 Web 服务（创建 HttpServer、注册 REST 路由、WS 定时器、subscribeToBus）
+     * @brief 启动 Web 服务（创建 web::WebService、注册 REST 路由、WS 定时器、subscribeToBus）
      * @return 启动结果（含实际端口号）
      */
     WebServiceResult startWebService(quint16 httpPort = 8088, quint16 wsPort = 8089);
