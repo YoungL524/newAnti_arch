@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <functional>
 

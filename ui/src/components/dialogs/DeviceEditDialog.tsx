@@ -14,15 +14,12 @@ interface Props {
 
 export default function DeviceEditDialog({ device, radarDevices, onUpdateDevice, onUpdateSubDevice, onClose }: Props) {
   const [saveError, setSaveError] = useState('')
-  const [saving, setSaving] = useState(false)
 
   const handleSave = async (updates: Partial<RadarDevice> | Partial<SubDevice>) => {
     setSaveError('')
-    setSaving(true)
     const ok = 'lng' in device
       ? await onUpdateDevice(device.id, updates as Partial<RadarDevice>)
       : await onUpdateSubDevice(device.id, updates as Partial<SubDevice>)
-    setSaving(false)
     if (ok) onClose()
     else setSaveError('保存失败，请重试')
   }

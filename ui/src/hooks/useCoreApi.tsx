@@ -9,24 +9,26 @@ interface DeviceState {
 
 interface CoreState {
   connected: boolean
-  acquisition: boolean        // 聚合：是否有设备在工作
+  acquisition: boolean
   state: string
-  devices: DeviceState[]       // per-device 状态
-  checkedDeviceIds: string[]   // 用户勾选的设备
-  noSelectionHint: boolean     // 未勾选设备时的弹窗提示
+  devices: DeviceState[]
+  checkedDeviceIds: string[]
+  noSelectionHint: boolean
+  commandError: string          // 启停命令失败原因（用户可见）
   tracks: RadarTrack[]
   trackRate: number
   logEntries: { level: string; message: string; timestamp: number }[]
   setCheckedDevices: (ids: string[]) => void
   dismissNoSelectionHint: () => void
+  dismissCommandError: () => void
   toggleAcquisition: () => void
 }
 
 const defaultState: CoreState = {
   connected: false, acquisition: false, state: 'Unknown',
-  devices: [], checkedDeviceIds: [], noSelectionHint: false,
+  devices: [], checkedDeviceIds: [], noSelectionHint: false, commandError: '',
   tracks: [], trackRate: 0, logEntries: [],
-  setCheckedDevices: () => {}, dismissNoSelectionHint: () => {}, toggleAcquisition: () => {},
+  setCheckedDevices: () => {}, dismissNoSelectionHint: () => {}, dismissCommandError: () => {}, toggleAcquisition: () => {},
 }
 
 const CoreContext = createContext<CoreState>(defaultState)
@@ -65,12 +67,19 @@ export function CoreProvider({ children }: { children: ReactNode }) {
     setState(prev => ({ ...prev, noSelectionHint: false }))
   }, [])
 
+  const dismissCommandError = useCallback(() => {
+    setState(prev => ({ ...prev, commandError: '' }))
+  }, [])
+
   // 同步 workingRef 与 state.acquisition
   useEffect(() => { workingRef.current = state.acquisition }, [state.acquisition])
 
   const toggleAcquisition = useCallback(async () => {
     const cids = checkedRef.current
     const isWorking = workingRef.current
+
+    // 清除之前的错误提示
+    setState(prev => ({ ...prev, commandError: '' }))
 
     if (!isWorking && cids.length === 0) {
       setState(prev => ({ ...prev, noSelectionHint: true }))
@@ -81,15 +90,25 @@ export function CoreProvider({ children }: { children: ReactNode }) {
     pendingRef.current = true
     setTimeout(() => { pendingRef.current = false }, 1500)
 
+    // 保存快照以备回滚
+    const savedTracks = tracksRef.current
+    const savedTrackCount = trackCountRef.current
+
     if (!isWorking) { tracksRef.current = []; trackCountRef.current = 0 }
 
-    // 乐观更新
     setState(prev => ({
       ...prev,
       acquisition: !isWorking,
       tracks: !isWorking ? [] : prev.tracks,
       trackRate: 0,
     }))
+
+    const rollback = (msg: string) => {
+      console.warn('[acquisition]', msg)
+      tracksRef.current = savedTracks
+      trackCountRef.current = savedTrackCount
+      setState(prev => ({ ...prev, acquisition: isWorking, tracks: savedTracks, trackRate: savedTrackCount, commandError: msg }))
+    }
 
     try {
       const res = await fetch(`/api/${isWorking ? 'stop' : 'start'}`, {
@@ -98,18 +117,12 @@ export function CoreProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ deviceIds: cids }),
       })
       const data = await res.json()
-      if (!data.ok) {
-        // 后端拒绝，回滚
-        setState(prev => ({ ...prev, acquisition: isWorking }))
-        if (data.error) console.warn('[acquisition]', data.error)
-        return
-      }
+      if (!data.ok) { rollback(data.error || '请求被拒绝'); return }
       if (data.rejectedDeviceIds?.length > 0) {
-        console.warn('[acquisition] 被拒绝的设备:', data.rejectedDeviceIds)
+        rollback('部分设备被拒绝: ' + JSON.stringify(data.rejectedDeviceIds))
       }
     } catch {
-      // 网络错误，回滚
-      setState(prev => ({ ...prev, acquisition: isWorking }))
+      rollback('网络错误')
     }
   }, [])
 
@@ -217,8 +230,8 @@ export function CoreProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const contextValue = useMemo(() => ({
-    ...state, setCheckedDevices, dismissNoSelectionHint, toggleAcquisition,
-  }), [state, setCheckedDevices, dismissNoSelectionHint, toggleAcquisition])
+    ...state, setCheckedDevices, dismissNoSelectionHint, dismissCommandError, toggleAcquisition,
+  }), [state, setCheckedDevices, dismissNoSelectionHint, dismissCommandError, toggleAcquisition])
 
   return (
     <CoreContext.Provider value={contextValue}>
