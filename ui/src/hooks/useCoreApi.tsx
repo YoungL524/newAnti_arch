@@ -68,11 +68,7 @@ export function CoreProvider({ children }: { children: ReactNode }) {
   // 同步 workingRef 与 state.acquisition
   useEffect(() => { workingRef.current = state.acquisition }, [state.acquisition])
 
-  const toggleAcquisition = useCallback(() => {
-    if (pendingRef.current) return
-    pendingRef.current = true
-    setTimeout(() => { pendingRef.current = false }, 1500)
-
+  const toggleAcquisition = useCallback(async () => {
     const cids = checkedRef.current
     const isWorking = workingRef.current
 
@@ -81,8 +77,13 @@ export function CoreProvider({ children }: { children: ReactNode }) {
       return
     }
 
+    if (pendingRef.current) return
+    pendingRef.current = true
+    setTimeout(() => { pendingRef.current = false }, 1500)
+
     if (!isWorking) { tracksRef.current = []; trackCountRef.current = 0 }
 
+    // 乐观更新
     setState(prev => ({
       ...prev,
       acquisition: !isWorking,
@@ -90,8 +91,26 @@ export function CoreProvider({ children }: { children: ReactNode }) {
       trackRate: 0,
     }))
 
-    // fetch 在 setState 外部！避免 StrictMode 双重调用
-    fetch(`/api/${isWorking ? 'stop' : 'start'}`, { method: 'POST' }).catch(() => {})
+    try {
+      const res = await fetch(`/api/${isWorking ? 'stop' : 'start'}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceIds: cids }),
+      })
+      const data = await res.json()
+      if (!data.ok) {
+        // 后端拒绝，回滚
+        setState(prev => ({ ...prev, acquisition: isWorking }))
+        if (data.error) console.warn('[acquisition]', data.error)
+        return
+      }
+      if (data.rejectedDeviceIds?.length > 0) {
+        console.warn('[acquisition] 被拒绝的设备:', data.rejectedDeviceIds)
+      }
+    } catch {
+      // 网络错误，回滚
+      setState(prev => ({ ...prev, acquisition: isWorking }))
+    }
   }, [])
 
   // ── HTTP 轮询 ──

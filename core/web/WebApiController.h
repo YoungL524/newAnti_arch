@@ -39,6 +39,8 @@ public:
     void shutdown();
 
 private:
+    QJsonArray buildDeviceStatusArray() const;
+
     web::WebService*           m_ws = nullptr;
     RadarWorkModeController*   m_wmc = nullptr;
     DeviceRegistry*            m_deviceReg = nullptr;
