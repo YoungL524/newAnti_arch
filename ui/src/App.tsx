@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import './styles/globals.css'
 import TitleBar from './components/layout/TitleBar'
 import Sidebar from './components/layout/Sidebar'
@@ -23,6 +23,54 @@ export default function App() {
     { id: nextDeviceId(), ...DEFAULT_DEVICE },
   ])
   const [subDevices, setSubDevices] = useState<SubDevice[]>([])
+  const devicesLoadedRef = useRef(false)
+
+  // ── Load devices from backend API on startup ──
+  useEffect(() => {
+    if (devicesLoadedRef.current) return
+    devicesLoadedRef.current = true
+    fetch('/api/devices')
+      .then(r => r.json())
+      .then(async (data: any) => {
+        if (!data.ok || !data.devices) return
+        const radars: RadarDevice[] = []
+        const subs: SubDevice[] = []
+        for (const item of data.devices) {
+          if (item.kind === 0) {
+            let faces: any[] = []
+            try { faces = JSON.parse(item.facesJson || '[]') } catch {}
+            radars.push({
+              id: item.id,
+              name: item.name,
+              brand: item.brand || 'cetc38' as any,
+              lng: item.lng,
+              lat: item.lat,
+              altitude: item.altitude,
+              maxRange: item.maxRange || 5,
+              faces: faces.length > 0 ? faces : [{ label: 'A', boresightAzimuth: 0, scanAngle: 45, active: true }],
+            })
+          } else {
+            const kinds = ['opto', 'level', 'gps'] as const
+            subs.push({
+              id: item.id,
+              name: item.name,
+              kind: kinds[item.kind - 1] ?? 'opto',
+              brand: item.brand || 'cetc38' as any,
+              linkedRadarId: item.linkedRadarId || undefined,
+              mountOffsetAzimuth: item.mountOffsetAzimuth,
+              coordinateSystem: item.coordinateSystem || 'WGS-84',
+            })
+          }
+        }
+        if (radars.length > 0 || subs.length > 0) {
+          setDevices(radars)
+          setSubDevices(subs)
+        }
+      })
+      .catch(() => {
+        // backend not available, keep default device
+      })
+  }, [])
 
   // ── Task state ──
   const [tasks, setTasks] = useState<Task[]>(loadTasks)

@@ -4,6 +4,7 @@
 #include "bus/GenericPackets.h"
 #include "protocol/StructureReceive.h"
 #include "RadarWorkModeController.h"
+#include "business/DeviceRegistry.h"
 #include "log/Logger.h"
 #include <QDateTime>
 #include <QDebug>
@@ -12,11 +13,13 @@
 
 WebApiController::WebApiController(web::WebService* ws,
                                    RadarWorkModeController* wmc,
+                                   DeviceRegistry* deviceRegistry,
                                    HealthProvider healthProvider,
                                    QObject* parent)
     : QObject(parent)
     , m_ws(ws)
     , m_wmc(wmc)
+    , m_deviceReg(deviceRegistry)
     , m_health(std::move(healthProvider))
 {
 }
@@ -93,6 +96,83 @@ void WebApiController::registerRestRoutes()
                 if (v.toString() == QStringLiteral("radar_cpu")) { ok = true; break; }
             if (ok) m_wmc->requestStandby();
             return QJsonObject{{QStringLiteral("ok"), true}};
+        });
+    }
+
+    // ── Device Registry API ──
+    if (m_deviceReg) {
+        m_ws->handleGet(QStringLiteral("/api/devices"), [this](const QJsonObject&) {
+            QJsonArray arr;
+            for (const auto& d : m_deviceReg->list()) {
+                QJsonObject item;
+                item[QStringLiteral("id")]                  = d.id;
+                item[QStringLiteral("name")]                = d.name;
+                item[QStringLiteral("brand")]               = d.brand;
+                item[QStringLiteral("kind")]                = static_cast<int>(d.kind);
+                item[QStringLiteral("lng")]                 = d.lng;
+                item[QStringLiteral("lat")]                 = d.lat;
+                item[QStringLiteral("altitude")]            = d.altitude;
+                item[QStringLiteral("maxRange")]            = d.maxRange;
+                item[QStringLiteral("facesJson")]           = d.facesJson;
+                item[QStringLiteral("endpointId")]          = d.endpointId;
+                item[QStringLiteral("linkedRadarId")]       = d.linkedRadarId;
+                item[QStringLiteral("mountOffsetAzimuth")]  = d.mountOffsetAzimuth;
+                item[QStringLiteral("coordinateSystem")]    = d.coordinateSystem;
+                item[QStringLiteral("status")]              = static_cast<int>(d.status);
+                arr.append(item);
+            }
+            QJsonObject r; r[QStringLiteral("ok")] = true; r[QStringLiteral("devices")] = arr;
+            return r;
+        });
+
+        m_ws->handlePost(QStringLiteral("/api/devices"), [this](const QJsonObject& body) {
+            DeviceInfo d;
+            d.id           = body[QStringLiteral("id")].toString();
+            d.name         = body[QStringLiteral("name")].toString();
+            d.brand        = body[QStringLiteral("brand")].toString();
+            d.kind         = static_cast<DeviceKind>(body[QStringLiteral("kind")].toInt());
+            d.lng          = body[QStringLiteral("lng")].toDouble();
+            d.lat          = body[QStringLiteral("lat")].toDouble();
+            d.altitude     = body[QStringLiteral("altitude")].toDouble();
+            d.maxRange     = body[QStringLiteral("maxRange")].toDouble();
+            d.facesJson    = body[QStringLiteral("facesJson")].toString(QStringLiteral("[]"));
+            d.endpointId   = body[QStringLiteral("endpointId")].toString();
+            d.linkedRadarId = body[QStringLiteral("linkedRadarId")].toString();
+            d.mountOffsetAzimuth = body[QStringLiteral("mountOffsetAzimuth")].toDouble();
+            d.coordinateSystem = body[QStringLiteral("coordinateSystem")].toString(QStringLiteral("WGS-84"));
+            if (d.name.isEmpty() || d.id.isEmpty())
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("id 和 name 不能为空")}};
+            bool ok = m_deviceReg->create(d);
+            return QJsonObject{{QStringLiteral("ok"), ok}};
+        });
+
+        m_ws->handlePutPrefix(QStringLiteral("/api/devices/"), [this](const QJsonObject& body) {
+            DeviceInfo d;
+            d.id           = body[QStringLiteral("id")].toString();
+            d.name         = body[QStringLiteral("name")].toString();
+            d.brand        = body[QStringLiteral("brand")].toString();
+            d.kind         = static_cast<DeviceKind>(body[QStringLiteral("kind")].toInt());
+            d.lng          = body[QStringLiteral("lng")].toDouble();
+            d.lat          = body[QStringLiteral("lat")].toDouble();
+            d.altitude     = body[QStringLiteral("altitude")].toDouble();
+            d.maxRange     = body[QStringLiteral("maxRange")].toDouble();
+            d.facesJson    = body[QStringLiteral("facesJson")].toString(QStringLiteral("[]"));
+            d.endpointId   = body[QStringLiteral("endpointId")].toString();
+            d.linkedRadarId = body[QStringLiteral("linkedRadarId")].toString();
+            d.mountOffsetAzimuth = body[QStringLiteral("mountOffsetAzimuth")].toDouble();
+            d.coordinateSystem = body[QStringLiteral("coordinateSystem")].toString(QStringLiteral("WGS-84"));
+            if (d.id.isEmpty())
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("id 不能为空")}};
+            bool ok = m_deviceReg->update(d);
+            return QJsonObject{{QStringLiteral("ok"), ok}};
+        });
+
+        m_ws->handleDeletePrefix(QStringLiteral("/api/devices/"), [this](const QJsonObject& body) {
+            QString id = body[QStringLiteral("id")].toString();
+            if (id.isEmpty())
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("id 不能为空")}};
+            bool ok = m_deviceReg->remove(id);
+            return QJsonObject{{QStringLiteral("ok"), ok}};
         });
     }
 }

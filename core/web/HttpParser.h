@@ -15,6 +15,8 @@ enum class Method : uint8_t {
     UNKNOWN = 0,
     GET,
     POST,
+    PUT,
+    DELETE,
 };
 
 // ============================================================

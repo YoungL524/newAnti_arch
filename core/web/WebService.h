@@ -44,6 +44,13 @@ public:
     /// Register REST handlers.
     void handleGet(const QString& path, JsonHandler handler);
     void handlePost(const QString& path, JsonHandler handler);
+    void handlePut(const QString& path, JsonHandler handler);
+    void handleDelete(const QString& path, JsonHandler handler);
+
+    /// Register prefix-matched handlers (path starts with prefix).
+    void handleGetPrefix(const QString& prefix, JsonHandler handler);
+    void handlePutPrefix(const QString& prefix, JsonHandler handler);
+    void handleDeletePrefix(const QString& prefix, JsonHandler handler);
 
     /// Broadcast JSON to all WebSocket clients (main thread safe).
     void broadcast(const QJsonObject& msg);
@@ -75,6 +82,11 @@ private:
     QHash<QTcpSocket*, QTimer*>    m_idleTimers;
     QHash<QString, JsonHandler>    m_getHandlers;
     QHash<QString, JsonHandler>    m_postHandlers;
+    QHash<QString, JsonHandler>    m_putHandlers;
+    QHash<QString, JsonHandler>    m_deleteHandlers;
+    QHash<QString, JsonHandler>    m_getPrefixHandlers;
+    QHash<QString, JsonHandler>    m_putPrefixHandlers;
+    QHash<QString, JsonHandler>    m_deletePrefixHandlers;
     QString      m_staticDir;
 
     // WebSocket

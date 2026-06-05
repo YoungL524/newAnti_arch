@@ -1,6 +1,7 @@
 ﻿#include "AppController.h"
 #include "web/WebService.h"
 #include "web/WebApiController.h"
+#include "business/DeviceRegistry.h"
 #include "EndpointConfigLoader.h"
 #include "bus/SystemBus.h"
 #include "GenericPackets.h"
@@ -54,6 +55,18 @@ bool AppController::initialize()
     if (!initializeBusinessLogic()) {
         qCritical() << QStringLiteral("[AppController] 业务逻辑层初始化失败");
         return false;
+    }
+
+    // 初始化设备台账
+    if (m_dataStore && m_dataStore->isConnected()) {
+        m_deviceRegistry = std::make_unique<DeviceRegistry>(m_dataStore.get());
+        if (!m_deviceRegistry->ensureSchema()) {
+            qWarning() << "[AppController] 设备表创建失败，设备台账不可用";
+        } else {
+            qDebug() << "[AppController] 设备台账已就绪";
+        }
+    } else {
+        qWarning() << "[AppController] 数据库不可用，设备台账跳过";
     }
 
     qDebug() << QStringLiteral("[AppController] 初始化完成");
@@ -589,7 +602,7 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
     if (!result.ok) return {};
 
     m_webApi = std::make_unique<WebApiController>(
-        m_webService.get(), m_workModeController.get(),
+        m_webService.get(), m_workModeController.get(), m_deviceRegistry.get(),
         [this]() { return healthReport(); }, this);
     m_webApi->registerRestRoutes();
     m_webApi->connectWebPush();

@@ -8,6 +8,7 @@
 
 namespace web { class WebService; }
 class RadarWorkModeController;
+class DeviceRegistry;
 
 /**
  * @brief Web API 胶水层：REST 路由注册 + WS 消息拼装。
@@ -23,6 +24,7 @@ public:
 
     WebApiController(web::WebService* ws,
                      RadarWorkModeController* wmc,
+                     DeviceRegistry* deviceRegistry,
                      HealthProvider healthProvider,
                      QObject* parent = nullptr);
     ~WebApiController() override;
@@ -39,6 +41,7 @@ public:
 private:
     web::WebService*           m_ws = nullptr;
     RadarWorkModeController*   m_wmc = nullptr;
+    DeviceRegistry*            m_deviceReg = nullptr;
     HealthProvider             m_health;
     uint32_t                   m_trackSubId = 0;
 };

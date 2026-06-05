@@ -56,8 +56,10 @@ void HttpResponse::applyKeepAlive() {
 // Parse
 // ============================================================
 static Method methodFromString(const QString& s) {
-    if (s == "GET")  return Method::GET;
-    if (s == "POST") return Method::POST;
+    if (s == "GET")    return Method::GET;
+    if (s == "POST")   return Method::POST;
+    if (s == "PUT")    return Method::PUT;
+    if (s == "DELETE") return Method::DELETE;
     return Method::UNKNOWN;
 }
 
