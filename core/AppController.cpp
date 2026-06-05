@@ -222,6 +222,12 @@ void AppController::start()
 
 void AppController::stop()
 {
+    // Web API shutdown 独立于 m_running：即使 core 通信层未启动也要清理
+    if (m_webApi) {
+        m_webApi->shutdown();
+        m_webApi.reset();
+    }
+
     if (!m_running) {
         return;
     }
@@ -241,9 +247,6 @@ void AppController::stop()
     if (m_commManager) {
         m_commManager->stopAll();
     }
-
-    // 取消 Web 服务订阅，释放回调捕获的指针
-    if (m_webApi) m_webApi->shutdown();
 
     // 关闭 SystemBus
     SystemBus::getInstance().shutdown();

@@ -4,9 +4,10 @@
 #include <QJsonObject>
 #include <functional>
 
+#include "AppTypes.h"
+
 namespace web { class WebService; }
 class RadarWorkModeController;
-struct AppHealth;
 
 /**
  * @brief Web API 胶水层：REST 路由注册 + WS 消息拼装。
@@ -24,6 +25,7 @@ public:
                      RadarWorkModeController* wmc,
                      HealthProvider healthProvider,
                      QObject* parent = nullptr);
+    ~WebApiController() override;
 
     /// 注册 REST 路由（/api/status, /api/logs, /api/start, /api/stop）
     void registerRestRoutes();

@@ -6,6 +6,7 @@
 #include "RadarWorkModeController.h"
 #include "log/Logger.h"
 #include <QDateTime>
+#include <QDebug>
 #include <QJsonArray>
 #include <QTimer>
 
@@ -19,6 +20,8 @@ WebApiController::WebApiController(web::WebService* ws,
     , m_health(std::move(healthProvider))
 {
 }
+
+WebApiController::~WebApiController() { shutdown(); }
 
 void WebApiController::registerRestRoutes()
 {

@@ -216,7 +216,9 @@ static QByteArray statusText(int code) {
     switch (code) {
     case 200: return "OK";
     case 400: return "Bad Request";
+    case 403: return "Forbidden";
     case 404: return "Not Found";
+    case 413: return "Payload Too Large";
     case 503: return "Service Unavailable";
     default:  return "Error";
     }

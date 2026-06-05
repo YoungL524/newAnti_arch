@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QJsonObject>
 #include <memory>
+#include "AppTypes.h"
 #include "CommunicationManager.h"
 #include "SystemBus.h"
 #include "RadarDataProcessor.h"
@@ -18,46 +19,7 @@ class IWorkModeCommandSender;
 namespace web { class WebService; }
 class WebApiController;
 
-/**
- * @brief Web 服务启动结果
- */
-struct WebServiceResult {
-    bool ok = false;
-    quint16 httpPort = 0;
-    quint16 wsPort = 0;
-};
-
-/**
- * @brief 系统健康报告
- * @details healthReport() 的返回类型，聚合各子系统运行状态
- */
-struct AppHealth {
-    struct SystemBusStatus {
-        bool running = false;
-        int subscriptionCount = 0;
-    };
-    struct CommStatus {
-        int totalEndpoints = 0;
-        int openEndpoints = 0;
-    };
-    struct ProcessingStatus {
-        uint64_t generalPackageCount = 0;
-        uint64_t trackInsertCount = 0;
-        uint64_t routedCount = 0;
-    };
-    struct DatabaseStatus {
-        bool configured = false;
-        bool connected = false;
-    };
-
-    SystemBusStatus systemBus;
-    CommStatus comm;
-    ProcessingStatus processing;
-    DatabaseStatus database;
-    LatencyStats uplinkLatency;
-    LatencyStats downlinkLatency;
-    qint64 timestampMs = 0;          ///< 报告生成时间（currentMSecsSinceEpoch）
-};
+// WebServiceResult and AppHealth are in AppTypes.h
 
 /**
  * @brief 应用总控类（非GUI）
