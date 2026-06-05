@@ -103,62 +103,69 @@ export default function App() {
   // ── Device operations (task-aware) ──
   const addDevice = useCallback(async (d: Omit<RadarDevice, 'id'>) => {
     const id = nextDeviceId()
-    const ok = await createDevice(radarToApiPayload(id, { id: '', ...d } as RadarDevice))
-    if (!ok) return
+    const r = await createDevice(radarToApiPayload(id, { id: '', ...d } as RadarDevice))
+    if (!r.ok) { console.warn('[devices] 添加设备失败:', r.error); return false }
     setDevices(prev => [...prev, { id, ...d }])
     if (activeTaskId) {
       setTasks(prev => prev.map(t =>
         t.id === activeTaskId ? { ...t, deviceIds: [...t.deviceIds, id] } : t))
     }
+    return true
   }, [activeTaskId])
 
   const removeDevice = useCallback(async (id: string) => {
-    const ok = await deleteDeviceApi(id)
-    if (!ok) return
+    const r = await deleteDeviceApi(id)
+    if (!r.ok) { console.warn('[devices] 删除失败:', r.error); return false }
     setDevices(prev => prev.filter(d => d.id !== id))
     setSubDevices(prev => prev.filter(s => s.linkedRadarId !== id))
     setTasks(prev => prev.map(t => t.deviceIds.includes(id)
       ? { ...t, deviceIds: t.deviceIds.filter(did => did !== id) }
       : t))
+    return true
   }, [])
 
   const addSubDevice = useCallback(async (d: Omit<SubDevice, 'id'>) => {
     const id = nextSubId()
-    const ok = await createDevice(subToApiPayload(id, { id: '', ...d } as SubDevice))
-    if (!ok) return
+    const r = await createDevice(subToApiPayload(id, { id: '', ...d } as SubDevice))
+    if (!r.ok) { console.warn('[devices] 添加子设备失败:', r.error); return false }
     setSubDevices(prev => [...prev, { id, ...d }])
     if (activeTaskId) {
       setTasks(prev => prev.map(t =>
         t.id === activeTaskId ? { ...t, deviceIds: [...t.deviceIds, id] } : t))
     }
+    return true
   }, [activeTaskId])
 
   const removeSubDevice = useCallback(async (id: string) => {
-    const ok = await deleteDeviceApi(id)
-    if (!ok) return
+    const r = await deleteDeviceApi(id)
+    if (!r.ok) { console.warn('[devices] 删除子设备失败:', r.error); return false }
     setSubDevices(prev => prev.filter(s => s.id !== id))
     setTasks(prev => prev.map(t => t.deviceIds.includes(id)
       ? { ...t, deviceIds: t.deviceIds.filter(did => did !== id) }
       : t))
+    return true
   }, [])
 
   const [editingDevice, setEditingDevice] = useState<AppDevice | null>(null)
 
   const updateDevice = useCallback(async (id: string, updates: Partial<RadarDevice>) => {
-    // Merge partial updates with current full device state
     const current = devicesRef.current.find(d => d.id === id)
-    if (!current) return
+    if (!current) return false
     const merged = { ...current, ...updates }
-    const ok = await apiUpdateDevice(id, radarToApiPayload(id, merged))
-    if (ok) setDevices(prev => prev.map(d => d.id === id ? { ...d, ...updates } : d))
+    const r = await apiUpdateDevice(id, radarToApiPayload(id, merged))
+    if (!r.ok) { console.warn('[devices] 更新雷达失败:', r.error); return false }
+    setDevices(prev => prev.map(d => d.id === id ? { ...d, ...updates } : d))
+    return true
   }, [])
 
   const updateSubDevice = useCallback(async (id: string, updates: Partial<SubDevice>) => {
     const current = subDevicesRef.current.find(s => s.id === id)
-    if (!current) return
+    if (!current) return false
     const merged = { ...current, ...updates }
-    const ok = await apiUpdateDevice(id, subToApiPayload(id, merged))
-    if (ok) setSubDevices(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s))
+    const r = await apiUpdateDevice(id, subToApiPayload(id, merged))
+    if (!r.ok) { console.warn('[devices] 更新子设备失败:', r.error); return false }
+    setSubDevices(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s))
+    return true
   }, [])
 
   const allDevices = useMemo(() => [...devices, ...subDevices], [devices, subDevices])

@@ -10,6 +10,7 @@
 #include <QDebug>
 #include <QJsonArray>
 #include <QJsonParseError>
+#include <QSet>
 #include <QTimer>
 
 WebApiController::WebApiController(web::WebService* ws,
@@ -39,8 +40,9 @@ void WebApiController::registerRestRoutes()
         s[QStringLiteral("endpoints")] = health.comm.openEndpoints;
         s[QStringLiteral("dbConnected")] = health.database.connected;
         QJsonArray devices;
+        QSet<QString> emittedIds;
 
-        // Legacy radar_cpu from work mode controller
+        // Live device from WMC (radar_cpu or bound target)
         if (m_wmc) {
             QJsonObject dev;
             dev[QStringLiteral("id")] = QStringLiteral("radar_cpu");
@@ -49,11 +51,14 @@ void WebApiController::registerRestRoutes()
             dev[QStringLiteral("acquisition")] = (st == RadarWorkModeController::State::Starting
                                                || st == RadarWorkModeController::State::Working);
             devices.append(dev);
+            emittedIds.insert(QStringLiteral("radar_cpu"));
         }
 
-        // Registry devices (transitional: all reported as Offline/Standby)
+        // Registry devices: skip if already emitted, otherwise Offline
         if (m_deviceReg) {
             for (const auto& d : m_deviceReg->list()) {
+                if (emittedIds.contains(d.id)) continue;
+                emittedIds.insert(d.id);
                 QJsonObject dev;
                 dev[QStringLiteral("id")] = d.id;
                 dev[QStringLiteral("name")] = d.name;
@@ -87,32 +92,61 @@ void WebApiController::registerRestRoutes()
         return r;
     });
 
+    // Map deviceId from registry to controllable endpoint. Currently only radar_cpu.
+    auto resolveControllable = [this](const QJsonArray& ids) -> QJsonArray {
+        QJsonArray accepted;
+        if (ids.isEmpty()) { accepted.append(QStringLiteral("radar_cpu")); return accepted; }
+        for (const auto& v : ids) {
+            QString id = v.toString();
+            if (id == QStringLiteral("radar_cpu"))
+                accepted.append(id);
+            // Future: lookup DeviceRegistry → endpointId mapping
+        }
+        return accepted;
+    };
+
     if (m_wmc) {
-        m_ws->handlePost(QStringLiteral("/api/start"), [this](const QJsonObject& body) {
+        m_ws->handlePost(QStringLiteral("/api/start"), [this, resolveControllable](const QJsonObject& body) {
             static qint64 lastCmdMs = 0;
             qint64 now = QDateTime::currentMSecsSinceEpoch();
             if (now - lastCmdMs < 500)
                 return QJsonObject{{QStringLiteral("ok"), true}, {QStringLiteral("throttled"), true}};
             lastCmdMs = now;
             QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
-            bool ok = ids.isEmpty();
+            QJsonArray accepted = resolveControllable(ids);
+            QJsonArray rejected;
             for (const auto& v : ids)
-                if (v.toString() == QStringLiteral("radar_cpu")) { ok = true; break; }
-            if (ok) m_wmc->requestWork();
-            return QJsonObject{{QStringLiteral("ok"), true}};
+                if (!accepted.contains(v)) rejected.append(v);
+            if (!ids.isEmpty() && accepted.isEmpty())
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("不支持的设备 id")}};
+            for (const auto& v : accepted)
+                if (v.toString() == QStringLiteral("radar_cpu")) m_wmc->requestWork();
+            QJsonObject r;
+            r[QStringLiteral("ok")] = true;
+            r[QStringLiteral("acceptedDeviceIds")] = accepted;
+            r[QStringLiteral("rejectedDeviceIds")] = rejected;
+            return r;
         });
-        m_ws->handlePost(QStringLiteral("/api/stop"), [this](const QJsonObject& body) {
+        m_ws->handlePost(QStringLiteral("/api/stop"), [this, resolveControllable](const QJsonObject& body) {
             static qint64 lastCmdMs = 0;
             qint64 now = QDateTime::currentMSecsSinceEpoch();
             if (now - lastCmdMs < 500)
                 return QJsonObject{{QStringLiteral("ok"), true}, {QStringLiteral("throttled"), true}};
             lastCmdMs = now;
             QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
-            bool ok = ids.isEmpty();
+            QJsonArray accepted = resolveControllable(ids);
+            QJsonArray rejected;
             for (const auto& v : ids)
-                if (v.toString() == QStringLiteral("radar_cpu")) { ok = true; break; }
-            if (ok) m_wmc->requestStandby();
-            return QJsonObject{{QStringLiteral("ok"), true}};
+                if (!accepted.contains(v)) rejected.append(v);
+            if (!ids.isEmpty() && accepted.isEmpty())
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("不支持的设备 id")}};
+            for (const auto& v : accepted)
+                if (v.toString() == QStringLiteral("radar_cpu")) m_wmc->requestStandby();
+            QJsonObject r;
+            r[QStringLiteral("ok")] = true;
+            r[QStringLiteral("acceptedDeviceIds")] = accepted;
+            r[QStringLiteral("rejectedDeviceIds")] = rejected;
+            return r;
         });
     }
 
@@ -274,6 +308,7 @@ void WebApiController::connectWebPush()
         msg[QStringLiteral("connected")] = health.comm.openEndpoints > 0;
         msg[QStringLiteral("upTime")] = health.timestampMs;
         QJsonArray devices;
+        QSet<QString> emittedIds;
         if (wmc) {
             QJsonObject dev;
             dev[QStringLiteral("id")] = QStringLiteral("radar_cpu");
@@ -282,9 +317,12 @@ void WebApiController::connectWebPush()
             dev[QStringLiteral("acquisition")] = (st == RadarWorkModeController::State::Starting
                                                || st == RadarWorkModeController::State::Working);
             devices.append(dev);
+            emittedIds.insert(QStringLiteral("radar_cpu"));
         }
         if (m_deviceReg) {
             for (const auto& d : m_deviceReg->list()) {
+                if (emittedIds.contains(d.id)) continue;
+                emittedIds.insert(d.id);
                 QJsonObject dev;
                 dev[QStringLiteral("id")] = d.id;
                 dev[QStringLiteral("name")] = d.name;

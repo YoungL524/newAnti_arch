@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import RadarEditForm from './RadarEditForm'
 import SubDeviceEditForm from './SubDeviceEditForm'
@@ -6,23 +7,30 @@ import type { AppDevice, RadarDevice, SubDevice } from '../map/types'
 interface Props {
   device: AppDevice
   radarDevices: RadarDevice[]
-  onUpdateDevice: (id: string, updates: Partial<RadarDevice>) => void
-  onUpdateSubDevice: (id: string, updates: Partial<SubDevice>) => void
+  onUpdateDevice: (id: string, updates: Partial<RadarDevice>) => Promise<boolean>
+  onUpdateSubDevice: (id: string, updates: Partial<SubDevice>) => Promise<boolean>
   onClose: () => void
 }
 
 export default function DeviceEditDialog({ device, radarDevices, onUpdateDevice, onUpdateSubDevice, onClose }: Props) {
+  const handleSave = async (updates: Partial<RadarDevice> | Partial<SubDevice>) => {
+    const ok = 'lng' in device
+      ? await onUpdateDevice(device.id, updates as Partial<RadarDevice>)
+      : await onUpdateSubDevice(device.id, updates as Partial<SubDevice>)
+    if (ok) onClose()
+  }
+
   const content = 'lng' in device ? (
     <RadarEditForm
       device={device}
-      onSave={(updates) => { onUpdateDevice(device.id, updates); onClose() }}
+      onSave={(updates) => handleSave(updates)}
       onCancel={onClose}
     />
   ) : (
     <SubDeviceEditForm
       device={device}
       radarDevices={radarDevices}
-      onSave={(updates) => { onUpdateSubDevice(device.id, updates); onClose() }}
+      onSave={(updates) => handleSave(updates)}
       onCancel={onClose}
     />
   )

@@ -19,11 +19,11 @@ const topNav: NavItem[] = [
 interface SidebarProps {
   onClose?: () => void
   allDevices: AppDevice[]
-  onAddDevice: (d: Omit<RadarDevice, 'id'>) => void
-  onRemoveDevice: (id: string) => void
-  onUpdateDevice: (id: string, updates: Partial<RadarDevice>) => void
-  onAddSubDevice: (d: Omit<SubDevice, 'id'>) => void
-  onRemoveSubDevice: (id: string) => void
+  onAddDevice: (d: Omit<RadarDevice, 'id'>) => Promise<boolean>
+  onRemoveDevice: (id: string) => Promise<boolean>
+  onUpdateDevice: (id: string, updates: Partial<RadarDevice>) => Promise<boolean>
+  onAddSubDevice: (d: Omit<SubDevice, 'id'>) => Promise<boolean>
+  onRemoveSubDevice: (id: string) => Promise<boolean>
   onEditDevice: (d: AppDevice) => void
   activeTask: Task | null
   tasks: Task[]
@@ -252,7 +252,7 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                           <button
                             className="p-0.5 rounded border-none bg-transparent cursor-pointer hover:bg-red-50 flex-shrink-0"
                             style={{ color: 'var(--onSurfaceVariant)' }}
-                            onClick={() => { onRemoveDevice(d.id); setCheckedDevices(checkedDeviceIds.filter(did => did !== d.id)) }}
+                            onClick={async () => { if (await onRemoveDevice(d.id)) setCheckedDevices(checkedDeviceIds.filter(did => did !== d.id)) }}
                           >
                             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
                               <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" />
@@ -282,7 +282,7 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                       <button
                         className="p-0.5 rounded border-none bg-transparent cursor-pointer hover:bg-red-50 flex-shrink-0"
                         style={{ color: 'var(--onSurfaceVariant)' }}
-                        onClick={() => { onRemoveSubDevice(s.id); setCheckedDevices(checkedDeviceIds.filter(did => did !== s.id)) }}
+                        onClick={async () => { if (await onRemoveSubDevice(s.id)) setCheckedDevices(checkedDeviceIds.filter(did => did !== s.id)) }}
                       >
                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
                           <path d="M18 6L6 18M6 6l12 12" strokeLinecap="round" />
@@ -455,12 +455,13 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                       <button className="flex-1 py-1 rounded text-[10px] font-semibold border-none cursor-pointer"
                         style={{ background: 'var(--primaryContainer)', color: 'var(--onPrimary)' }}
                         disabled={!((formKind === 'radar' ? radarForm.name : subForm.name).trim())}
-                        onClick={() => {
+                        onClick={async () => {
                           const name = (formKind === 'radar' ? radarForm.name : subForm.name).trim()
                           if (!name) return
-                          if (formKind === 'radar') onAddDevice(radarForm)
-                          else onAddSubDevice({ ...subForm, name })
-                          resetForm()
+                          const ok = formKind === 'radar'
+                            ? await onAddDevice(radarForm)
+                            : await onAddSubDevice({ ...subForm, name })
+                          if (ok) resetForm()
                         }}
                       >确认添加</button>
                       <button className="px-2 py-1 rounded text-[10px] border-none bg-transparent cursor-pointer"

@@ -2,11 +2,29 @@ import type { RadarDevice, SubDevice } from '../components/map/types'
 
 const BASE = '/api/devices'
 
+export interface ApiResult<T = boolean> {
+  ok: boolean
+  error?: string
+  data?: T
+}
+
 export interface ApiDevice {
   id: string; name: string; brand: string; kind: number
   lng: number; lat: number; altitude: number; maxRange: number
   facesJson: string; endpointId: string; linkedRadarId: string
   mountOffsetAzimuth: number; coordinateSystem: string; status: number
+}
+
+async function apiCall(url: string, options?: RequestInit): Promise<ApiResult<any>> {
+  try {
+    const res = await fetch(url, options)
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` }
+    const data = await res.json()
+    if (!data.ok) return { ok: false, error: data.error || 'API 返回失败' }
+    return { ok: true, data }
+  } catch (e: any) {
+    return { ok: false, error: e?.message || '网络错误' }
+  }
 }
 
 export function apiDeviceToRadar(item: ApiDevice): RadarDevice | null {
@@ -39,20 +57,19 @@ export function apiDeviceToSub(item: ApiDevice): SubDevice | null {
   }
 }
 
-export async function fetchDevices(): Promise<{ radars: RadarDevice[]; subs: SubDevice[] }> {
-  const res = await fetch(BASE)
-  const data = await res.json()
+export async function fetchDevices(): Promise<{ radars: RadarDevice[]; subs: SubDevice[] } & ApiResult> {
+  const result = await apiCall(BASE)
   const radars: RadarDevice[] = []
   const subs: SubDevice[] = []
-  if (data.ok && data.devices) {
-    for (const item of data.devices) {
+  if (result.ok && result.data?.devices) {
+    for (const item of result.data.devices) {
       const r = apiDeviceToRadar(item)
       if (r) radars.push(r)
       const s = apiDeviceToSub(item)
       if (s) subs.push(s)
     }
   }
-  return { radars, subs }
+  return { ...result, radars, subs }
 }
 
 export function radarToApiPayload(id: string, d: RadarDevice): any {
@@ -72,33 +89,22 @@ export function subToApiPayload(id: string, d: SubDevice): any {
   }
 }
 
-export async function createDevice(payload: any): Promise<boolean> {
-  const res = await fetch(BASE, {
+export async function createDevice(payload: any): Promise<ApiResult> {
+  return apiCall(BASE, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
-  const data = await res.json()
-  if (!data.ok) console.warn('[devicesApi] create failed:', data.error)
-  return !!data.ok
 }
 
-export async function updateDevice(id: string, payload: any): Promise<boolean> {
-  const res = await fetch(`${BASE}/${encodeURIComponent(id)}`, {
+export async function updateDevice(id: string, payload: any): Promise<ApiResult> {
+  return apiCall(`${BASE}/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
-  const data = await res.json()
-  if (!data.ok) console.warn('[devicesApi] update failed:', data.error)
-  return !!data.ok
 }
 
-export async function deleteDeviceApi(id: string): Promise<boolean> {
-  const res = await fetch(`${BASE}/${encodeURIComponent(id)}`, {
-    method: 'DELETE',
-  })
-  const data = await res.json()
-  if (!data.ok) console.warn('[devicesApi] delete failed:', data.error)
-  return !!data.ok
+export async function deleteDeviceApi(id: string): Promise<ApiResult> {
+  return apiCall(`${BASE}/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
