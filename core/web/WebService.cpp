@@ -125,13 +125,13 @@ void WebService::handlePut(const QString& path, JsonHandler handler) {
 void WebService::handleDelete(const QString& path, JsonHandler handler) {
     m_deleteHandlers[path] = std::move(handler);
 }
-void WebService::handleGetPrefix(const QString& prefix, JsonHandler handler) {
+void WebService::handleGetPrefix(const QString& prefix, PrefixHandler handler) {
     m_getPrefixHandlers[prefix] = std::move(handler);
 }
-void WebService::handlePutPrefix(const QString& prefix, JsonHandler handler) {
+void WebService::handlePutPrefix(const QString& prefix, PrefixHandler handler) {
     m_putPrefixHandlers[prefix] = std::move(handler);
 }
-void WebService::handleDeletePrefix(const QString& prefix, JsonHandler handler) {
+void WebService::handleDeletePrefix(const QString& prefix, PrefixHandler handler) {
     m_deletePrefixHandlers[prefix] = std::move(handler);
 }
 
@@ -269,46 +269,52 @@ bool WebService::dispatchRequest(QTcpSocket* sock, QByteArray& raw) {
 
     QString cleanPath = req.path;
 
-    // Resolve body params
     auto parseBody = [&]() -> QJsonObject {
         if (req.body.isEmpty()) return {};
         QJsonDocument doc = QJsonDocument::fromJson(req.body);
         return doc.isObject() ? doc.object() : QJsonObject();
     };
 
-    // Prefix-match helper
-    auto prefixMatch = [&](const QHash<QString, JsonHandler>& handlers) -> JsonHandler {
-        for (auto it = handlers.begin(); it != handlers.end(); ++it)
-            if (cleanPath.startsWith(it.key())) return it.value();
-        return nullptr;
+    auto body = parseBody();
+
+    // Prefix-match helper: extract suffix after prefix
+    auto prefixMatch = [&](const QHash<QString, PrefixHandler>& handlers,
+                            const QString& methodLabel) -> bool {
+        for (auto it = handlers.begin(); it != handlers.end(); ++it) {
+            if (cleanPath.startsWith(it.key())) {
+                QString suffix = cleanPath.mid(it.key().size());
+                if (!suffix.isEmpty() && suffix[0] == QChar('/')) suffix = suffix.mid(1);
+                auto res = it.value()(suffix, body);
+                sendJson(sock, res.value(QStringLiteral("ok")).toBool() ? 200 : 400, res, keepAlive);
+                return true;
+            }
+        }
+        return false;
     };
 
     // Route
     if (req.method == Method::GET && cleanPath == QStringLiteral("/")) {
         serveIndex(sock, keepAlive);
     } else if (req.method == Method::GET && m_getHandlers.contains(cleanPath)) {
-        sendJson(sock, 200, m_getHandlers[cleanPath](parseBody()), keepAlive);
+        sendJson(sock, 200, m_getHandlers[cleanPath](body), keepAlive);
     } else if (req.method == Method::GET) {
-        auto h = prefixMatch(m_getPrefixHandlers);
-        if (h) { sendJson(sock, 200, h(parseBody()), keepAlive); }
-        else   { serveStaticFile(sock, cleanPath, keepAlive); }
+        if (!prefixMatch(m_getPrefixHandlers, "GET"))
+            serveStaticFile(sock, cleanPath, keepAlive);
     } else if (req.method == Method::POST && m_postHandlers.contains(cleanPath)) {
-        auto res = m_postHandlers[cleanPath](parseBody());
+        auto res = m_postHandlers[cleanPath](body);
         sendJson(sock, res.value(QStringLiteral("ok")).toBool() ? 200 : 400, res, keepAlive);
     } else if (req.method == Method::PUT && m_putHandlers.contains(cleanPath)) {
-        auto res = m_putHandlers[cleanPath](parseBody());
+        auto res = m_putHandlers[cleanPath](body);
         sendJson(sock, res.value(QStringLiteral("ok")).toBool() ? 200 : 400, res, keepAlive);
     } else if (req.method == Method::PUT) {
-        auto h = prefixMatch(m_putPrefixHandlers);
-        if (h) { sendJson(sock, 200, h(parseBody()), keepAlive); }
-        else   { sendError(sock, 404, QStringLiteral("Not Found"), keepAlive); }
+        if (!prefixMatch(m_putPrefixHandlers, "PUT"))
+            sendError(sock, 404, QStringLiteral("Not Found"), keepAlive);
     } else if (req.method == Method::DELETE && m_deleteHandlers.contains(cleanPath)) {
-        auto res = m_deleteHandlers[cleanPath](parseBody());
+        auto res = m_deleteHandlers[cleanPath](body);
         sendJson(sock, res.value(QStringLiteral("ok")).toBool() ? 200 : 400, res, keepAlive);
     } else if (req.method == Method::DELETE) {
-        auto h = prefixMatch(m_deletePrefixHandlers);
-        if (h) { sendJson(sock, 200, h(parseBody()), keepAlive); }
-        else   { sendError(sock, 404, QStringLiteral("Not Found"), keepAlive); }
+        if (!prefixMatch(m_deletePrefixHandlers, "DELETE"))
+            sendError(sock, 404, QStringLiteral("Not Found"), keepAlive);
     } else {
         sendError(sock, 404, QStringLiteral("Not Found"), keepAlive);
     }

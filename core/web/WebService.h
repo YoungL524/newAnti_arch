@@ -25,6 +25,7 @@ class WebService : public QObject {
     Q_OBJECT
 public:
     using JsonHandler = std::function<QJsonObject(const QJsonObject&)>;
+    using PrefixHandler = std::function<QJsonObject(const QString& suffix, const QJsonObject& body)>;
 
     struct Result {
         bool   ok      = false;
@@ -47,10 +48,10 @@ public:
     void handlePut(const QString& path, JsonHandler handler);
     void handleDelete(const QString& path, JsonHandler handler);
 
-    /// Register prefix-matched handlers (path starts with prefix).
-    void handleGetPrefix(const QString& prefix, JsonHandler handler);
-    void handlePutPrefix(const QString& prefix, JsonHandler handler);
-    void handleDeletePrefix(const QString& prefix, JsonHandler handler);
+    /// Register prefix-matched handlers (path starts with prefix, handler receives suffix + body).
+    void handleGetPrefix(const QString& prefix, PrefixHandler handler);
+    void handlePutPrefix(const QString& prefix, PrefixHandler handler);
+    void handleDeletePrefix(const QString& prefix, PrefixHandler handler);
 
     /// Broadcast JSON to all WebSocket clients (main thread safe).
     void broadcast(const QJsonObject& msg);
@@ -84,9 +85,9 @@ private:
     QHash<QString, JsonHandler>    m_postHandlers;
     QHash<QString, JsonHandler>    m_putHandlers;
     QHash<QString, JsonHandler>    m_deleteHandlers;
-    QHash<QString, JsonHandler>    m_getPrefixHandlers;
-    QHash<QString, JsonHandler>    m_putPrefixHandlers;
-    QHash<QString, JsonHandler>    m_deletePrefixHandlers;
+    QHash<QString, PrefixHandler>  m_getPrefixHandlers;
+    QHash<QString, PrefixHandler>  m_putPrefixHandlers;
+    QHash<QString, PrefixHandler>  m_deletePrefixHandlers;
     QString      m_staticDir;
 
     // WebSocket

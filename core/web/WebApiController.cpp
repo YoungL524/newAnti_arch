@@ -9,6 +9,7 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QJsonArray>
+#include <QJsonParseError>
 #include <QTimer>
 
 WebApiController::WebApiController(web::WebService* ws,
@@ -125,7 +126,7 @@ void WebApiController::registerRestRoutes()
             return r;
         });
 
-        m_ws->handlePost(QStringLiteral("/api/devices"), [this](const QJsonObject& body) {
+        auto deviceFromBody = [](const QJsonObject& body) -> DeviceInfo {
             DeviceInfo d;
             d.id           = body[QStringLiteral("id")].toString();
             d.name         = body[QStringLiteral("name")].toString();
@@ -140,38 +141,56 @@ void WebApiController::registerRestRoutes()
             d.linkedRadarId = body[QStringLiteral("linkedRadarId")].toString();
             d.mountOffsetAzimuth = body[QStringLiteral("mountOffsetAzimuth")].toDouble();
             d.coordinateSystem = body[QStringLiteral("coordinateSystem")].toString(QStringLiteral("WGS-84"));
-            if (d.name.isEmpty() || d.id.isEmpty())
-                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("id 和 name 不能为空")}};
+            return d;
+        };
+
+        auto validate = [](const DeviceInfo& d) -> QString {
+            if (d.id.isEmpty() || d.name.isEmpty())
+                return QStringLiteral("id 和 name 不能为空");
+            if (d.kind < DeviceKind::Radar || d.kind > DeviceKind::Gps)
+                return QStringLiteral("kind 无效 (0=Radar,1=Opto,2=Level,3=Gps)");
+            if (d.lng < -180 || d.lng > 180)
+                return QStringLiteral("longitude 必须在 [-180, 180] 范围内");
+            if (d.lat < -90 || d.lat > 90)
+                return QStringLiteral("latitude 必须在 [-90, 90] 范围内");
+            if (d.kind == DeviceKind::Radar && !d.facesJson.isEmpty()) {
+                QJsonParseError err;
+                QJsonDocument::fromJson(d.facesJson.toUtf8(), &err);
+                if (err.error != QJsonParseError::NoError)
+                    return QStringLiteral("facesJson JSON 格式错误");
+            }
+            return {};
+        };
+
+        m_ws->handlePost(QStringLiteral("/api/devices"), [this, validate, deviceFromBody](const QJsonObject& body) {
+            auto d = deviceFromBody(body);
+            QString err = validate(d);
+            if (!err.isEmpty())
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), err}};
             bool ok = m_deviceReg->create(d);
             return QJsonObject{{QStringLiteral("ok"), ok}};
         });
 
-        m_ws->handlePutPrefix(QStringLiteral("/api/devices/"), [this](const QJsonObject& body) {
-            DeviceInfo d;
-            d.id           = body[QStringLiteral("id")].toString();
-            d.name         = body[QStringLiteral("name")].toString();
-            d.brand        = body[QStringLiteral("brand")].toString();
-            d.kind         = static_cast<DeviceKind>(body[QStringLiteral("kind")].toInt());
-            d.lng          = body[QStringLiteral("lng")].toDouble();
-            d.lat          = body[QStringLiteral("lat")].toDouble();
-            d.altitude     = body[QStringLiteral("altitude")].toDouble();
-            d.maxRange     = body[QStringLiteral("maxRange")].toDouble();
-            d.facesJson    = body[QStringLiteral("facesJson")].toString(QStringLiteral("[]"));
-            d.endpointId   = body[QStringLiteral("endpointId")].toString();
-            d.linkedRadarId = body[QStringLiteral("linkedRadarId")].toString();
-            d.mountOffsetAzimuth = body[QStringLiteral("mountOffsetAzimuth")].toDouble();
-            d.coordinateSystem = body[QStringLiteral("coordinateSystem")].toString(QStringLiteral("WGS-84"));
-            if (d.id.isEmpty())
-                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("id 不能为空")}};
+        m_ws->handlePutPrefix(QStringLiteral("/api/devices/"), [this, validate, deviceFromBody](const QString& suffix, const QJsonObject& body) {
+            auto d = deviceFromBody(body);
+            if (!d.id.isEmpty() && d.id != suffix)
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("路径 id 与 body id 不匹配")}};
+            if (d.id.isEmpty()) d.id = suffix;
+            if (!m_deviceReg->get(d.id).has_value())
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("设备不存在")}};
+            QString err = validate(d);
+            if (!err.isEmpty())
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), err}};
             bool ok = m_deviceReg->update(d);
             return QJsonObject{{QStringLiteral("ok"), ok}};
         });
 
-        m_ws->handleDeletePrefix(QStringLiteral("/api/devices/"), [this](const QJsonObject& body) {
-            QString id = body[QStringLiteral("id")].toString();
-            if (id.isEmpty())
+        m_ws->handleDeletePrefix(QStringLiteral("/api/devices/"), [this](const QString& suffix, const QJsonObject&) {
+            if (suffix.isEmpty())
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("id 不能为空")}};
-            bool ok = m_deviceReg->remove(id);
+            if (!m_deviceReg->get(suffix).has_value())
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("设备不存在")}};
+            bool ok = m_deviceReg->remove(suffix);
             return QJsonObject{{QStringLiteral("ok"), ok}};
         });
     }

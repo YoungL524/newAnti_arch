@@ -64,6 +64,14 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
-## 5. No Automatic Git Push
+## 5. Review-Driven Mode
+
+当收到 `review_*.md` 文件路径时，严格按照文档中的 Findings 逐条修改代码：
+- 只改代码，不做编译、测试、git 操作
+- 不改文档中未提及的内容
+- 不改架构中未涉及的部分
+- 修改完成后直接报告改了哪些文件、每处改了什么
+
+## 6. No Automatic Git Push
 
 **Never push to GitHub unless the user explicitly asks you to.** Stage and commit locally (to preserve work), but do not `git push`. The user will decide when to push.

@@ -88,6 +88,7 @@ int main(int argc, char *argv[])
     controller.start();
     printUsage();
 
+
     auto ws = controller.startWebService();
     if (ws.ok)
         QDesktopServices::openUrl(QUrl(QStringLiteral("http://localhost:8088")));

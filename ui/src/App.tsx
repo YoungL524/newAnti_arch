@@ -8,6 +8,7 @@ import StatusBar from './components/layout/StatusBar'
 import { CoreProvider } from './hooks/useCoreApi'
 import { type AppDevice, type RadarDevice, type SubDevice, DEFAULT_DEVICE } from './components/map/types'
 import DeviceEditDialog from './components/dialogs/DeviceEditDialog'
+import { createDevice, deleteDevice, updateDevice as apiUpdateDevice } from './lib/devicesApi'
 import TaskCreateDialog from './components/dialogs/TaskCreateDialog'
 import type { Task } from './lib/taskTypes'
 import { loadTasks, saveTasks, loadActiveTaskId, saveActiveTaskId } from './lib/taskTypes'
@@ -134,15 +135,20 @@ export default function App() {
       setTasks(prev => prev.map(t =>
         t.id === activeTaskId ? { ...t, deviceIds: [...t.deviceIds, id] } : t))
     }
+    createDevice({
+      id, name: d.name, brand: d.brand, kind: 0,
+      lng: d.lng, lat: d.lat, altitude: d.altitude,
+      maxRange: d.maxRange, facesJson: JSON.stringify(d.faces),
+    }).catch(() => {})
   }, [activeTaskId])
 
   const removeDevice = useCallback((id: string) => {
     setDevices(prev => prev.filter(d => d.id !== id))
     setSubDevices(prev => prev.filter(s => s.linkedRadarId !== id))
-    // Also remove from any task that references it
     setTasks(prev => prev.map(t => t.deviceIds.includes(id)
       ? { ...t, deviceIds: t.deviceIds.filter(did => did !== id) }
       : t))
+    deleteDevice(id).catch(() => {})
   }, [])
 
   const addSubDevice = useCallback((d: Omit<SubDevice, 'id'>) => {
@@ -152,6 +158,12 @@ export default function App() {
       setTasks(prev => prev.map(t =>
         t.id === activeTaskId ? { ...t, deviceIds: [...t.deviceIds, id] } : t))
     }
+    const kindMap = { opto: 1, level: 2, gps: 3 } as const
+    createDevice({
+      id, name: d.name, brand: d.brand, kind: kindMap[d.kind],
+      linkedRadarId: d.linkedRadarId, mountOffsetAzimuth: d.mountOffsetAzimuth,
+      coordinateSystem: d.coordinateSystem,
+    }).catch(() => {})
   }, [activeTaskId])
 
   const removeSubDevice = useCallback((id: string) => {
@@ -159,16 +171,22 @@ export default function App() {
     setTasks(prev => prev.map(t => t.deviceIds.includes(id)
       ? { ...t, deviceIds: t.deviceIds.filter(did => did !== id) }
       : t))
+    deleteDevice(id).catch(() => {})
   }, [])
 
   const [editingDevice, setEditingDevice] = useState<AppDevice | null>(null)
 
   const updateDevice = useCallback((id: string, updates: Partial<RadarDevice>) => {
     setDevices(prev => prev.map(d => d.id === id ? { ...d, ...updates } : d))
+    const payload: any = { ...updates }
+    if (updates.faces) payload.facesJson = JSON.stringify(updates.faces)
+    delete payload.faces
+    apiUpdateDevice(id, payload).catch(() => {})
   }, [])
 
   const updateSubDevice = useCallback((id: string, updates: Partial<SubDevice>) => {
     setSubDevices(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s))
+    apiUpdateDevice(id, updates).catch(() => {})
   }, [])
 
   const allDevices = useMemo(() => [...devices, ...subDevices], [devices, subDevices])

@@ -3,7 +3,7 @@
 #include <QString>
 #include <QVariantMap>
 #include <QVector>
-#include <memory>
+#include <optional>
 
 class DataStore;
 

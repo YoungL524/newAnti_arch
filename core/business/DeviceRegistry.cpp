@@ -103,6 +103,7 @@ bool DeviceRegistry::create(const DeviceInfo& dev) {
 
 bool DeviceRegistry::update(const DeviceInfo& dev) {
     if (!m_store) return false;
+    if (!get(dev.id).has_value()) return false;  // device not found
     DeviceInfo d = dev;
     d.updatedAt = QDateTime::currentMSecsSinceEpoch();
     // Build SET clause dynamically
@@ -123,6 +124,7 @@ bool DeviceRegistry::update(const DeviceInfo& dev) {
 
 bool DeviceRegistry::remove(const QString& id) {
     if (!m_store) return false;
+    if (!get(id).has_value()) return false;  // device not found
     return m_store->execute(
         QStringLiteral("DELETE FROM devices WHERE id = ?"), {id});
 }
