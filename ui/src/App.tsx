@@ -8,7 +8,7 @@ import StatusBar from './components/layout/StatusBar'
 import { CoreProvider } from './hooks/useCoreApi'
 import { type AppDevice, type RadarDevice, type SubDevice, DEFAULT_DEVICE } from './components/map/types'
 import DeviceEditDialog from './components/dialogs/DeviceEditDialog'
-import { createDevice, deleteDevice, updateDevice as apiUpdateDevice } from './lib/devicesApi'
+import { fetchDevices, createDevice, deleteDeviceApi, updateDevice as apiUpdateDevice, radarToApiPayload, subToApiPayload } from './lib/devicesApi'
 import TaskCreateDialog from './components/dialogs/TaskCreateDialog'
 import type { Task } from './lib/taskTypes'
 import { loadTasks, saveTasks, loadActiveTaskId, saveActiveTaskId } from './lib/taskTypes'
@@ -25,52 +25,25 @@ export default function App() {
   ])
   const [subDevices, setSubDevices] = useState<SubDevice[]>([])
   const devicesLoadedRef = useRef(false)
+  const devicesRef = useRef<RadarDevice[]>([])
+  const subDevicesRef = useRef<SubDevice[]>([])
+
+  // Keep refs in sync with state
+  useEffect(() => { devicesRef.current = devices }, [devices])
+  useEffect(() => { subDevicesRef.current = subDevices }, [subDevices])
 
   // ── Load devices from backend API on startup ──
   useEffect(() => {
     if (devicesLoadedRef.current) return
     devicesLoadedRef.current = true
-    fetch('/api/devices')
-      .then(r => r.json())
-      .then(async (data: any) => {
-        if (!data.ok || !data.devices) return
-        const radars: RadarDevice[] = []
-        const subs: SubDevice[] = []
-        for (const item of data.devices) {
-          if (item.kind === 0) {
-            let faces: any[] = []
-            try { faces = JSON.parse(item.facesJson || '[]') } catch {}
-            radars.push({
-              id: item.id,
-              name: item.name,
-              brand: item.brand || 'cetc38' as any,
-              lng: item.lng,
-              lat: item.lat,
-              altitude: item.altitude,
-              maxRange: item.maxRange || 5,
-              faces: faces.length > 0 ? faces : [{ label: 'A', boresightAzimuth: 0, scanAngle: 45, active: true }],
-            })
-          } else {
-            const kinds = ['opto', 'level', 'gps'] as const
-            subs.push({
-              id: item.id,
-              name: item.name,
-              kind: kinds[item.kind - 1] ?? 'opto',
-              brand: item.brand || 'cetc38' as any,
-              linkedRadarId: item.linkedRadarId || undefined,
-              mountOffsetAzimuth: item.mountOffsetAzimuth,
-              coordinateSystem: item.coordinateSystem || 'WGS-84',
-            })
-          }
-        }
+    fetchDevices()
+      .then(({ radars, subs }) => {
         if (radars.length > 0 || subs.length > 0) {
           setDevices(radars)
           setSubDevices(subs)
         }
       })
-      .catch(() => {
-        // backend not available, keep default device
-      })
+      .catch(() => {})
   }, [])
 
   // ── Task state ──
@@ -128,65 +101,64 @@ export default function App() {
   }, [activeTaskId])
 
   // ── Device operations (task-aware) ──
-  const addDevice = useCallback((d: Omit<RadarDevice, 'id'>) => {
+  const addDevice = useCallback(async (d: Omit<RadarDevice, 'id'>) => {
     const id = nextDeviceId()
+    const ok = await createDevice(radarToApiPayload(id, { id: '', ...d } as RadarDevice))
+    if (!ok) return
     setDevices(prev => [...prev, { id, ...d }])
     if (activeTaskId) {
       setTasks(prev => prev.map(t =>
         t.id === activeTaskId ? { ...t, deviceIds: [...t.deviceIds, id] } : t))
     }
-    createDevice({
-      id, name: d.name, brand: d.brand, kind: 0,
-      lng: d.lng, lat: d.lat, altitude: d.altitude,
-      maxRange: d.maxRange, facesJson: JSON.stringify(d.faces),
-    }).catch(() => {})
   }, [activeTaskId])
 
-  const removeDevice = useCallback((id: string) => {
+  const removeDevice = useCallback(async (id: string) => {
+    const ok = await deleteDeviceApi(id)
+    if (!ok) return
     setDevices(prev => prev.filter(d => d.id !== id))
     setSubDevices(prev => prev.filter(s => s.linkedRadarId !== id))
     setTasks(prev => prev.map(t => t.deviceIds.includes(id)
       ? { ...t, deviceIds: t.deviceIds.filter(did => did !== id) }
       : t))
-    deleteDevice(id).catch(() => {})
   }, [])
 
-  const addSubDevice = useCallback((d: Omit<SubDevice, 'id'>) => {
+  const addSubDevice = useCallback(async (d: Omit<SubDevice, 'id'>) => {
     const id = nextSubId()
+    const ok = await createDevice(subToApiPayload(id, { id: '', ...d } as SubDevice))
+    if (!ok) return
     setSubDevices(prev => [...prev, { id, ...d }])
     if (activeTaskId) {
       setTasks(prev => prev.map(t =>
         t.id === activeTaskId ? { ...t, deviceIds: [...t.deviceIds, id] } : t))
     }
-    const kindMap = { opto: 1, level: 2, gps: 3 } as const
-    createDevice({
-      id, name: d.name, brand: d.brand, kind: kindMap[d.kind],
-      linkedRadarId: d.linkedRadarId, mountOffsetAzimuth: d.mountOffsetAzimuth,
-      coordinateSystem: d.coordinateSystem,
-    }).catch(() => {})
   }, [activeTaskId])
 
-  const removeSubDevice = useCallback((id: string) => {
+  const removeSubDevice = useCallback(async (id: string) => {
+    const ok = await deleteDeviceApi(id)
+    if (!ok) return
     setSubDevices(prev => prev.filter(s => s.id !== id))
     setTasks(prev => prev.map(t => t.deviceIds.includes(id)
       ? { ...t, deviceIds: t.deviceIds.filter(did => did !== id) }
       : t))
-    deleteDevice(id).catch(() => {})
   }, [])
 
   const [editingDevice, setEditingDevice] = useState<AppDevice | null>(null)
 
-  const updateDevice = useCallback((id: string, updates: Partial<RadarDevice>) => {
-    setDevices(prev => prev.map(d => d.id === id ? { ...d, ...updates } : d))
-    const payload: any = { ...updates }
-    if (updates.faces) payload.facesJson = JSON.stringify(updates.faces)
-    delete payload.faces
-    apiUpdateDevice(id, payload).catch(() => {})
+  const updateDevice = useCallback(async (id: string, updates: Partial<RadarDevice>) => {
+    // Merge partial updates with current full device state
+    const current = devicesRef.current.find(d => d.id === id)
+    if (!current) return
+    const merged = { ...current, ...updates }
+    const ok = await apiUpdateDevice(id, radarToApiPayload(id, merged))
+    if (ok) setDevices(prev => prev.map(d => d.id === id ? { ...d, ...updates } : d))
   }, [])
 
-  const updateSubDevice = useCallback((id: string, updates: Partial<SubDevice>) => {
-    setSubDevices(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s))
-    apiUpdateDevice(id, updates).catch(() => {})
+  const updateSubDevice = useCallback(async (id: string, updates: Partial<SubDevice>) => {
+    const current = subDevicesRef.current.find(s => s.id === id)
+    if (!current) return
+    const merged = { ...current, ...updates }
+    const ok = await apiUpdateDevice(id, subToApiPayload(id, merged))
+    if (ok) setSubDevices(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s))
   }, [])
 
   const allDevices = useMemo(() => [...devices, ...subDevices], [devices, subDevices])

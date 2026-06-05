@@ -39,6 +39,8 @@ void WebApiController::registerRestRoutes()
         s[QStringLiteral("endpoints")] = health.comm.openEndpoints;
         s[QStringLiteral("dbConnected")] = health.database.connected;
         QJsonArray devices;
+
+        // Legacy radar_cpu from work mode controller
         if (m_wmc) {
             QJsonObject dev;
             dev[QStringLiteral("id")] = QStringLiteral("radar_cpu");
@@ -48,6 +50,20 @@ void WebApiController::registerRestRoutes()
                                                || st == RadarWorkModeController::State::Working);
             devices.append(dev);
         }
+
+        // Registry devices (transitional: all reported as Offline/Standby)
+        if (m_deviceReg) {
+            for (const auto& d : m_deviceReg->list()) {
+                QJsonObject dev;
+                dev[QStringLiteral("id")] = d.id;
+                dev[QStringLiteral("name")] = d.name;
+                dev[QStringLiteral("kind")] = static_cast<int>(d.kind);
+                dev[QStringLiteral("state")] = QStringLiteral("Offline");
+                dev[QStringLiteral("acquisition")] = false;
+                devices.append(dev);
+            }
+        }
+
         s[QStringLiteral("devices")] = devices;
         auto st2 = m_wmc ? m_wmc->state() : RadarWorkModeController::State::Standby;
         s[QStringLiteral("acquisition")] = (st2 == RadarWorkModeController::State::Starting
@@ -266,6 +282,17 @@ void WebApiController::connectWebPush()
             dev[QStringLiteral("acquisition")] = (st == RadarWorkModeController::State::Starting
                                                || st == RadarWorkModeController::State::Working);
             devices.append(dev);
+        }
+        if (m_deviceReg) {
+            for (const auto& d : m_deviceReg->list()) {
+                QJsonObject dev;
+                dev[QStringLiteral("id")] = d.id;
+                dev[QStringLiteral("name")] = d.name;
+                dev[QStringLiteral("kind")] = static_cast<int>(d.kind);
+                dev[QStringLiteral("state")] = QStringLiteral("Offline");
+                dev[QStringLiteral("acquisition")] = false;
+                devices.append(dev);
+            }
         }
         msg[QStringLiteral("devices")] = devices;
         auto st3 = wmc ? wmc->state() : RadarWorkModeController::State::Standby;

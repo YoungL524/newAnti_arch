@@ -12,6 +12,7 @@
 #include <QJsonDocument>
 #include <QCoreApplication>
 #include <QDebug>
+#include <QUrl>
 
 namespace {
     constexpr int kMaxHeaderBytes  = 16 * 1024;       // 16 KiB
@@ -284,6 +285,7 @@ bool WebService::dispatchRequest(QTcpSocket* sock, QByteArray& raw) {
             if (cleanPath.startsWith(it.key())) {
                 QString suffix = cleanPath.mid(it.key().size());
                 if (!suffix.isEmpty() && suffix[0] == QChar('/')) suffix = suffix.mid(1);
+                suffix = QUrl::fromPercentEncoding(suffix.toUtf8());
                 auto res = it.value()(suffix, body);
                 sendJson(sock, res.value(QStringLiteral("ok")).toBool() ? 200 : 400, res, keepAlive);
                 return true;
