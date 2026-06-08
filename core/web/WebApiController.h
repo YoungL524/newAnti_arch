@@ -42,9 +42,15 @@ public:
 private:
     QJsonArray buildDeviceStatusArray() const;
 
+    /// Device id → radar_cpu controller mapping helpers
+    bool mapsToRadarCpu(const QString& deviceId, const QString& endpointId) const;
+    QSet<QString> radarCpuDeviceIds() const;
+
     web::WebService*           m_ws = nullptr;
     RadarWorkModeController*   m_wmc = nullptr;
     DeviceRegistry*            m_deviceReg = nullptr;
     HealthProvider             m_health;
+    qint64                     m_lastStartMs = 0;   ///< 上次开始采集时间戳（节流）
+    qint64                     m_lastStopMs = 0;    ///< 上次停止采集时间戳（节流）
     uint32_t                   m_trackSubId = 0;
 };

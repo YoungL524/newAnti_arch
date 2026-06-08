@@ -62,68 +62,39 @@ void WebApiController::registerRestRoutes()
         return r;
     });
 
-    // Build set of device ids that map to the radar_cpu controller.
-    // A device maps to radar_cpu if its id == "radar_cpu" or endpointId == "radar_cpu".
-    auto radarCpuDeviceIds = [this]() -> QSet<QString> {
-        QSet<QString> ids;
-        ids.insert(QStringLiteral("radar_cpu"));
-        if (m_deviceReg) {
-            for (const auto& d : m_deviceReg->list()) {
-                if (d.id == QStringLiteral("radar_cpu") || d.endpointId == QStringLiteral("radar_cpu"))
-                    ids.insert(d.id);
-            }
-        }
-        return ids;
-    };
-
-    // Resolve which requested device ids are controllable (accepted).
-    auto resolveControllable = [this](const QJsonArray& ids) -> QJsonArray {
-        QJsonArray accepted;
-        if (ids.isEmpty()) { accepted.append(QStringLiteral("radar_cpu")); return accepted; }
-        auto controllable = radarCpuDeviceIds();
-        for (const auto& v : ids) {
-            if (controllable.contains(v.toString()))
-                accepted.append(v.toString());
-        }
-        return accepted;
-    };
-
-    // Check if any accepted device maps to radar_cpu controller (execute once if so).
-    auto shouldControlRadarCpu = [&](const QJsonArray& accepted) -> bool {
-        auto ids = radarCpuDeviceIds();
-        for (const auto& v : accepted)
-            if (ids.contains(v.toString())) return true;
-        return false;
-    };
-
     if (m_wmc) {
-        auto makeHandler = [this, resolveControllable, shouldControlRadarCpu](bool work) {
-            return [this, work, resolveControllable, shouldControlRadarCpu](const QJsonObject& body) {
-                static qint64 lastCmdMs = 0;
-                qint64 now = QDateTime::currentMSecsSinceEpoch();
-                if (now - lastCmdMs < 500)
-                    return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("throttled"), true}};
-                lastCmdMs = now;
-                QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
-                QJsonArray accepted = resolveControllable(ids);
-                QJsonArray rejected;
-                for (const auto& v : ids)
-                    if (!accepted.contains(v)) rejected.append(v);
-                if (!ids.isEmpty() && accepted.isEmpty())
-                    return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("不支持的设备 id")}};
-                if (shouldControlRadarCpu(accepted)) {
-                    if (work) m_wmc->requestWork();
-                    else m_wmc->requestStandby();
-                }
-                QJsonObject r;
-                r[QStringLiteral("ok")] = true;
-                r[QStringLiteral("acceptedDeviceIds")] = accepted;
-                r[QStringLiteral("rejectedDeviceIds")] = rejected;
-                return r;
-            };
-        };
-        m_ws->handlePost(QStringLiteral("/api/start"), makeHandler(true));
-        m_ws->handlePost(QStringLiteral("/api/stop"), makeHandler(false));
+        m_ws->handlePost(QStringLiteral("/api/start"), [this](const QJsonObject& body) {
+            qint64 now = QDateTime::currentMSecsSinceEpoch();
+            if (now - m_lastStartMs < 500)
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("throttled"), true}};
+            m_lastStartMs = now;
+            QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
+            QJsonArray accepted;
+            if (ids.isEmpty()) { accepted.append(QStringLiteral("radar_cpu")); }
+            else { auto c = radarCpuDeviceIds(); for (const auto& v : ids) if (c.contains(v.toString())) accepted.append(v.toString()); }
+            QJsonArray rejected;
+            for (const auto& v : ids) if (!accepted.contains(v)) rejected.append(v);
+            if (!ids.isEmpty() && accepted.isEmpty())
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("不支持的设备 id")}};
+            for (const auto& v : accepted) if (radarCpuDeviceIds().contains(v.toString())) { m_wmc->requestWork(); break; }
+            return QJsonObject{{QStringLiteral("ok"), true}, {QStringLiteral("acceptedDeviceIds"), accepted}, {QStringLiteral("rejectedDeviceIds"), rejected}};
+        });
+        m_ws->handlePost(QStringLiteral("/api/stop"), [this](const QJsonObject& body) {
+            qint64 now = QDateTime::currentMSecsSinceEpoch();
+            if (now - m_lastStopMs < 500)
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("throttled"), true}};
+            m_lastStopMs = now;
+            QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
+            QJsonArray accepted;
+            if (ids.isEmpty()) { accepted.append(QStringLiteral("radar_cpu")); }
+            else { auto c = radarCpuDeviceIds(); for (const auto& v : ids) if (c.contains(v.toString())) accepted.append(v.toString()); }
+            QJsonArray rejected;
+            for (const auto& v : ids) if (!accepted.contains(v)) rejected.append(v);
+            if (!ids.isEmpty() && accepted.isEmpty())
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("不支持的设备 id")}};
+            for (const auto& v : accepted) if (radarCpuDeviceIds().contains(v.toString())) { m_wmc->requestStandby(); break; }
+            return QJsonObject{{QStringLiteral("ok"), true}, {QStringLiteral("acceptedDeviceIds"), accepted}, {QStringLiteral("rejectedDeviceIds"), rejected}};
+        });
     }
 
     // ── Device Registry API ──
@@ -314,7 +285,7 @@ QJsonArray WebApiController::buildDeviceStatusArray() const
             dev[QStringLiteral("name")] = d.name;
             dev[QStringLiteral("kind")] = static_cast<int>(d.kind);
 
-            if (m_wmc && (d.id == QStringLiteral("radar_cpu") || d.endpointId == QStringLiteral("radar_cpu"))) {
+            if (m_wmc && mapsToRadarCpu(d.id, d.endpointId)) {
                 dev[QStringLiteral("state")] = RadarWorkModeController::stateName(m_wmc->state());
                 auto st = m_wmc->state();
                 dev[QStringLiteral("acquisition")] = (st == RadarWorkModeController::State::Starting
@@ -339,4 +310,23 @@ QJsonArray WebApiController::buildDeviceStatusArray() const
     }
 
     return arr;
+}
+
+bool WebApiController::mapsToRadarCpu(const QString& deviceId, const QString& endpointId) const
+{
+    return deviceId == QStringLiteral("radar_cpu")
+        || endpointId == QStringLiteral("radar_cpu");
+}
+
+QSet<QString> WebApiController::radarCpuDeviceIds() const
+{
+    QSet<QString> ids;
+    ids.insert(QStringLiteral("radar_cpu"));
+    if (m_deviceReg) {
+        for (const auto& d : m_deviceReg->list()) {
+            if (mapsToRadarCpu(d.id, d.endpointId))
+                ids.insert(d.id);
+        }
+    }
+    return ids;
 }
