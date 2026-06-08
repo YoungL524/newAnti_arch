@@ -39,6 +39,7 @@ const RADAR_DEFAULTS: Omit<RadarDevice, 'id'> = {
   name: '', brand: 'cetc38', lng: 118.6, lat: 31.9, altitude: 0,
   maxRange: 5,
   faces: [{ label: 'A', boresightAzimuth: 0, scanAngle: 45, active: true }],
+  endpointId: 'radar_cpu',
 }
 
 const BRAND_OPTIONS: RadarBrand[] = ['cetc38', 'cetc14', 'leiying']

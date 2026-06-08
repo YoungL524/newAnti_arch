@@ -8,7 +8,7 @@ import StatusBar from './components/layout/StatusBar'
 import { CoreProvider } from './hooks/useCoreApi'
 import { type AppDevice, type RadarDevice, type SubDevice, DEFAULT_DEVICE } from './components/map/types'
 import DeviceEditDialog from './components/dialogs/DeviceEditDialog'
-import { fetchDevices, createDevice, deleteDeviceApi, updateDevice as apiUpdateDevice, radarToApiPayload, subToApiPayload } from './lib/devicesApi'
+import { fetchDevices, createDevice, deleteDeviceApi, updateDevice as apiUpdateDevice, radarToApiPayload, subToApiPayload, apiDeviceToRadar, apiDeviceToSub } from './lib/devicesApi'
 import TaskCreateDialog from './components/dialogs/TaskCreateDialog'
 import type { Task } from './lib/taskTypes'
 import { loadTasks, saveTasks, loadActiveTaskId, saveActiveTaskId } from './lib/taskTypes'
@@ -102,13 +102,16 @@ export default function App() {
 
   // ── Device operations (task-aware) ──
   const addDevice = useCallback(async (d: Omit<RadarDevice, 'id'>) => {
-    const id = nextDeviceId()
-    const r = await createDevice(radarToApiPayload(id, { id: '', ...d } as RadarDevice))
+    const r = await createDevice(radarToApiPayload('', d as RadarDevice))
     if (!r.ok) { console.warn('[devices] 添加设备失败:', r.error); return false }
-    setDevices(prev => [...prev, { id, ...d }])
+    const apiDev = r.data?.device
+    if (!apiDev) { console.warn('[devices] 后端未返回设备数据'); return false }
+    const radar = apiDeviceToRadar(apiDev)
+    if (!radar) { console.warn('[devices] 后端返回数据格式错误'); return false }
+    setDevices(prev => [...prev, radar])
     if (activeTaskId) {
       setTasks(prev => prev.map(t =>
-        t.id === activeTaskId ? { ...t, deviceIds: [...t.deviceIds, id] } : t))
+        t.id === activeTaskId ? { ...t, deviceIds: [...t.deviceIds, radar.id] } : t))
     }
     return true
   }, [activeTaskId])
@@ -125,13 +128,16 @@ export default function App() {
   }, [])
 
   const addSubDevice = useCallback(async (d: Omit<SubDevice, 'id'>) => {
-    const id = nextSubId()
-    const r = await createDevice(subToApiPayload(id, { id: '', ...d } as SubDevice))
+    const r = await createDevice(subToApiPayload('', d as SubDevice))
     if (!r.ok) { console.warn('[devices] 添加子设备失败:', r.error); return false }
-    setSubDevices(prev => [...prev, { id, ...d }])
+    const apiDev = r.data?.device
+    if (!apiDev) { console.warn('[devices] 后端未返回设备数据'); return false }
+    const sub = apiDeviceToSub(apiDev)
+    if (!sub) { console.warn('[devices] 后端返回数据格式错误'); return false }
+    setSubDevices(prev => [...prev, sub])
     if (activeTaskId) {
       setTasks(prev => prev.map(t =>
-        t.id === activeTaskId ? { ...t, deviceIds: [...t.deviceIds, id] } : t))
+        t.id === activeTaskId ? { ...t, deviceIds: [...t.deviceIds, sub.id] } : t))
     }
     return true
   }, [activeTaskId])

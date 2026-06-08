@@ -74,23 +74,26 @@ bool DeviceRegistry::ensureSchema() {
     return m_store->execute(sql);
 }
 
-bool DeviceRegistry::seedIfEmpty() {
-    if (list().isEmpty()) {
-        DeviceInfo d;
-        d.id = QStringLiteral("radar_cpu");
-        d.name = QStringLiteral("NODE_ALPHA_01");
-        d.brand = QStringLiteral("cetc38");
-        d.kind = DeviceKind::Radar;
-        d.lng = 118.65309;
-        d.lat = 31.93502;
-        d.maxRange = 5;
-        d.facesJson = QStringLiteral(R"([{"label":"A","boresightAzimuth":0,"scanAngle":45,"active":true}])");
-        d.endpointId = QStringLiteral("radar_cpu");
-        d.coordinateSystem = QStringLiteral("WGS-84");
-        qDebug() << "[DeviceRegistry] 设备表为空，创建默认雷达: id=radar_cpu";
-        return create(d);
+bool DeviceRegistry::ensureDefaultControllableRadar() {
+    // Check if any existing device already has radar_cpu binding
+    for (const auto& d : list()) {
+        if (d.id == QStringLiteral("radar_cpu") || d.endpointId == QStringLiteral("radar_cpu"))
+            return true;  // already controllable
     }
-    return true;
+    // Create one
+    DeviceInfo dev;
+    dev.id = QStringLiteral("radar_cpu");
+    dev.name = QStringLiteral("NODE_ALPHA_01");
+    dev.brand = QStringLiteral("cetc38");
+    dev.kind = DeviceKind::Radar;
+    dev.lng = 118.65309;
+    dev.lat = 31.93502;
+    dev.maxRange = 5;
+    dev.facesJson = QStringLiteral(R"([{"label":"A","boresightAzimuth":0,"scanAngle":45,"active":true}])");
+    dev.endpointId = QStringLiteral("radar_cpu");
+    dev.coordinateSystem = QStringLiteral("WGS-84");
+    qDebug() << "[DeviceRegistry] 无可控雷达，创建默认设备: id=radar_cpu, endpointId=radar_cpu";
+    return create(dev);
 }
 
 QVector<DeviceInfo> DeviceRegistry::list() const {

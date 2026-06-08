@@ -48,7 +48,8 @@ public:
     explicit DeviceRegistry(DataStore* store);
 
     bool ensureSchema();
-    bool seedIfEmpty();
+    /// 确保至少有一条可控雷达设备（id=radar_cpu, endpointId=radar_cpu）
+    bool ensureDefaultControllableRadar();
     QVector<DeviceInfo> list() const;
     std::optional<DeviceInfo> get(const QString& id) const;
     bool create(const DeviceInfo& dev);
