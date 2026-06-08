@@ -62,72 +62,68 @@ void WebApiController::registerRestRoutes()
         return r;
     });
 
-    // Map deviceId from registry to controllable endpoint.
-    // A device is controllable if its id == "radar_cpu" or endpointId == "radar_cpu"
-    // (maps to the current RadarWorkModeController).
-    auto resolveControllable = [this](const QJsonArray& ids) -> QJsonArray {
-        QJsonArray accepted;
-        if (ids.isEmpty()) { accepted.append(QStringLiteral("radar_cpu")); return accepted; }
-        // Build set of controllable ids from registry
-        QSet<QString> controllableIds;
+    // Build set of device ids that map to the radar_cpu controller.
+    // A device maps to radar_cpu if its id == "radar_cpu" or endpointId == "radar_cpu".
+    auto radarCpuDeviceIds = [this]() -> QSet<QString> {
+        QSet<QString> ids;
+        ids.insert(QStringLiteral("radar_cpu"));
         if (m_deviceReg) {
             for (const auto& d : m_deviceReg->list()) {
                 if (d.id == QStringLiteral("radar_cpu") || d.endpointId == QStringLiteral("radar_cpu"))
-                    controllableIds.insert(d.id);
+                    ids.insert(d.id);
             }
         }
-        controllableIds.insert(QStringLiteral("radar_cpu"));
+        return ids;
+    };
+
+    // Resolve which requested device ids are controllable (accepted).
+    auto resolveControllable = [this](const QJsonArray& ids) -> QJsonArray {
+        QJsonArray accepted;
+        if (ids.isEmpty()) { accepted.append(QStringLiteral("radar_cpu")); return accepted; }
+        auto controllable = radarCpuDeviceIds();
         for (const auto& v : ids) {
-            QString id = v.toString();
-            if (controllableIds.contains(id))
-                accepted.append(id);
+            if (controllable.contains(v.toString()))
+                accepted.append(v.toString());
         }
         return accepted;
     };
 
+    // Check if any accepted device maps to radar_cpu controller (execute once if so).
+    auto shouldControlRadarCpu = [&](const QJsonArray& accepted) -> bool {
+        auto ids = radarCpuDeviceIds();
+        for (const auto& v : accepted)
+            if (ids.contains(v.toString())) return true;
+        return false;
+    };
+
     if (m_wmc) {
-        m_ws->handlePost(QStringLiteral("/api/start"), [this, resolveControllable](const QJsonObject& body) {
-            static qint64 lastCmdMs = 0;
-            qint64 now = QDateTime::currentMSecsSinceEpoch();
-            if (now - lastCmdMs < 500)
-                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("throttled"), true}};
-            lastCmdMs = now;
-            QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
-            QJsonArray accepted = resolveControllable(ids);
-            QJsonArray rejected;
-            for (const auto& v : ids)
-                if (!accepted.contains(v)) rejected.append(v);
-            if (!ids.isEmpty() && accepted.isEmpty())
-                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("不支持的设备 id")}};
-            for (const auto& v : accepted)
-                if (v.toString() == QStringLiteral("radar_cpu")) m_wmc->requestWork();
-            QJsonObject r;
-            r[QStringLiteral("ok")] = true;
-            r[QStringLiteral("acceptedDeviceIds")] = accepted;
-            r[QStringLiteral("rejectedDeviceIds")] = rejected;
-            return r;
-        });
-        m_ws->handlePost(QStringLiteral("/api/stop"), [this, resolveControllable](const QJsonObject& body) {
-            static qint64 lastCmdMs = 0;
-            qint64 now = QDateTime::currentMSecsSinceEpoch();
-            if (now - lastCmdMs < 500)
-                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("throttled"), true}};
-            lastCmdMs = now;
-            QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
-            QJsonArray accepted = resolveControllable(ids);
-            QJsonArray rejected;
-            for (const auto& v : ids)
-                if (!accepted.contains(v)) rejected.append(v);
-            if (!ids.isEmpty() && accepted.isEmpty())
-                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("不支持的设备 id")}};
-            for (const auto& v : accepted)
-                if (v.toString() == QStringLiteral("radar_cpu")) m_wmc->requestStandby();
-            QJsonObject r;
-            r[QStringLiteral("ok")] = true;
-            r[QStringLiteral("acceptedDeviceIds")] = accepted;
-            r[QStringLiteral("rejectedDeviceIds")] = rejected;
-            return r;
-        });
+        auto makeHandler = [this, resolveControllable, shouldControlRadarCpu](bool work) {
+            return [this, work, resolveControllable, shouldControlRadarCpu](const QJsonObject& body) {
+                static qint64 lastCmdMs = 0;
+                qint64 now = QDateTime::currentMSecsSinceEpoch();
+                if (now - lastCmdMs < 500)
+                    return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("throttled"), true}};
+                lastCmdMs = now;
+                QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
+                QJsonArray accepted = resolveControllable(ids);
+                QJsonArray rejected;
+                for (const auto& v : ids)
+                    if (!accepted.contains(v)) rejected.append(v);
+                if (!ids.isEmpty() && accepted.isEmpty())
+                    return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("不支持的设备 id")}};
+                if (shouldControlRadarCpu(accepted)) {
+                    if (work) m_wmc->requestWork();
+                    else m_wmc->requestStandby();
+                }
+                QJsonObject r;
+                r[QStringLiteral("ok")] = true;
+                r[QStringLiteral("acceptedDeviceIds")] = accepted;
+                r[QStringLiteral("rejectedDeviceIds")] = rejected;
+                return r;
+            };
+        };
+        m_ws->handlePost(QStringLiteral("/api/start"), makeHandler(true));
+        m_ws->handlePost(QStringLiteral("/api/stop"), makeHandler(false));
     }
 
     // ── Device Registry API ──

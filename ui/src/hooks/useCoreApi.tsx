@@ -1,11 +1,23 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { StatusResponse, LogsResponse, WsMessage, RadarTrack, DeviceStatus } from '../lib/protocol'
 
-async function safeJsonParse(res: Response): Promise<any | null> {
+interface CommandResponse {
+  ok: boolean
+  error?: string
+  throttled?: boolean
+  acceptedDeviceIds?: string[]
+  rejectedDeviceIds?: string[]
+}
+
+async function safeJsonParse(res: Response): Promise<CommandResponse | null> {
   try {
-    if (!res.ok) return null
-    return await res.json()
-  } catch { return null }
+    const body = await res.text()
+    const data = JSON.parse(body)
+    if (data && typeof data.ok === 'boolean') return data as CommandResponse
+    return { ok: false, error: `HTTP ${res.status}` }
+  } catch {
+    return { ok: false, error: `HTTP ${res.status}` }
+  }
 }
 
 interface DeviceState {
@@ -122,7 +134,7 @@ export function CoreProvider({ children }: { children: ReactNode }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ deviceIds: cids }),
       })
-      const data = safeJsonParse(res)
+      const data = await safeJsonParse(res)
       if (!data) { rollback('后端返回异常'); return }
       if (!data.ok) { rollback(data.error || '请求被拒绝'); return }
 
