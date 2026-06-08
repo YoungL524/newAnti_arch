@@ -22,6 +22,7 @@ export interface RadarDevice {
   altitude: number
   maxRange: number            // km
   faces: RadarFace[]          // 阵面列表
+  endpointId?: string         // 关联的后端通信端点 id
 }
 
 export interface SubDevice {
@@ -48,4 +49,5 @@ export const DEFAULT_DEVICE: Omit<RadarDevice, 'id'> = {
   faces: [
     { label: 'A', boresightAzimuth: 0, scanAngle: 45, active: true },
   ],
+  endpointId: 'radar_cpu',
 }

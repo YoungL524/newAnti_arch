@@ -74,6 +74,25 @@ bool DeviceRegistry::ensureSchema() {
     return m_store->execute(sql);
 }
 
+bool DeviceRegistry::seedIfEmpty() {
+    if (list().isEmpty()) {
+        DeviceInfo d;
+        d.id = QStringLiteral("radar_cpu");
+        d.name = QStringLiteral("NODE_ALPHA_01");
+        d.brand = QStringLiteral("cetc38");
+        d.kind = DeviceKind::Radar;
+        d.lng = 118.65309;
+        d.lat = 31.93502;
+        d.maxRange = 5;
+        d.facesJson = QStringLiteral(R"([{"label":"A","boresightAzimuth":0,"scanAngle":45,"active":true}])");
+        d.endpointId = QStringLiteral("radar_cpu");
+        d.coordinateSystem = QStringLiteral("WGS-84");
+        qDebug() << "[DeviceRegistry] 设备表为空，创建默认雷达: id=radar_cpu";
+        return create(d);
+    }
+    return true;
+}
+
 QVector<DeviceInfo> DeviceRegistry::list() const {
     QVector<DeviceInfo> result;
     if (!m_store) return result;

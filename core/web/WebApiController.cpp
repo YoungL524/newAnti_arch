@@ -63,38 +63,33 @@ void WebApiController::registerRestRoutes()
     });
 
     if (m_wmc) {
-        m_ws->handlePost(QStringLiteral("/api/start"), [this](const QJsonObject& body) {
+        auto handleCommand = [this](const QJsonObject& body, bool work) -> QJsonObject {
             qint64 now = QDateTime::currentMSecsSinceEpoch();
-            if (now - m_lastStartMs < 500)
+            qint64& lastMs = work ? m_lastStartMs : m_lastStopMs;
+            if (now - lastMs < 500)
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("throttled"), true}};
-            m_lastStartMs = now;
+            lastMs = now;
+
             QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
+            // Cache mapping result once per request
+            auto mappedIds = radarCpuDeviceIds();
+
             QJsonArray accepted;
             if (ids.isEmpty()) { accepted.append(QStringLiteral("radar_cpu")); }
-            else { auto c = radarCpuDeviceIds(); for (const auto& v : ids) if (c.contains(v.toString())) accepted.append(v.toString()); }
+            else { for (const auto& v : ids) if (mappedIds.contains(v.toString())) accepted.append(v.toString()); }
+
             QJsonArray rejected;
             for (const auto& v : ids) if (!accepted.contains(v)) rejected.append(v);
             if (!ids.isEmpty() && accepted.isEmpty())
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("不支持的设备 id")}};
-            for (const auto& v : accepted) if (radarCpuDeviceIds().contains(v.toString())) { m_wmc->requestWork(); break; }
+
+            for (const auto& v : accepted)
+                if (mappedIds.contains(v.toString())) { if (work) m_wmc->requestWork(); else m_wmc->requestStandby(); break; }
+
             return QJsonObject{{QStringLiteral("ok"), true}, {QStringLiteral("acceptedDeviceIds"), accepted}, {QStringLiteral("rejectedDeviceIds"), rejected}};
-        });
-        m_ws->handlePost(QStringLiteral("/api/stop"), [this](const QJsonObject& body) {
-            qint64 now = QDateTime::currentMSecsSinceEpoch();
-            if (now - m_lastStopMs < 500)
-                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("throttled"), true}};
-            m_lastStopMs = now;
-            QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
-            QJsonArray accepted;
-            if (ids.isEmpty()) { accepted.append(QStringLiteral("radar_cpu")); }
-            else { auto c = radarCpuDeviceIds(); for (const auto& v : ids) if (c.contains(v.toString())) accepted.append(v.toString()); }
-            QJsonArray rejected;
-            for (const auto& v : ids) if (!accepted.contains(v)) rejected.append(v);
-            if (!ids.isEmpty() && accepted.isEmpty())
-                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("不支持的设备 id")}};
-            for (const auto& v : accepted) if (radarCpuDeviceIds().contains(v.toString())) { m_wmc->requestStandby(); break; }
-            return QJsonObject{{QStringLiteral("ok"), true}, {QStringLiteral("acceptedDeviceIds"), accepted}, {QStringLiteral("rejectedDeviceIds"), rejected}};
-        });
+        };
+        m_ws->handlePost(QStringLiteral("/api/start"), [this, handleCommand](const QJsonObject& body) { return handleCommand(body, true); });
+        m_ws->handlePost(QStringLiteral("/api/stop"),  [this, handleCommand](const QJsonObject& body) { return handleCommand(body, false); });
     }
 
     // ── Device Registry API ──

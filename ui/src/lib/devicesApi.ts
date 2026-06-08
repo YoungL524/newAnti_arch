@@ -40,6 +40,7 @@ export function apiDeviceToRadar(item: ApiDevice): RadarDevice | null {
     altitude: item.altitude,
     maxRange: item.maxRange || 5,
     faces: faces.length > 0 ? faces : [{ label: 'A', boresightAzimuth: 0, scanAngle: 45, active: true }],
+    endpointId: item.endpointId || undefined,
   }
 }
 
@@ -77,6 +78,7 @@ export function radarToApiPayload(id: string, d: RadarDevice): any {
     id, name: d.name, brand: d.brand, kind: 0,
     lng: d.lng, lat: d.lat, altitude: d.altitude,
     maxRange: d.maxRange, facesJson: JSON.stringify(d.faces),
+    endpointId: d.endpointId || '',
   }
 }
 

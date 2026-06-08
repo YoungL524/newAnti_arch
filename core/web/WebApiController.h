@@ -3,6 +3,8 @@
 #include <QObject>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QSet>
+#include <QString>
 #include <functional>
 
 #include "AppTypes.h"

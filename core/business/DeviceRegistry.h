@@ -48,6 +48,7 @@ public:
     explicit DeviceRegistry(DataStore* store);
 
     bool ensureSchema();
+    bool seedIfEmpty();
     QVector<DeviceInfo> list() const;
     std::optional<DeviceInfo> get(const QString& id) const;
     bool create(const DeviceInfo& dev);

@@ -63,6 +63,7 @@ bool AppController::initialize()
         if (!m_deviceRegistry->ensureSchema()) {
             qWarning() << "[AppController] 设备表创建失败，设备台账不可用";
         } else {
+            m_deviceRegistry->seedIfEmpty();
             qDebug() << "[AppController] 设备台账已就绪";
         }
     } else {
