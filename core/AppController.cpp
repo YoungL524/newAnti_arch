@@ -64,7 +64,12 @@ bool AppController::initialize()
             qWarning() << "[AppController] 设备表创建失败，设备台账不可用";
         } else {
             m_deviceRegistry->ensureDefaultControllableRadar();
-            qDebug() << "[AppController] 设备台账已就绪";
+            auto devices = m_deviceRegistry->list();
+            qDebug() << "[AppController] 设备台账已就绪，共" << devices.size() << "台设备";
+            for (const auto& d : devices) {
+                qDebug() << "  -" << d.id << d.name << "endpointId=" << d.endpointId
+                         << "kind=" << static_cast<int>(d.kind);
+            }
         }
     } else {
         qWarning() << "[AppController] 数据库不可用，设备台账跳过";

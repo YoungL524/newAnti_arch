@@ -83,6 +83,7 @@ int main(int argc, char *argv[])
 
     printBanner();
 
+    
     AppController controller;
     if (!controller.initialize()) { return 1; } 
     controller.start();

@@ -48,6 +48,8 @@ public:
     explicit DeviceRegistry(DataStore* store);
 
     bool ensureSchema();
+    /// 为指定设备类型生成稳定唯一的业务 id
+    static QString generateId(DeviceKind kind);
     /// 确保至少有一条可控雷达设备（id=radar_cpu, endpointId=radar_cpu）
     bool ensureDefaultControllableRadar();
     QVector<DeviceInfo> list() const;

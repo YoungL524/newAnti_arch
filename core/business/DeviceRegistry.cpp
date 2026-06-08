@@ -2,6 +2,7 @@
 #include "DataStore.h"
 #include <QDateTime>
 #include <QDebug>
+#include <QRandomGenerator>
 
 static const QString kTable = QStringLiteral("devices");
 
@@ -50,6 +51,17 @@ DeviceInfo DeviceInfo::fromVariantMap(const QVariantMap& m) {
 DeviceRegistry::DeviceRegistry(DataStore* store)
     : m_store(store) {}
 
+QString DeviceRegistry::generateId(DeviceKind kind)
+{
+    const QString prefix = kind == DeviceKind::Radar ? QStringLiteral("radar_")
+        : kind == DeviceKind::Opto ? QStringLiteral("opto_")
+        : kind == DeviceKind::Level ? QStringLiteral("level_")
+        : QStringLiteral("gps_");
+    qint64 ms = QDateTime::currentMSecsSinceEpoch();
+    uint32_t rand = QRandomGenerator::global()->bounded(10000u);
+    return prefix + QString::number(ms) + QStringLiteral("_") + QString::number(rand);
+}
+
 bool DeviceRegistry::ensureSchema() {
     if (!m_store) return false;
     const QString sql = QStringLiteral(
@@ -75,12 +87,12 @@ bool DeviceRegistry::ensureSchema() {
 }
 
 bool DeviceRegistry::ensureDefaultControllableRadar() {
-    // Check if any existing device already has radar_cpu binding
     for (const auto& d : list()) {
-        if (d.id == QStringLiteral("radar_cpu") || d.endpointId == QStringLiteral("radar_cpu"))
-            return true;  // already controllable
+        if (d.id == QStringLiteral("radar_cpu") || d.endpointId == QStringLiteral("radar_cpu")) {
+            qDebug() << "[DeviceRegistry] 已有默认可控设备: id=" << d.id << "endpointId=" << d.endpointId;
+            return true;
+        }
     }
-    // Create one
     DeviceInfo dev;
     dev.id = QStringLiteral("radar_001");
     dev.name = QStringLiteral("NODE_ALPHA_01");
@@ -92,8 +104,11 @@ bool DeviceRegistry::ensureDefaultControllableRadar() {
     dev.facesJson = QStringLiteral(R"([{"label":"A","boresightAzimuth":0,"scanAngle":45,"active":true}])");
     dev.endpointId = QStringLiteral("radar_cpu");
     dev.coordinateSystem = QStringLiteral("WGS-84");
-    qDebug() << "[DeviceRegistry] 创建默认设备: id=radar_001, endpointId=radar_cpu";
-    return create(dev);
+    if (create(dev)) {
+        qDebug() << "[DeviceRegistry] 创建默认可控设备: id=" << dev.id << "endpointId=" << dev.endpointId;
+        return true;
+    }
+    return false;
 }
 
 QVector<DeviceInfo> DeviceRegistry::list() const {

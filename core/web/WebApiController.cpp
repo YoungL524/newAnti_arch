@@ -141,17 +141,9 @@ void WebApiController::registerRestRoutes()
             return d;
         };
 
-        // Generate backend device id when body omits id (UI create path)
-        auto ensureDeviceId = [](DeviceInfo& d) {
-            if (d.id.isEmpty()) {
-                static uint32_t idCounter = 0;
-                const QString prefix = d.kind == DeviceKind::Radar ? QStringLiteral("radar_")
-                    : d.kind == DeviceKind::Opto ? QStringLiteral("opto_")
-                    : d.kind == DeviceKind::Level ? QStringLiteral("level_")
-                    : QStringLiteral("gps_");
-                d.id = prefix + QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMddHHmmss"))
-                       + QStringLiteral("_") + QString::number(++idCounter);
-            }
+        auto ensureDeviceId = [this](DeviceInfo& d) {
+            if (d.id.isEmpty())
+                d.id = DeviceRegistry::generateId(d.kind);
         };
 
         auto validate = [](const DeviceInfo& d) -> QString {
