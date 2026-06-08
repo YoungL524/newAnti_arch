@@ -1,6 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { StatusResponse, LogsResponse, WsMessage, RadarTrack, DeviceStatus } from '../lib/protocol'
 
+async function safeJsonParse(res: Response): Promise<any | null> {
+  try {
+    if (!res.ok) return null
+    return await res.json()
+  } catch { return null }
+}
+
 interface DeviceState {
   id: string
   state: string
@@ -78,11 +85,10 @@ export function CoreProvider({ children }: { children: ReactNode }) {
     const cids = checkedRef.current
     const isWorking = workingRef.current
 
-    // 清除之前的错误提示
     setState(prev => ({ ...prev, commandError: '' }))
 
     if (!isWorking && cids.length === 0) {
-      setState(prev => ({ ...prev, noSelectionHint: true }))
+      setState(prev => ({ ...prev, noSelectionHint: true, commandError: '' }))
       return
     }
 
@@ -116,10 +122,19 @@ export function CoreProvider({ children }: { children: ReactNode }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ deviceIds: cids }),
       })
-      const data = await res.json()
+      const data = safeJsonParse(res)
+      if (!data) { rollback('后端返回异常'); return }
       if (!data.ok) { rollback(data.error || '请求被拒绝'); return }
-      if (data.rejectedDeviceIds?.length > 0) {
-        rollback('部分设备被拒绝: ' + JSON.stringify(data.rejectedDeviceIds))
+
+      // Partial success: accepted some, rejected some — keep command, warn user
+      const accepted = data.acceptedDeviceIds?.length ?? 0
+      const rejected = data.rejectedDeviceIds?.length ?? 0
+      if (accepted === 0 && rejected > 0) {
+        rollback('设备均不被支持: ' + JSON.stringify(data.rejectedDeviceIds))
+        return
+      }
+      if (rejected > 0) {
+        setState(prev => ({ ...prev, commandError: '部分设备未执行: ' + JSON.stringify(data.rejectedDeviceIds) }))
       }
     } catch {
       rollback('网络错误')

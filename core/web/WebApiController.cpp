@@ -10,6 +10,7 @@
 #include <QDebug>
 #include <QJsonArray>
 #include <QJsonParseError>
+#include <QSet>
 #include <QTimer>
 
 WebApiController::WebApiController(web::WebService* ws,
@@ -61,15 +62,25 @@ void WebApiController::registerRestRoutes()
         return r;
     });
 
-    // Map deviceId from registry to controllable endpoint. Currently only radar_cpu.
+    // Map deviceId from registry to controllable endpoint.
+    // A device is controllable if its id == "radar_cpu" or endpointId == "radar_cpu"
+    // (maps to the current RadarWorkModeController).
     auto resolveControllable = [this](const QJsonArray& ids) -> QJsonArray {
         QJsonArray accepted;
         if (ids.isEmpty()) { accepted.append(QStringLiteral("radar_cpu")); return accepted; }
+        // Build set of controllable ids from registry
+        QSet<QString> controllableIds;
+        if (m_deviceReg) {
+            for (const auto& d : m_deviceReg->list()) {
+                if (d.id == QStringLiteral("radar_cpu") || d.endpointId == QStringLiteral("radar_cpu"))
+                    controllableIds.insert(d.id);
+            }
+        }
+        controllableIds.insert(QStringLiteral("radar_cpu"));
         for (const auto& v : ids) {
             QString id = v.toString();
-            if (id == QStringLiteral("radar_cpu"))
+            if (controllableIds.contains(id))
                 accepted.append(id);
-            // Future: lookup DeviceRegistry → endpointId mapping
         }
         return accepted;
     };
@@ -307,7 +318,7 @@ QJsonArray WebApiController::buildDeviceStatusArray() const
             dev[QStringLiteral("name")] = d.name;
             dev[QStringLiteral("kind")] = static_cast<int>(d.kind);
 
-            if (m_wmc && d.id == QStringLiteral("radar_cpu")) {
+            if (m_wmc && (d.id == QStringLiteral("radar_cpu") || d.endpointId == QStringLiteral("radar_cpu"))) {
                 dev[QStringLiteral("state")] = RadarWorkModeController::stateName(m_wmc->state());
                 auto st = m_wmc->state();
                 dev[QStringLiteral("acquisition")] = (st == RadarWorkModeController::State::Starting
