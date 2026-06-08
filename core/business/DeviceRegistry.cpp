@@ -82,7 +82,7 @@ bool DeviceRegistry::ensureDefaultControllableRadar() {
     }
     // Create one
     DeviceInfo dev;
-    dev.id = QStringLiteral("radar_cpu");
+    dev.id = QStringLiteral("radar_001");
     dev.name = QStringLiteral("NODE_ALPHA_01");
     dev.brand = QStringLiteral("cetc38");
     dev.kind = DeviceKind::Radar;
@@ -92,7 +92,7 @@ bool DeviceRegistry::ensureDefaultControllableRadar() {
     dev.facesJson = QStringLiteral(R"([{"label":"A","boresightAzimuth":0,"scanAngle":45,"active":true}])");
     dev.endpointId = QStringLiteral("radar_cpu");
     dev.coordinateSystem = QStringLiteral("WGS-84");
-    qDebug() << "[DeviceRegistry] 无可控雷达，创建默认设备: id=radar_cpu, endpointId=radar_cpu";
+    qDebug() << "[DeviceRegistry] 创建默认设备: id=radar_001, endpointId=radar_cpu";
     return create(dev);
 }
 

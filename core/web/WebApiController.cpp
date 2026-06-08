@@ -94,24 +94,29 @@ void WebApiController::registerRestRoutes()
 
     // ── Device Registry API ──
     if (m_deviceReg) {
-        m_ws->handleGet(QStringLiteral("/api/devices"), [this](const QJsonObject&) {
+        auto deviceInfoToJson = [](const DeviceInfo& dev) -> QJsonObject {
+            QJsonObject j;
+            j[QStringLiteral("id")] = dev.id;
+            j[QStringLiteral("name")] = dev.name;
+            j[QStringLiteral("brand")] = dev.brand;
+            j[QStringLiteral("kind")] = static_cast<int>(dev.kind);
+            j[QStringLiteral("lng")] = dev.lng;
+            j[QStringLiteral("lat")] = dev.lat;
+            j[QStringLiteral("altitude")] = dev.altitude;
+            j[QStringLiteral("maxRange")] = dev.maxRange;
+            j[QStringLiteral("facesJson")] = dev.facesJson;
+            j[QStringLiteral("endpointId")] = dev.endpointId;
+            j[QStringLiteral("linkedRadarId")] = dev.linkedRadarId;
+            j[QStringLiteral("mountOffsetAzimuth")] = dev.mountOffsetAzimuth;
+            j[QStringLiteral("coordinateSystem")] = dev.coordinateSystem;
+            return j;
+        };
+
+        m_ws->handleGet(QStringLiteral("/api/devices"), [this, deviceInfoToJson](const QJsonObject&) {
             QJsonArray arr;
             for (const auto& d : m_deviceReg->list()) {
-                QJsonObject item;
-                item[QStringLiteral("id")]                  = d.id;
-                item[QStringLiteral("name")]                = d.name;
-                item[QStringLiteral("brand")]               = d.brand;
-                item[QStringLiteral("kind")]                = static_cast<int>(d.kind);
-                item[QStringLiteral("lng")]                 = d.lng;
-                item[QStringLiteral("lat")]                 = d.lat;
-                item[QStringLiteral("altitude")]            = d.altitude;
-                item[QStringLiteral("maxRange")]            = d.maxRange;
-                item[QStringLiteral("facesJson")]           = d.facesJson;
-                item[QStringLiteral("endpointId")]          = d.endpointId;
-                item[QStringLiteral("linkedRadarId")]       = d.linkedRadarId;
-                item[QStringLiteral("mountOffsetAzimuth")]  = d.mountOffsetAzimuth;
-                item[QStringLiteral("coordinateSystem")]    = d.coordinateSystem;
-                item[QStringLiteral("status")]              = static_cast<int>(d.status);
+                auto item = deviceInfoToJson(d);
+                item[QStringLiteral("status")] = static_cast<int>(d.status);
                 arr.append(item);
             }
             QJsonObject r; r[QStringLiteral("ok")] = true; r[QStringLiteral("devices")] = arr;
@@ -136,9 +141,22 @@ void WebApiController::registerRestRoutes()
             return d;
         };
 
+        // Generate backend device id when body omits id (UI create path)
+        auto ensureDeviceId = [](DeviceInfo& d) {
+            if (d.id.isEmpty()) {
+                static uint32_t idCounter = 0;
+                const QString prefix = d.kind == DeviceKind::Radar ? QStringLiteral("radar_")
+                    : d.kind == DeviceKind::Opto ? QStringLiteral("opto_")
+                    : d.kind == DeviceKind::Level ? QStringLiteral("level_")
+                    : QStringLiteral("gps_");
+                d.id = prefix + QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMddHHmmss"))
+                       + QStringLiteral("_") + QString::number(++idCounter);
+            }
+        };
+
         auto validate = [](const DeviceInfo& d) -> QString {
-            if (d.id.isEmpty() || d.name.isEmpty())
-                return QStringLiteral("id 和 name 不能为空");
+            if (d.name.isEmpty())
+                return QStringLiteral("name 不能为空");
             if (d.kind < DeviceKind::Radar || d.kind > DeviceKind::Gps)
                 return QStringLiteral("kind 无效 (0=Radar,1=Opto,2=Level,3=Gps)");
             if (d.lng < -180 || d.lng > 180)
@@ -154,33 +172,21 @@ void WebApiController::registerRestRoutes()
             return {};
         };
 
-        m_ws->handlePost(QStringLiteral("/api/devices"), [this, validate, deviceFromBody](const QJsonObject& body) {
+        m_ws->handlePost(QStringLiteral("/api/devices"), [this, validate, deviceFromBody, ensureDeviceId, deviceInfoToJson](const QJsonObject& body) {
             auto d = deviceFromBody(body);
+            ensureDeviceId(d);
             QString err = validate(d);
             if (!err.isEmpty())
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), err}};
             if (!m_deviceReg->create(d))
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("创建设备失败")}};
-            // Return the full device as confirmed by backend
             auto created = m_deviceReg->get(d.id);
             if (!created.has_value())
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("设备创建后未找到")}};
-            const auto& dev = created.value();
-            QJsonObject deviceJson;
-            deviceJson[QStringLiteral("id")] = dev.id;
-            deviceJson[QStringLiteral("name")] = dev.name;
-            deviceJson[QStringLiteral("brand")] = dev.brand;
-            deviceJson[QStringLiteral("kind")] = static_cast<int>(dev.kind);
-            deviceJson[QStringLiteral("lng")] = dev.lng;
-            deviceJson[QStringLiteral("lat")] = dev.lat;
-            deviceJson[QStringLiteral("altitude")] = dev.altitude;
-            deviceJson[QStringLiteral("maxRange")] = dev.maxRange;
-            deviceJson[QStringLiteral("facesJson")] = dev.facesJson;
-            deviceJson[QStringLiteral("endpointId")] = dev.endpointId;
-            deviceJson[QStringLiteral("linkedRadarId")] = dev.linkedRadarId;
-            deviceJson[QStringLiteral("mountOffsetAzimuth")] = dev.mountOffsetAzimuth;
-            deviceJson[QStringLiteral("coordinateSystem")] = dev.coordinateSystem;
-            return QJsonObject{{QStringLiteral("ok"), true}, {QStringLiteral("device"), deviceJson}};
+            QJsonObject r;
+            r[QStringLiteral("ok")] = true;
+            r[QStringLiteral("device")] = deviceInfoToJson(created.value());
+            return r;
         });
 
         m_ws->handlePutPrefix(QStringLiteral("/api/devices/"), [this, validate, deviceFromBody](const QString& suffix, const QJsonObject& body) {
