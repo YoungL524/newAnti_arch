@@ -89,7 +89,10 @@ bool DeviceRegistry::ensureSchema() {
 bool DeviceRegistry::ensureDefaultControllableRadar() {
     for (const auto& d : list()) {
         if (d.id == QStringLiteral("radar_cpu") || d.endpointId == QStringLiteral("radar_cpu")) {
-            qDebug() << "[DeviceRegistry] 已有默认可控设备: id=" << d.id << "endpointId=" << d.endpointId;
+            if (d.id == QStringLiteral("radar_cpu"))
+                qWarning() << "[DeviceRegistry] 默认可控设备使用历史 id=radar_cpu (业务设备 id 与端点 id 相同)";
+            else
+                qDebug() << "[DeviceRegistry] 默认可控设备: id=" << d.id << "endpointId=" << d.endpointId;
             return true;
         }
     }
@@ -136,6 +139,23 @@ bool DeviceRegistry::create(const DeviceInfo& dev) {
     d.createdAt = now;
     d.updatedAt = now;
     return m_store->insert(kTable, d.toVariantMap());
+}
+
+std::optional<DeviceInfo> DeviceRegistry::createAssigningId(DeviceInfo dev)
+{
+    if (dev.id.isEmpty())
+        dev.id = generateId(dev.kind);
+    // Retry up to 5 times on id collision
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        if (attempt > 0)
+            dev.id = generateId(dev.kind);
+        if (create(dev)) {
+            auto created = get(dev.id);
+            if (created.has_value()) return created;
+        }
+    }
+    qWarning() << "[DeviceRegistry] 创建设备失败，重试耗尽: id=" << dev.id;
+    return std::nullopt;
 }
 
 bool DeviceRegistry::update(const DeviceInfo& dev) {

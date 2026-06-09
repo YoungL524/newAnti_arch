@@ -141,11 +141,6 @@ void WebApiController::registerRestRoutes()
             return d;
         };
 
-        auto ensureDeviceId = [this](DeviceInfo& d) {
-            if (d.id.isEmpty())
-                d.id = DeviceRegistry::generateId(d.kind);
-        };
-
         auto validate = [](const DeviceInfo& d) -> QString {
             if (d.name.isEmpty())
                 return QStringLiteral("name 不能为空");
@@ -164,17 +159,14 @@ void WebApiController::registerRestRoutes()
             return {};
         };
 
-        m_ws->handlePost(QStringLiteral("/api/devices"), [this, validate, deviceFromBody, ensureDeviceId, deviceInfoToJson](const QJsonObject& body) {
+        m_ws->handlePost(QStringLiteral("/api/devices"), [this, validate, deviceFromBody, deviceInfoToJson](const QJsonObject& body) {
             auto d = deviceFromBody(body);
-            ensureDeviceId(d);
             QString err = validate(d);
             if (!err.isEmpty())
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), err}};
-            if (!m_deviceReg->create(d))
-                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("创建设备失败")}};
-            auto created = m_deviceReg->get(d.id);
+            auto created = m_deviceReg->createAssigningId(d);
             if (!created.has_value())
-                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("设备创建后未找到")}};
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("创建设备失败")}};
             QJsonObject r;
             r[QStringLiteral("ok")] = true;
             r[QStringLiteral("device")] = deviceInfoToJson(created.value());

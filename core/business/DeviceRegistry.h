@@ -55,6 +55,8 @@ public:
     QVector<DeviceInfo> list() const;
     std::optional<DeviceInfo> get(const QString& id) const;
     bool create(const DeviceInfo& dev);
+    /// 创建设备，id 为空时自动生成（含冲突重试）
+    std::optional<DeviceInfo> createAssigningId(DeviceInfo dev);
     bool update(const DeviceInfo& dev);
     bool remove(const QString& id);
 
