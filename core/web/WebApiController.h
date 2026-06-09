@@ -6,6 +6,7 @@
 #include <QSet>
 #include <QString>
 #include <functional>
+#include "RuntimeSettingsTypes.h"
 
 #include "AppTypes.h"
 
