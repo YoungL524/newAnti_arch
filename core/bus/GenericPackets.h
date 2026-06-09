@@ -76,6 +76,7 @@ enum ErrorLevel {
 
 /**
  * @brief 载荷类型常量
+ * @note 编号区间：0-99 协议层，100-199 系统/业务 payload
  */
 const uint32_t PAYLOAD_TYPE_UNKNOWN = 0;
 const uint32_t PAYLOAD_TYPE_WORK_STANDBY = 1;
@@ -86,6 +87,8 @@ const uint32_t PAYLOAD_TYPE_ERROR = 101;        ///< 错误/告警数据
 const uint32_t PAYLOAD_TYPE_CONFIG = 102;       ///< 配置数据
 const uint32_t PAYLOAD_TYPE_DPH_PARAMS_CHANGED = 103; ///< 运行时参数变更
 
+/// @brief 设备 / 服务源类型
+/// @note 编号区间：10-49 雷达设备，50-199 保留，200-299 内部服务，300+ runtime/control target
 const uint16_t SOURCE_LOG_MANAGER = 200;
 const uint16_t SOURCE_ERROR_MANAGER = 201;      ///< 错误管理器
 const uint16_t SOURCE_CONFIG_MANAGER = 202;     ///< 配置管理器

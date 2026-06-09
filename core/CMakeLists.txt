@@ -23,6 +23,7 @@ set(CORE_HEADERS
     business/RadarWorkModeController.h
     business/BusWorkModeSender.h
     business/DeviceRegistry.h
+    business/RuntimeSettingsTypes.h
     AppController.h
     StdinReader.h
 )

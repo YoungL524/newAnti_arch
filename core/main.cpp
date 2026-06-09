@@ -81,7 +81,7 @@ int main(int argc, char *argv[])
     qInfo() << QStringLiteral("[Logger] 日志文件: %1")
                    .arg(Logger::instance().currentLogFile());
 
-    printBanner();
+    printBanner(); 
 
     
     AppController controller;
