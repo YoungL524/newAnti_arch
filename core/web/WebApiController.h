@@ -26,10 +26,13 @@ class WebApiController : public QObject {
 public:
     using HealthProvider = std::function<AppHealth()>;
 
+    using RuntimeStatusProvider = std::function<DphStatus()>;
+
     WebApiController(web::WebService* ws,
                      RadarWorkModeController* wmc,
                      DeviceRegistry* deviceRegistry,
                      RuntimeSettingsService* runtimeSettings,
+                     RuntimeStatusProvider runtimeStatusProvider,
                      HealthProvider healthProvider,
                      QObject* parent = nullptr);
     ~WebApiController() override;
@@ -54,6 +57,7 @@ private:
     RadarWorkModeController*   m_wmc = nullptr;
     DeviceRegistry*            m_deviceReg = nullptr;
     RuntimeSettingsService*    m_runtimeSettings = nullptr;
+    RuntimeStatusProvider      m_runtimeStatusProvider;
     HealthProvider             m_health;
     qint64                     m_lastStartMs = 0;   ///< 上次开始采集时间戳（节流）
     qint64                     m_lastStopMs = 0;    ///< 上次停止采集时间戳（节流）

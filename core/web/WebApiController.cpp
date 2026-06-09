@@ -18,6 +18,7 @@ WebApiController::WebApiController(web::WebService* ws,
                                    RadarWorkModeController* wmc,
                                    DeviceRegistry* deviceRegistry,
                                    RuntimeSettingsService* runtimeSettings,
+                                   RuntimeStatusProvider runtimeStatusProvider,
                                    HealthProvider healthProvider,
                                    QObject* parent)
     : QObject(parent)
@@ -25,6 +26,7 @@ WebApiController::WebApiController(web::WebService* ws,
     , m_wmc(wmc)
     , m_deviceReg(deviceRegistry)
     , m_runtimeSettings(runtimeSettings)
+    , m_runtimeStatusProvider(std::move(runtimeStatusProvider))
     , m_health(std::move(healthProvider))
 {
 }
@@ -201,7 +203,17 @@ void WebApiController::registerRestRoutes()
     }
 
     // ── Runtime Settings API ──
-    m_ws->handleGet(QStringLiteral("/api/runtime-settings"), [this](const QJsonObject&) {
+    auto buildStatusJson = [this]() -> QJsonObject {
+        QJsonObject st;
+        if (m_runtimeStatusProvider) {
+            auto ds = m_runtimeStatusProvider();
+            st[QStringLiteral("currentSceneNumber")] = static_cast<int>(ds.currentSceneNumber);
+            st[QStringLiteral("sendCount")] = static_cast<qint64>(ds.sendCount);
+        }
+        return st;
+    };
+
+    m_ws->handleGet(QStringLiteral("/api/runtime-settings"), [this, buildStatusJson](const QJsonObject&) {
         QJsonObject r;
         r[QStringLiteral("ok")] = true;
         QJsonObject settingsJson;
@@ -211,20 +223,29 @@ void WebApiController::registerRestRoutes()
             settingsJson[QStringLiteral("waveControl")] = static_cast<int>(s.waveControl);
         }
         r[QStringLiteral("settings")] = settingsJson;
-        // status — DphPublisher 信息由 AppController 在 WS 定时器中补充
-        r[QStringLiteral("status")] = QJsonObject();
+        r[QStringLiteral("status")] = buildStatusJson();
         return r;
     });
 
     if (m_runtimeSettings) {
-        m_ws->handlePut(QStringLiteral("/api/runtime-settings"), [this](const QJsonObject& body) {
+        m_ws->handlePut(QStringLiteral("/api/runtime-settings"), [this, buildStatusJson](const QJsonObject& body) {
+            auto parseIntField = [&](const QString& key, uint32_t* out, QString* err) -> bool {
+                if (!body.contains(key)) { *err = key + QStringLiteral(" 不能为空"); return false; }
+                const auto v = body.value(key);
+                if (!v.isDouble()) { *err = key + QStringLiteral(" 必须是数字"); return false; }
+                const int n = v.toInt(-1);
+                if (n < 0) { *err = key + QStringLiteral(" 必须是非负整数"); return false; }
+                *out = static_cast<uint32_t>(n);
+                return true;
+            };
             RadarRuntimeSettings s;
-            s.frequencyControl = static_cast<uint32_t>(body[QStringLiteral("frequencyControl")].toInt());
-            s.waveControl = static_cast<uint32_t>(body[QStringLiteral("waveControl")].toInt());
-            QString error;
-            if (!m_runtimeSettings->set(s, &error))
-                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), error}};
-            // Publish event to SystemBus for DphPublisher bridge
+            QString err;
+            if (!parseIntField(QStringLiteral("frequencyControl"), &s.frequencyControl, &err)
+             || !parseIntField(QStringLiteral("waveControl"), &s.waveControl, &err))
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), err}};
+            if (!m_runtimeSettings->set(s, &err))
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), err}};
+            // Publish via SystemBus
             DataPacket packet;
             packet.sourceType = SOURCE_RUNTIME_SETTINGS;
             packet.dispatchTarget = 0;
@@ -232,13 +253,15 @@ void WebApiController::registerRestRoutes()
             packet.packetSequence = ++seq;
             packet.timeStamp = static_cast<uint64_t>(QDateTime::currentMSecsSinceEpoch());
             packDataToPayload(packet, s);
-            SystemBus::getInstance().publish(std::move(packet));
+            if (!SystemBus::getInstance().publish(std::move(packet)))
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("运行时参数事件发布失败")}};
             QJsonObject settingsJson;
             settingsJson[QStringLiteral("frequencyControl")] = static_cast<int>(s.frequencyControl);
             settingsJson[QStringLiteral("waveControl")] = static_cast<int>(s.waveControl);
             QJsonObject r;
             r[QStringLiteral("ok")] = true;
             r[QStringLiteral("settings")] = settingsJson;
+            r[QStringLiteral("status")] = buildStatusJson();
             return r;
         });
     }

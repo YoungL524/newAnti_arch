@@ -271,6 +271,12 @@ void AppController::stop()
         m_commManager->stopAll();
     }
 
+    // 取消运行时参数订阅
+    if (m_runtimeSettingsSubId != 0) {
+        SystemBus::getInstance().unsubscribe(m_runtimeSettingsSubId);
+        m_runtimeSettingsSubId = 0;
+    }
+
     // 关闭 SystemBus
     SystemBus::getInstance().shutdown();
 
@@ -614,18 +620,22 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
     m_webApi = std::make_unique<WebApiController>(
         m_webService.get(), m_workModeController.get(),
         m_deviceRegistry.get(), m_runtimeSettings.get(),
+        [dph = m_dphPublisher.get()]() -> DphStatus {
+            DphStatus st;
+            if (dph) { st.currentSceneNumber = dph->sceneNumber(); st.sendCount = dph->sendCount(); }
+            return st;
+        },
         [this]() { return healthReport(); }, this);
     m_webApi->registerRestRoutes();
     m_webApi->connectWebPush();
 
     // SystemBus → DphPublisher bridge (RuntimeSettings 事件)
     if (m_runtimeSettings && m_dphPublisher) {
-        SystemBus::getInstance().subscribeBySource(SOURCE_RUNTIME_SETTINGS,
+        m_runtimeSettingsSubId = SystemBus::getInstance().subscribeBySource(SOURCE_RUNTIME_SETTINGS,
             [this](const DataPacket* pkt) {
                 if (!pkt || pkt->payloadType != PAYLOAD_TYPE_DPH_PARAMS_CHANGED) return;
-                if (pkt->payloadSize < sizeof(RadarRuntimeSettings)) return;
                 RadarRuntimeSettings s;
-                memcpy(&s, pkt->payload.rawData, sizeof(RadarRuntimeSettings));
+                if (!unpackDataFromPayload(*pkt, s)) return;
                 QMetaObject::invokeMethod(this, [this, s]() {
                     m_dphPublisher->applyRuntimeSettings(s);
                 }, Qt::QueuedConnection);
