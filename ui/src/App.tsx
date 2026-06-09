@@ -24,6 +24,7 @@ export default function App() {
   const devicesRef = useRef<RadarDevice[]>([])
   const subDevicesRef = useRef<SubDevice[]>([])
   const deviceListEmpty = devices.length === 0 && subDevices.length === 0
+  const visibleDeviceListEmpty = activeTask ? allTaskDevices.length === 0 : deviceListEmpty
 
   // Keep refs in sync with state
   useEffect(() => { devicesRef.current = devices }, [devices])
@@ -32,14 +33,20 @@ export default function App() {
   // ── Load devices from backend API on startup ──
   useEffect(() => {
     fetchDevices()
-      .then(({ radars, subs }) => {
-        if (radars.length > 0 || subs.length > 0) {
-          setDevices(radars)
-          setSubDevices(subs)
+      .then(({ ok, radars, subs }) => {
+        if (!ok) {
+          setDevices([])
+          setSubDevices([])
+          setDeviceRegistryStatus('unavailable')
+          return
         }
+        setDevices(radars)
+        setSubDevices(subs)
         setDeviceRegistryStatus('available')
       })
       .catch(() => {
+        setDevices([])
+        setSubDevices([])
         setDeviceRegistryStatus('unavailable')
       })
   }, [])
@@ -191,7 +198,7 @@ export default function App() {
               activeTask={activeTask}
               tasks={tasks}
               deviceRegistryStatus={deviceRegistryStatus}
-              deviceListEmpty={deviceListEmpty}
+              deviceListEmpty={visibleDeviceListEmpty}
               onNewTask={() => setShowTaskDialog(true)}
               onCompleteTask={completeTask}
               onArchiveTask={archiveTask}

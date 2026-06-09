@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { RadarDevice, SubDevice, AppDevice, RadarFace, RadarBrand } from '../map/types'
 import { BRAND_LABELS } from '../map/types'
 import type { Task } from '../../lib/taskTypes'
@@ -98,6 +98,11 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
 
   const radarDevices = useMemo(() => allDevices.filter(isRadar), [allDevices])
   const { devices: deviceStates, checkedDeviceIds, noSelectionHint, acquisition, state: globalState, setCheckedDevices } = useCore()
+
+  // Collapse add form when backend unavailable
+  useEffect(() => {
+    if (deviceRegistryStatus === 'unavailable') setFormExpanded(false)
+  }, [deviceRegistryStatus])
 
   const toggleDeviceCheck = (id: string) => {
     setCheckedDevices(
@@ -232,7 +237,9 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                   <p className="text-[10px] py-2" style={{ color: '#991b1b' }}>后端设备台账不可用，设备管理功能受限</p>
                 )}
                 {deviceRegistryStatus === 'available' && deviceListEmpty && (
-                  <p className="text-[10px] py-2" style={{ color: 'var(--secondary)' }}>后端台账为空，请添加设备</p>
+                  <p className="text-[10px] py-2" style={{ color: 'var(--secondary)' }}>
+                    {activeTask ? '当前任务未绑定设备' : '后端台账为空，请添加设备'}
+                  </p>
                 )}
 
                 {allDevices.map(d => {
