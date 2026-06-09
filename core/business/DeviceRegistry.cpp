@@ -143,16 +143,14 @@ bool DeviceRegistry::create(const DeviceInfo& dev) {
 
 std::optional<DeviceInfo> DeviceRegistry::createAssigningId(DeviceInfo dev)
 {
-    if (dev.id.isEmpty())
-        dev.id = generateId(dev.kind);
-    // Retry up to 5 times on id collision
+    if (dev.id.isEmpty()) dev.id = generateId(dev.kind);
+    // Only retry on id collision (max 5 attempts)
     for (int attempt = 0; attempt < 5; ++attempt) {
-        if (attempt > 0)
+        if (attempt > 0) {
+            if (!get(dev.id).has_value()) break;  // not a collision, stop retry
             dev.id = generateId(dev.kind);
-        if (create(dev)) {
-            auto created = get(dev.id);
-            if (created.has_value()) return created;
         }
+        if (create(dev)) return get(dev.id);
     }
     qWarning() << "[DeviceRegistry] 创建设备失败，重试耗尽: id=" << dev.id;
     return std::nullopt;

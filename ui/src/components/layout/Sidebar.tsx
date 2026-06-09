@@ -246,6 +246,7 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                             </div>
                             <div className="text-[9px]" style={{ color: 'var(--secondary)' }}>
                               {BRAND_LABELS[d.brand]} &middot; {d.faces.length}面 &middot; {d.maxRange}km
+                              {d.endpointId ? ` · 端点 ${d.endpointId}` : <span style={{ color: '#991b1b' }}> · 未绑定端点</span>}
                             </div>
                           </div>
                           {/* Status dot */}

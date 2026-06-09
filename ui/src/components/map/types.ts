@@ -23,6 +23,7 @@ export interface RadarDevice {
   maxRange: number            // km
   faces: RadarFace[]          // 阵面列表
   endpointId?: string         // 关联的后端通信端点 id
+  backendManaged?: boolean    // 是否来自后端设备台账
 }
 
 export interface SubDevice {

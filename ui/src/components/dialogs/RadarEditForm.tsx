@@ -104,16 +104,42 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
       {/* Body */}
       <div className="flex-1 overflow-y-auto px-5 py-4">
 
+        {/* ═══ Device Identity (read-only) ═══ */}
+        <div className="flex items-center gap-1.5 mb-3">
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--primaryContainer)' }} />
+          <span className="text-[10px] font-semibold tracking-wide" style={{ color: 'var(--primaryContainer)' }}>
+            设备身份
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <div>
+            <div style={labelStyle}>后端设备 ID</div>
+            <div className="text-[11px] px-2 py-1.5 rounded" style={{ background: 'var(--surfaceLow)', color: 'var(--secondary)', fontFamily: "'JetBrains Mono', monospace" }}>
+              {device.id}
+            </div>
+          </div>
+          <div>
+            <div style={labelStyle}>通信端点</div>
+            <div className="text-[11px] px-2 py-1.5 rounded" style={{ background: 'var(--surfaceLow)', color: device.endpointId ? 'var(--ink)' : '#991b1b', fontFamily: "'JetBrains Mono', monospace" }}>
+              {device.endpointId || '未绑定'}
+            </div>
+          </div>
+        </div>
+        {device.backendManaged && (
+          <div className="text-[9px] mb-3" style={{ color: 'var(--secondary)' }}>数据来源: 后端台账</div>
+        )}
+
         {/* ═══ Brand ═══ */}
         <div className="flex items-center gap-1.5 mb-3">
           <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--primaryContainer)' }} />
           <span className="text-[10px] font-semibold tracking-wide" style={{ color: 'var(--primaryContainer)' }}>
-            品牌 / 标识
+            厂家 / 型号
           </span>
         </div>
 
         <div className="mb-3">
-          <div style={labelStyle}>品牌</div>
+          <div style={labelStyle}>厂家/型号</div>
           <select
             style={{ ...inputStyle, appearance: 'auto', cursor: 'pointer' }}
             value={form.brand}

@@ -50,7 +50,9 @@ public:
     bool ensureSchema();
     /// 为指定设备类型生成稳定唯一的业务 id
     static QString generateId(DeviceKind kind);
-    /// 确保至少有一条可控雷达设备（id=radar_cpu, endpointId=radar_cpu）
+    /// 确保至少有一条绑定 radar_cpu 端点的可控雷达业务设备。
+    /// 新库默认创建 id=radar_001, endpointId=radar_cpu。
+    /// 历史库可能存在 id=radar_cpu 的 legacy 设备。
     bool ensureDefaultControllableRadar();
     QVector<DeviceInfo> list() const;
     std::optional<DeviceInfo> get(const QString& id) const;

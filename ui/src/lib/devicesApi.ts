@@ -41,6 +41,7 @@ export function apiDeviceToRadar(item: ApiDevice): RadarDevice | null {
     maxRange: item.maxRange || 5,
     faces: faces.length > 0 ? faces : [{ label: 'A', boresightAzimuth: 0, scanAngle: 45, active: true }],
     endpointId: item.endpointId || undefined,
+    backendManaged: true,
   }
 }
 
