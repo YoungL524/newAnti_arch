@@ -20,11 +20,9 @@ function nextTaskId() { return `task_${Date.now()}_${++deviceIdCounter}` }
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [devices, setDevices] = useState<RadarDevice[]>(() => [
-    { id: nextDeviceId(), ...DEFAULT_DEVICE },
-  ])
+  const [deviceLoadState, setDeviceLoadState] = useState<DeviceLoadState>('loading')
+  const [devices, setDevices] = useState<RadarDevice[]>([])
   const [subDevices, setSubDevices] = useState<SubDevice[]>([])
-  const devicesLoadedRef = useRef(false)
   const devicesRef = useRef<RadarDevice[]>([])
   const subDevicesRef = useRef<SubDevice[]>([])
 
@@ -34,16 +32,19 @@ export default function App() {
 
   // ── Load devices from backend API on startup ──
   useEffect(() => {
-    if (devicesLoadedRef.current) return
-    devicesLoadedRef.current = true
     fetchDevices()
       .then(({ radars, subs }) => {
         if (radars.length > 0 || subs.length > 0) {
           setDevices(radars)
           setSubDevices(subs)
+          setDeviceLoadState('ready')
+        } else {
+          setDeviceLoadState('empty')
         }
       })
-      .catch(() => {})
+      .catch(() => {
+        setDeviceLoadState('unavailable')
+      })
   }, [])
 
   // ── Task state ──
@@ -192,6 +193,7 @@ export default function App() {
               onEditDevice={setEditingDevice}
               activeTask={activeTask}
               tasks={tasks}
+              deviceLoadState={deviceLoadState}
               onNewTask={() => setShowTaskDialog(true)}
               onCompleteTask={completeTask}
               onArchiveTask={archiveTask}

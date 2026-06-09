@@ -16,6 +16,8 @@ const topNav: NavItem[] = [
   { id: 'archives', icon: 'archive', label: '日志归档' },
 ]
 
+export type DeviceLoadState = 'loading' | 'ready' | 'empty' | 'unavailable'
+
 interface SidebarProps {
   onClose?: () => void
   allDevices: AppDevice[]
@@ -27,6 +29,7 @@ interface SidebarProps {
   onEditDevice: (d: AppDevice) => void
   activeTask: Task | null
   tasks: Task[]
+  deviceLoadState: DeviceLoadState
   onNewTask: () => void
   onCompleteTask: () => void
   onArchiveTask: (taskId: string) => void
@@ -39,7 +42,6 @@ const RADAR_DEFAULTS: Omit<RadarDevice, 'id'> = {
   name: '', brand: 'cetc38', lng: 118.6, lat: 31.9, altitude: 0,
   maxRange: 5,
   faces: [{ label: 'A', boresightAzimuth: 0, scanAngle: 45, active: true }],
-  endpointId: 'radar_cpu',
 }
 
 const BRAND_OPTIONS: RadarBrand[] = ['cetc38', 'cetc14', 'leiying']
@@ -87,7 +89,7 @@ const STATUS_META: Record<string, { icon: string; label: string }> = {
   archived: { icon: 'archive', label: '已归档' },
 }
 
-export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevice, onUpdateDevice, onAddSubDevice, onRemoveSubDevice, onEditDevice, activeTask, tasks, onNewTask, onCompleteTask, onArchiveTask, onDeleteTask }: SidebarProps) {
+export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevice, onUpdateDevice, onAddSubDevice, onRemoveSubDevice, onEditDevice, activeTask, tasks, deviceLoadState, onNewTask, onCompleteTask, onArchiveTask, onDeleteTask }: SidebarProps) {
   const [activeNav, setActiveNav] = useState('devices')
   const [formExpanded, setFormExpanded] = useState(false)
   const [formKind, setFormKind] = useState<FormKind>('radar')
@@ -222,9 +224,21 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                   style={{ color: 'var(--outline)', fontFamily: "'Inter', sans-serif" }}>
                   {activeTask ? '任务设备' : '已注册设备'} &middot; {allDevices.length}
                 </p>
+
+                {deviceLoadState === 'loading' && (
+                  <p className="text-[10px] py-2" style={{ color: 'var(--secondary)' }}>正在加载设备台账...</p>
+                )}
+                {deviceLoadState === 'unavailable' && (
+                  <p className="text-[10px] py-2" style={{ color: '#991b1b' }}>后端设备台账不可用，设备管理功能受限</p>
+                )}
+                {deviceLoadState === 'empty' && (
+                  <p className="text-[10px] py-2" style={{ color: 'var(--secondary)' }}>后端台账为空，请添加设备</p>
+                )}
+
                 {allDevices.map(d => {
                   if (isRadar(d)) {
                     const checked = checkedDeviceIds.includes(d.id)
+                    const controllable = d.backendManaged === true && !!d.endpointId
                     const stateColor =
                       globalState === 'Fault' ? '#ef4444' :
                       acquisition ? '#22c55e' : '#94a3b8'
@@ -232,11 +246,12 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                       <div key={d.id}>
                         <div className="flex items-center gap-1.5 px-1.5 py-1 rounded-md hover:bg-black/3 transition-colors cursor-pointer"
                           onDoubleClick={() => onEditDevice(d)} title="双击编辑设备参数">
-                          {/* Checkbox */}
+                          {/* Checkbox — disabled if not from backend or no endpoint binding */}
                           <input type="checkbox" checked={checked}
+                            disabled={!controllable}
                             onChange={() => toggleDeviceCheck(d.id)}
                             onClick={(e) => e.stopPropagation()}
-                            style={{ width: 11, height: 11, cursor: 'pointer', accentColor: '#064e3b' }}
+                            style={{ width: 11, height: 11, cursor: controllable ? 'pointer' : 'not-allowed', accentColor: '#064e3b' }}
                           />
                           <span className="material-symbols-outlined !text-[13px]" style={{ color: 'var(--primaryContainer)' }}>sensors</span>
                           <div className="flex-1 min-w-0">
