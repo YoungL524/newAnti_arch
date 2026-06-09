@@ -16,6 +16,7 @@
 class RadarWorkModeController;
 class IWorkModeCommandSender;
 class DeviceRegistry;
+class RuntimeSettingsService;
 
 namespace web { class WebService; }
 class WebApiController;
@@ -249,6 +250,7 @@ private:
     std::unique_ptr<IWorkModeCommandSender> m_workModeSender;    ///< 工作模式命令发送器
     std::unique_ptr<RadarWorkModeController> m_workModeController; ///< 工作模式状态机
     std::unique_ptr<DeviceRegistry> m_deviceRegistry;              ///< 设备台账
+    std::unique_ptr<RuntimeSettingsService> m_runtimeSettings;      ///< 运行时参数
     uint16_t m_reverseTargetDevice = DEVICE_RADAR_NH_KU_1;
     bool m_dphEnabled = true;
     bool m_running = false;

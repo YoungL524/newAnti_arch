@@ -2,6 +2,7 @@
 #include "web/WebService.h"
 #include "web/WebApiController.h"
 #include "business/DeviceRegistry.h"
+#include "business/RuntimeSettingsService.h"
 #include "EndpointConfigLoader.h"
 #include "bus/SystemBus.h"
 #include "GenericPackets.h"
@@ -74,6 +75,9 @@ bool AppController::initialize()
     } else {
         qWarning() << "[AppController] 数据库不可用，设备台账跳过";
     }
+
+    m_runtimeSettings = std::make_unique<RuntimeSettingsService>();
+    qDebug() << "[AppController] 运行时参数服务已就绪";
 
     qDebug() << QStringLiteral("[AppController] 初始化完成");
     return true;
@@ -608,10 +612,26 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
     if (!result.ok) return {};
 
     m_webApi = std::make_unique<WebApiController>(
-        m_webService.get(), m_workModeController.get(), m_deviceRegistry.get(),
+        m_webService.get(), m_workModeController.get(),
+        m_deviceRegistry.get(), m_runtimeSettings.get(),
         [this]() { return healthReport(); }, this);
     m_webApi->registerRestRoutes();
     m_webApi->connectWebPush();
+
+    // SystemBus → DphPublisher bridge (RuntimeSettings 事件)
+    if (m_runtimeSettings && m_dphPublisher) {
+        SystemBus::getInstance().subscribeBySource(SOURCE_RUNTIME_SETTINGS,
+            [this](const DataPacket* pkt) {
+                if (!pkt || pkt->payloadType != PAYLOAD_TYPE_DPH_PARAMS_CHANGED) return;
+                if (pkt->payloadSize < sizeof(RadarRuntimeSettings)) return;
+                RadarRuntimeSettings s;
+                memcpy(&s, pkt->payload.rawData, sizeof(RadarRuntimeSettings));
+                QMetaObject::invokeMethod(this, [this, s]() {
+                    m_dphPublisher->applyRuntimeSettings(s);
+                }, Qt::QueuedConnection);
+            });
+        qDebug() << "[AppController] RuntimeSettings → DphPublisher bridge 已就绪";
+    }
 
     qInfo() << "[AppController] Web 服务已启动";
     return {true, httpPort, wsPort};

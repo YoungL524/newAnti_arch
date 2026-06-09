@@ -59,6 +59,14 @@ void DphPublisher::stop()
     qDebug() << QStringLiteral("[DphPublisher] 已停止");
 }
 
+void DphPublisher::applyRuntimeSettings(const RadarRuntimeSettings& settings)
+{
+    m_header.F_UI_Freq_Ctrl = settings.frequencyControl;
+    m_header.F_UI_Wave_Ctrl = settings.waveControl;
+    qDebug() << "[DphPublisher] 应用运行时参数: freq=" << settings.frequencyControl
+             << "wave=" << settings.waveControl;
+}
+
 void DphPublisher::sendOnce()
 {
     if (!m_commManager) {

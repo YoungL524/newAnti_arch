@@ -5,6 +5,7 @@
 #include <QString>
 #include <cstdint>
 #include "StructureSend.h"
+#include "RuntimeSettingsTypes.h"
 
 class CommunicationManager;
 
@@ -70,6 +71,12 @@ public:
      * @brief 获取当前景幅号
      */
     uint32_t sceneNumber() const { return m_header.F_UI_Scene_Num; }
+
+    /**
+     * @brief 应用运行时参数（只更新映射字段，不重置 DPH 持续状态）
+     * @param settings 运行时参数
+     */
+    void applyRuntimeSettings(const RadarRuntimeSettings& settings);
 
 private slots:
     /**

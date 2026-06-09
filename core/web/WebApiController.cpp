@@ -5,6 +5,7 @@
 #include "protocol/StructureReceive.h"
 #include "RadarWorkModeController.h"
 #include "business/DeviceRegistry.h"
+#include "business/RuntimeSettingsService.h"
 #include "log/Logger.h"
 #include <QDateTime>
 #include <QDebug>
@@ -16,12 +17,14 @@
 WebApiController::WebApiController(web::WebService* ws,
                                    RadarWorkModeController* wmc,
                                    DeviceRegistry* deviceRegistry,
+                                   RuntimeSettingsService* runtimeSettings,
                                    HealthProvider healthProvider,
                                    QObject* parent)
     : QObject(parent)
     , m_ws(ws)
     , m_wmc(wmc)
     , m_deviceReg(deviceRegistry)
+    , m_runtimeSettings(runtimeSettings)
     , m_health(std::move(healthProvider))
 {
 }
@@ -194,6 +197,49 @@ void WebApiController::registerRestRoutes()
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("设备不存在")}};
             bool ok = m_deviceReg->remove(suffix);
             return QJsonObject{{QStringLiteral("ok"), ok}};
+        });
+    }
+
+    // ── Runtime Settings API ──
+    m_ws->handleGet(QStringLiteral("/api/runtime-settings"), [this](const QJsonObject&) {
+        QJsonObject r;
+        r[QStringLiteral("ok")] = true;
+        QJsonObject settingsJson;
+        if (m_runtimeSettings) {
+            auto s = m_runtimeSettings->get();
+            settingsJson[QStringLiteral("frequencyControl")] = static_cast<int>(s.frequencyControl);
+            settingsJson[QStringLiteral("waveControl")] = static_cast<int>(s.waveControl);
+        }
+        r[QStringLiteral("settings")] = settingsJson;
+        // status — DphPublisher 信息由 AppController 在 WS 定时器中补充
+        r[QStringLiteral("status")] = QJsonObject();
+        return r;
+    });
+
+    if (m_runtimeSettings) {
+        m_ws->handlePut(QStringLiteral("/api/runtime-settings"), [this](const QJsonObject& body) {
+            RadarRuntimeSettings s;
+            s.frequencyControl = static_cast<uint32_t>(body[QStringLiteral("frequencyControl")].toInt());
+            s.waveControl = static_cast<uint32_t>(body[QStringLiteral("waveControl")].toInt());
+            QString error;
+            if (!m_runtimeSettings->set(s, &error))
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), error}};
+            // Publish event to SystemBus for DphPublisher bridge
+            DataPacket packet;
+            packet.sourceType = SOURCE_RUNTIME_SETTINGS;
+            packet.dispatchTarget = 0;
+            static uint64_t seq = 0;
+            packet.packetSequence = ++seq;
+            packet.timeStamp = static_cast<uint64_t>(QDateTime::currentMSecsSinceEpoch());
+            packDataToPayload(packet, s);
+            SystemBus::getInstance().publish(std::move(packet));
+            QJsonObject settingsJson;
+            settingsJson[QStringLiteral("frequencyControl")] = static_cast<int>(s.frequencyControl);
+            settingsJson[QStringLiteral("waveControl")] = static_cast<int>(s.waveControl);
+            QJsonObject r;
+            r[QStringLiteral("ok")] = true;
+            r[QStringLiteral("settings")] = settingsJson;
+            return r;
         });
     }
 }
