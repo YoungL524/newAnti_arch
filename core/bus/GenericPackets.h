@@ -84,12 +84,14 @@ const uint32_t PAYLOAD_TYPE_GENERAL_PACKAGE = 3;
 const uint32_t PAYLOAD_TYPE_LOG_TEXT = 100;
 const uint32_t PAYLOAD_TYPE_ERROR = 101;        ///< 错误/告警数据
 const uint32_t PAYLOAD_TYPE_CONFIG = 102;       ///< 配置数据
+const uint32_t PAYLOAD_TYPE_DPH_PARAMS_CHANGED = 103; ///< 运行时参数变更
 
 const uint16_t SOURCE_LOG_MANAGER = 200;
 const uint16_t SOURCE_ERROR_MANAGER = 201;      ///< 错误管理器
 const uint16_t SOURCE_CONFIG_MANAGER = 202;     ///< 配置管理器
 const uint16_t SOURCE_COMMUNICATION = 203;      ///< 通信层
 const uint16_t SOURCE_DATA_PROCESSOR = 204;     ///< 数据处理层
+const uint16_t SOURCE_RUNTIME_SETTINGS = 205;   ///< 运行时参数服务
 
 /**
  * @brief 数据包大小常量
