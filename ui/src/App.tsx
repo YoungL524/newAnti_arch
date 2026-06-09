@@ -24,7 +24,6 @@ export default function App() {
   const devicesRef = useRef<RadarDevice[]>([])
   const subDevicesRef = useRef<SubDevice[]>([])
   const deviceListEmpty = devices.length === 0 && subDevices.length === 0
-  const visibleDeviceListEmpty = activeTask ? allTaskDevices.length === 0 : deviceListEmpty
 
   // Keep refs in sync with state
   useEffect(() => { devicesRef.current = devices }, [devices])
@@ -75,6 +74,9 @@ export default function App() {
       : subDevices,
   [subDevices, activeTask, taskDeviceIds])
   const allTaskDevices = useMemo(() => [...taskDevices, ...taskSubDevices], [taskDevices, taskSubDevices])
+  const allDevices = useMemo(() => [...devices, ...subDevices], [devices, subDevices])
+  const visibleDevices = activeTask ? allTaskDevices : allDevices
+  const visibleDeviceListEmpty = visibleDevices.length === 0
 
   // ── Task operations ──
   const createTask = useCallback((data: Omit<Task, 'id' | 'createdAt' | 'status'>) => {
@@ -179,8 +181,6 @@ export default function App() {
     return true
   }, [])
 
-  const allDevices = useMemo(() => [...devices, ...subDevices], [devices, subDevices])
-
   return (
     <CoreProvider>
       <div className="h-screen flex flex-col overflow-hidden" style={{ background: 'var(--canvas)' }}>
@@ -188,7 +188,7 @@ export default function App() {
           {sidebarOpen && (
             <Sidebar
               onClose={() => setSidebarOpen(false)}
-              allDevices={activeTask ? allTaskDevices : allDevices}
+              allDevices={visibleDevices}
               onAddDevice={addDevice}
               onRemoveDevice={removeDevice}
               onUpdateDevice={updateDevice}
@@ -225,7 +225,7 @@ export default function App() {
               )}
             </div>
 
-            <BottomPanel allDevices={activeTask ? allTaskDevices : allDevices} />
+            <BottomPanel allDevices={visibleDevices} />
           </main>
         </div>
 
