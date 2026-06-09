@@ -1,3 +1,5 @@
+export type DeviceRegistryStatus = 'loading' | 'available' | 'unavailable'
+
 import type { RadarDevice, SubDevice } from '../components/map/types'
 
 const BASE = '/api/devices'

@@ -6,25 +6,24 @@ import MapRadarView from './components/map/MapRadarView'
 import BottomPanel from './components/panels/BottomPanel'
 import StatusBar from './components/layout/StatusBar'
 import { CoreProvider } from './hooks/useCoreApi'
-import { type AppDevice, type RadarDevice, type SubDevice, DEFAULT_DEVICE } from './components/map/types'
+import { type AppDevice, type RadarDevice, type SubDevice } from './components/map/types'
 import DeviceEditDialog from './components/dialogs/DeviceEditDialog'
-import { fetchDevices, createDevice, deleteDeviceApi, updateDevice as apiUpdateDevice, radarToApiPayload, subToApiPayload, apiDeviceToRadar, apiDeviceToSub } from './lib/devicesApi'
+import { fetchDevices, createDevice, deleteDeviceApi, updateDevice as apiUpdateDevice, radarToApiPayload, subToApiPayload, apiDeviceToRadar, apiDeviceToSub, type DeviceRegistryStatus } from './lib/devicesApi'
 import TaskCreateDialog from './components/dialogs/TaskCreateDialog'
 import type { Task } from './lib/taskTypes'
 import { loadTasks, saveTasks, loadActiveTaskId, saveActiveTaskId } from './lib/taskTypes'
 
 let deviceIdCounter = 0
-function nextDeviceId() { return `dev_${Date.now()}_${++deviceIdCounter}` }
-function nextSubId() { return `sub_${Date.now()}_${++deviceIdCounter}` }
 function nextTaskId() { return `task_${Date.now()}_${++deviceIdCounter}` }
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [deviceLoadState, setDeviceLoadState] = useState<DeviceLoadState>('loading')
+  const [deviceRegistryStatus, setDeviceRegistryStatus] = useState<DeviceRegistryStatus>('loading')
   const [devices, setDevices] = useState<RadarDevice[]>([])
   const [subDevices, setSubDevices] = useState<SubDevice[]>([])
   const devicesRef = useRef<RadarDevice[]>([])
   const subDevicesRef = useRef<SubDevice[]>([])
+  const deviceListEmpty = devices.length === 0 && subDevices.length === 0
 
   // Keep refs in sync with state
   useEffect(() => { devicesRef.current = devices }, [devices])
@@ -37,13 +36,11 @@ export default function App() {
         if (radars.length > 0 || subs.length > 0) {
           setDevices(radars)
           setSubDevices(subs)
-          setDeviceLoadState('ready')
-        } else {
-          setDeviceLoadState('empty')
         }
+        setDeviceRegistryStatus('available')
       })
       .catch(() => {
-        setDeviceLoadState('unavailable')
+        setDeviceRegistryStatus('unavailable')
       })
   }, [])
 
@@ -193,7 +190,8 @@ export default function App() {
               onEditDevice={setEditingDevice}
               activeTask={activeTask}
               tasks={tasks}
-              deviceLoadState={deviceLoadState}
+              deviceRegistryStatus={deviceRegistryStatus}
+              deviceListEmpty={deviceListEmpty}
               onNewTask={() => setShowTaskDialog(true)}
               onCompleteTask={completeTask}
               onArchiveTask={archiveTask}

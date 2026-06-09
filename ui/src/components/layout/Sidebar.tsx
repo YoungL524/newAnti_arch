@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import type { RadarDevice, SubDevice, AppDevice, RadarFace, RadarBrand } from '../map/types'
 import { BRAND_LABELS } from '../map/types'
 import type { Task } from '../../lib/taskTypes'
+import type { DeviceRegistryStatus } from '../../lib/devicesApi'
 import { useCore } from '../../hooks/useCoreApi'
 
 interface NavItem {
@@ -16,8 +17,6 @@ const topNav: NavItem[] = [
   { id: 'archives', icon: 'archive', label: '日志归档' },
 ]
 
-export type DeviceLoadState = 'loading' | 'ready' | 'empty' | 'unavailable'
-
 interface SidebarProps {
   onClose?: () => void
   allDevices: AppDevice[]
@@ -29,7 +28,8 @@ interface SidebarProps {
   onEditDevice: (d: AppDevice) => void
   activeTask: Task | null
   tasks: Task[]
-  deviceLoadState: DeviceLoadState
+  deviceRegistryStatus: DeviceRegistryStatus
+  deviceListEmpty: boolean
   onNewTask: () => void
   onCompleteTask: () => void
   onArchiveTask: (taskId: string) => void
@@ -89,7 +89,7 @@ const STATUS_META: Record<string, { icon: string; label: string }> = {
   archived: { icon: 'archive', label: '已归档' },
 }
 
-export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevice, onUpdateDevice, onAddSubDevice, onRemoveSubDevice, onEditDevice, activeTask, tasks, deviceLoadState, onNewTask, onCompleteTask, onArchiveTask, onDeleteTask }: SidebarProps) {
+export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevice, onUpdateDevice, onAddSubDevice, onRemoveSubDevice, onEditDevice, activeTask, tasks, deviceRegistryStatus, deviceListEmpty, onNewTask, onCompleteTask, onArchiveTask, onDeleteTask }: SidebarProps) {
   const [activeNav, setActiveNav] = useState('devices')
   const [formExpanded, setFormExpanded] = useState(false)
   const [formKind, setFormKind] = useState<FormKind>('radar')
@@ -225,13 +225,13 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                   {activeTask ? '任务设备' : '已注册设备'} &middot; {allDevices.length}
                 </p>
 
-                {deviceLoadState === 'loading' && (
+                {deviceRegistryStatus === 'loading' && (
                   <p className="text-[10px] py-2" style={{ color: 'var(--secondary)' }}>正在加载设备台账...</p>
                 )}
-                {deviceLoadState === 'unavailable' && (
+                {deviceRegistryStatus === 'unavailable' && (
                   <p className="text-[10px] py-2" style={{ color: '#991b1b' }}>后端设备台账不可用，设备管理功能受限</p>
                 )}
-                {deviceLoadState === 'empty' && (
+                {deviceRegistryStatus === 'available' && deviceListEmpty && (
                   <p className="text-[10px] py-2" style={{ color: 'var(--secondary)' }}>后端台账为空，请添加设备</p>
                 )}
 
@@ -313,8 +313,14 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
 
                 {!formExpanded ? (
                   <button
-                    className="w-full py-1.5 mt-1 rounded-md text-[10px] font-semibold border border-dashed cursor-pointer transition-colors hover:bg-black/3"
-                    style={{ color: 'var(--primaryBright)', borderColor: 'rgba(6,78,59,0.2)', background: 'transparent' }}
+                    className="w-full py-1.5 mt-1 rounded-md text-[10px] font-semibold border border-dashed transition-colors"
+                    style={{
+                      color: deviceRegistryStatus === 'unavailable' ? 'var(--secondary)' : 'var(--primaryBright)',
+                      borderColor: deviceRegistryStatus === 'unavailable' ? 'var(--hairline)' : 'rgba(6,78,59,0.2)',
+                      background: 'transparent',
+                      cursor: deviceRegistryStatus === 'unavailable' ? 'not-allowed' : 'pointer',
+                    }}
+                    disabled={deviceRegistryStatus === 'unavailable'}
                     onClick={() => setFormExpanded(true)}
                   >
                     + 添加设备
