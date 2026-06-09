@@ -23,7 +23,6 @@ export default function App() {
   const [subDevices, setSubDevices] = useState<SubDevice[]>([])
   const devicesRef = useRef<RadarDevice[]>([])
   const subDevicesRef = useRef<SubDevice[]>([])
-  const deviceListEmpty = devices.length === 0 && subDevices.length === 0
 
   // Keep refs in sync with state
   useEffect(() => { devicesRef.current = devices }, [devices])
