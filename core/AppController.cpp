@@ -640,7 +640,11 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
                     m_dphPublisher->applyRuntimeSettings(s);
                 }, Qt::QueuedConnection);
             });
-        qDebug() << "[AppController] RuntimeSettings → DphPublisher bridge 已就绪";
+        if (m_runtimeSettingsSubId == 0) {
+            qWarning() << "[AppController] RuntimeSettings → DphPublisher bridge 订阅失败";
+        } else {
+            qDebug() << "[AppController] RuntimeSettings → DphPublisher bridge 已就绪";
+        }
     }
 
     qInfo() << "[AppController] Web 服务已启动";

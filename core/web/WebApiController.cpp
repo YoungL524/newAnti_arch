@@ -8,6 +8,7 @@
 #include "business/RuntimeSettingsService.h"
 #include "log/Logger.h"
 #include <cmath>
+#include <limits>
 #include <QDateTime>
 #include <QDebug>
 #include <QJsonArray>
@@ -230,21 +231,24 @@ void WebApiController::registerRestRoutes()
 
     if (m_runtimeSettings) {
         m_ws->handlePut(QStringLiteral("/api/runtime-settings"), [this, buildStatusJson](const QJsonObject& body) {
-            auto parseIntField = [&](const QString& key, uint32_t* out, QString* err) -> bool {
+            auto parseField = [&](const QString& key, uint32_t* out, QString* err) -> bool {
                 if (!body.contains(key)) { *err = key + QStringLiteral(" 不能为空"); return false; }
                 const auto v = body.value(key);
                 if (!v.isDouble()) { *err = key + QStringLiteral(" 必须是数字"); return false; }
                 const double d = v.toDouble();
                 if (!std::isfinite(d) || std::floor(d) != d) { *err = key + QStringLiteral(" 必须是整数"); return false; }
                 if (d < 0) { *err = key + QStringLiteral(" 必须是非负整数"); return false; }
-                if (d > 255) { *err = key + QStringLiteral(" 超出范围 0..255"); return false; }
+                if (d > static_cast<double>(std::numeric_limits<uint32_t>::max())) { *err = key + QStringLiteral(" 超出 uint32 范围"); return false; }
                 *out = static_cast<uint32_t>(d);
                 return true;
             };
             RadarRuntimeSettings s;
             QString err;
-            if (!parseIntField(QStringLiteral("frequencyControl"), &s.frequencyControl, &err)
-             || !parseIntField(QStringLiteral("waveControl"), &s.waveControl, &err))
+            if (!parseField(QStringLiteral("frequencyControl"), &s.frequencyControl, &err)
+             || !parseField(QStringLiteral("waveControl"), &s.waveControl, &err))
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), err}};
+            // service validate (含 0..255 等业务规则)
+            if (!m_runtimeSettings->validate(s, &err))
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), err}};
             // Publish first, then commit
             DataPacket packet;

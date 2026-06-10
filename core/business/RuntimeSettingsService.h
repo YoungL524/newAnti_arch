@@ -17,6 +17,9 @@ public:
     RuntimeSettingsService() = default;
 
     RadarRuntimeSettings get() const;
+    /// 校验参数合法范围（公共方法，供 WebApiController 在 publish 前调用）
+    bool validate(const RadarRuntimeSettings& settings, QString* errorOut = nullptr) const;
+    /// 校验并提交（内部复用 validate）
     bool set(const RadarRuntimeSettings& settings, QString* errorOut = nullptr);
 
 private:
