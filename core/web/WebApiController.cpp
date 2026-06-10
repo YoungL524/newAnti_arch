@@ -7,6 +7,7 @@
 #include "business/DeviceRegistry.h"
 #include "business/RuntimeSettingsService.h"
 #include "log/Logger.h"
+#include <cmath>
 #include <QDateTime>
 #include <QDebug>
 #include <QJsonArray>
@@ -233,9 +234,11 @@ void WebApiController::registerRestRoutes()
                 if (!body.contains(key)) { *err = key + QStringLiteral(" 不能为空"); return false; }
                 const auto v = body.value(key);
                 if (!v.isDouble()) { *err = key + QStringLiteral(" 必须是数字"); return false; }
-                const int n = v.toInt(-1);
-                if (n < 0) { *err = key + QStringLiteral(" 必须是非负整数"); return false; }
-                *out = static_cast<uint32_t>(n);
+                const double d = v.toDouble();
+                if (!std::isfinite(d) || std::floor(d) != d) { *err = key + QStringLiteral(" 必须是整数"); return false; }
+                if (d < 0) { *err = key + QStringLiteral(" 必须是非负整数"); return false; }
+                if (d > 255) { *err = key + QStringLiteral(" 超出范围 0..255"); return false; }
+                *out = static_cast<uint32_t>(d);
                 return true;
             };
             RadarRuntimeSettings s;
@@ -243,9 +246,7 @@ void WebApiController::registerRestRoutes()
             if (!parseIntField(QStringLiteral("frequencyControl"), &s.frequencyControl, &err)
              || !parseIntField(QStringLiteral("waveControl"), &s.waveControl, &err))
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), err}};
-            if (!m_runtimeSettings->set(s, &err))
-                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), err}};
-            // Publish via SystemBus
+            // Publish first, then commit
             DataPacket packet;
             packet.sourceType = SOURCE_RUNTIME_SETTINGS;
             packet.dispatchTarget = 0;
@@ -255,6 +256,8 @@ void WebApiController::registerRestRoutes()
             packDataToPayload(packet, s);
             if (!SystemBus::getInstance().publish(std::move(packet)))
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("运行时参数事件发布失败")}};
+            if (!m_runtimeSettings->set(s, &err))
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), err}};
             QJsonObject settingsJson;
             settingsJson[QStringLiteral("frequencyControl")] = static_cast<int>(s.frequencyControl);
             settingsJson[QStringLiteral("waveControl")] = static_cast<int>(s.waveControl);

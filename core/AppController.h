@@ -257,5 +257,5 @@ private:
 
     std::unique_ptr<web::WebService> m_webService;       ///< HTTP/WS 服务
     std::unique_ptr<WebApiController> m_webApi;           ///< REST 路由 + WS 消息组装
-    uint32_t m_runtimeSettingsSubId = 0;                  ///< RuntimeSettings SystemBus 订阅 id
+    SubscriptionId m_runtimeSettingsSubId = 0;             ///< RuntimeSettings SystemBus 订阅 id
 };

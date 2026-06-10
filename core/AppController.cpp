@@ -629,8 +629,8 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
     m_webApi->registerRestRoutes();
     m_webApi->connectWebPush();
 
-    // SystemBus → DphPublisher bridge (RuntimeSettings 事件)
-    if (m_runtimeSettings && m_dphPublisher) {
+    // SystemBus → DphPublisher bridge (RuntimeSettings 事件，防止重复订阅)
+    if (m_runtimeSettingsSubId == 0 && m_runtimeSettings && m_dphPublisher) {
         m_runtimeSettingsSubId = SystemBus::getInstance().subscribeBySource(SOURCE_RUNTIME_SETTINGS,
             [this](const DataPacket* pkt) {
                 if (!pkt || pkt->payloadType != PAYLOAD_TYPE_DPH_PARAMS_CHANGED) return;
