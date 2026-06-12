@@ -19,12 +19,22 @@ public:
 signals:
     void snapshotReady(const TrackDisplaySnapshot& snapshot);
 
+public:
+    void start();
+    void stop();
+    void clear();
+
 private:
     void applyStyle(TrackDisplayPoint& dp, uint32_t pointIndex,
                     const TrackDisplayPoint::Interaction& interaction) const;
 
+    struct CachedPoint {
+        TrackPoint point;
+        uint32_t pointIndex = 0;
+    };
     struct TrackCache {
-        QVector<TrackPoint> points;
+        QVector<CachedPoint> points;
+        uint32_t nextPointIndex = 0;
     };
 
     QHash<TrackKey, TrackCache> m_caches;

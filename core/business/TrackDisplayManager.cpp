@@ -4,7 +4,7 @@
 #include <algorithm>
 
 static constexpr int kMaxPointsPerTrack = 500;
-static constexpr qint64 kTimeWindowMs = 60 * 1000;  // 60s
+static constexpr qint64 kTimeWindowMs = 60 * 1000;
 static constexpr int kMaxSnapshotPoints = 5000;
 static constexpr int kSnapshotIntervalMs = 1000;
 
@@ -14,9 +14,20 @@ TrackDisplayManager::TrackDisplayManager(QObject* parent)
     m_timer = new QTimer(this);
     m_timer->setSingleShot(false);
     connect(m_timer, &QTimer::timeout, this, [this]() {
-        emit snapshotReady(snapshot());
+        auto snap = snapshot();
+        if (!snap.tracks.isEmpty())
+            emit snapshotReady(snap);
     });
-    m_timer->start(kSnapshotIntervalMs);
+}
+
+void TrackDisplayManager::start() { m_timer->start(kSnapshotIntervalMs); }
+void TrackDisplayManager::stop()  { m_timer->stop(); }
+
+void TrackDisplayManager::clear()
+{
+    m_timer->stop();
+    m_caches.clear();
+    m_interactions.clear();
 }
 
 void TrackDisplayManager::addPoint(const TrackPoint& pt)
@@ -25,17 +36,20 @@ void TrackDisplayManager::addPoint(const TrackPoint& pt)
     if (!m_interactions.contains(key))
         m_interactions[key] = TrackDisplayPoint::Interaction{};
 
-    auto& cache = m_caches[key].points;
-    cache.append(pt);
+    auto& cache = m_caches[key];
+    cache.points.append({pt, cache.nextPointIndex++});
 
-    // 按时间窗口裁剪（60s）
     const qint64 cutoff = pt.timestampMs - kTimeWindowMs;
-    while (!cache.isEmpty() && cache.first().timestampMs < cutoff)
-        cache.removeFirst();
+    while (!cache.points.isEmpty() && cache.points.first().point.timestampMs < cutoff)
+        cache.points.removeFirst();
 
-    // 按数量裁剪（500 点）
-    while (cache.size() > kMaxPointsPerTrack)
-        cache.removeFirst();
+    while (cache.points.size() > kMaxPointsPerTrack)
+        cache.points.removeFirst();
+
+    if (cache.points.isEmpty()) {
+        m_caches.remove(key);
+        m_interactions.remove(key);
+    }
 }
 
 void TrackDisplayManager::applyStyle(
@@ -65,8 +79,8 @@ TrackDisplaySnapshot TrackDisplayManager::snapshot() const
 {
     TrackDisplaySnapshot snap;
     snap.timestamp = QDateTime::currentMSecsSinceEpoch();
+    const qint64 cutoff = snap.timestamp - kTimeWindowMs;
 
-    // 收集所有缓存点，带上当前 interaction
     struct Candidate {
         TrackDisplayPoint dp;
         qint64 ts;
@@ -77,8 +91,11 @@ TrackDisplaySnapshot TrackDisplayManager::snapshot() const
         const auto& key = it.key();
         const auto& cache = it.value();
         auto interaction = m_interactions.value(key);
-        uint32_t idx = 0;
-        for (const auto& pt : cache.points) {
+
+        for (const auto& cp : cache.points) {
+            const auto& pt = cp.point;
+            if (pt.timestampMs < cutoff) continue;
+
             TrackDisplayPoint dp;
             dp.trackId      = pt.trackId;
             dp.deviceId     = pt.deviceId;
@@ -91,21 +108,20 @@ TrackDisplaySnapshot TrackDisplayManager::snapshot() const
             dp.z            = pt.z;
             dp.radialSpeed  = pt.radialSpeed;
             dp.rcs          = pt.rcs;
-            dp.pointIndex   = idx++;  // 相对序号，从 0 开始
+            dp.pointIndex   = cp.pointIndex;  // 绝对递增序号
             dp.interaction  = interaction;
-            applyStyle(dp, dp.pointIndex, interaction);
+            applyStyle(dp, cp.pointIndex, interaction);
             candidates.append({dp, pt.timestampMs});
         }
     }
 
-    // 按 timestamp 降序，保留最新点
+    // 降序保留最新点
     std::sort(candidates.begin(), candidates.end(),
               [](const Candidate& a, const Candidate& b) { return a.ts > b.ts; });
-
     if (candidates.size() > kMaxSnapshotPoints)
         candidates.resize(kMaxSnapshotPoints);
 
-    // 升序输出（前端从左到右时间演进）
+    // 升序输出
     std::sort(candidates.begin(), candidates.end(),
               [](const Candidate& a, const Candidate& b) { return a.ts < b.ts; });
 
@@ -123,5 +139,4 @@ void TrackDisplayManager::setInteraction(
     auto& interaction = m_interactions[key];
     interaction.selected = selected;
     interaction.trackingEnabled = trackingEnabled;
-    // interaction 改变后，下次 snapshot() 会自动合并到所有点
 }
