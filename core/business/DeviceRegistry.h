@@ -65,5 +65,7 @@ public:
     bool remove(const QString& id);
 
 private:
+    /// 查询所有绑定该 endpoint 的 Radar 设备（写端冲突检查用）
+    QVector<DeviceInfo> findRadarDevicesByEndpoint(const QString& endpointId) const;
     DataStore* m_store = nullptr;
 };
