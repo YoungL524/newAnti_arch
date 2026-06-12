@@ -16,20 +16,61 @@ function polarToLngLat(lng: number, lat: number, azRad: number, rng: number) {
 
 export default function TrackLayer({ device, mapInstance, mapClass }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const { tracks, acquisition } = useCore()
+  const { tracks, acquisition, setTrackInteraction } = useCore()
 
   const trailMap = useMemo(() => {
-    const m = new Map<number, [number, number][]>()
+    const m = new Map<number, { lng: number; lat: number; deviceId: string; trackId: number; style?: any; interaction?: any }[]>()
     if (!acquisition) return m
     for (const t of tracks) {
-      const id = t.batchId || 0
+      const deviceId = t.deviceId || device.id
+      if (deviceId !== device.id) continue
+
+      const trackId = t.trackId ?? t.batchId ?? 0
+      const id = trackId
       if (!m.has(id)) m.set(id, [])
       const [lng, lat] = polarToLngLat(device.lng, device.lat, t.azimuth * Math.PI / 180, t.slantRange)
       const arr = m.get(id)!
-      arr.push([lng, lat])
+      arr.push({ lng, lat, deviceId, trackId, style: t.style, interaction: t.interaction })
     }
     return m
   }, [tracks, acquisition, device])
+
+  useEffect(() => {
+    const AMap = mapClass; const map = mapInstance
+    if (!AMap || !map || !acquisition || trailMap.size === 0) return
+
+    const threshold2 = 14 * 14
+
+    const onClick = (e: any) => {
+      if (e && e.__trackInteractionHandled) return
+      const x = e?.pixel?.x
+      const y = e?.pixel?.y
+      if (typeof x !== 'number' || typeof y !== 'number') return
+
+      let best: { deviceId: string; trackId: number; interaction?: any; d2: number } | null = null
+
+      for (const [, pts] of trailMap) {
+        const headPt = pts[pts.length - 1]
+        const p = map.lngLatToContainer(new AMap.LngLat(headPt.lng, headPt.lat))
+        if (!p) continue
+        const dx = p.x - x
+        const dy = p.y - y
+        const d2 = dx * dx + dy * dy
+        if (d2 <= threshold2 && (!best || d2 < best.d2)) {
+          best = { deviceId: headPt.deviceId, trackId: headPt.trackId, interaction: headPt.interaction, d2 }
+        }
+      }
+
+      if (!best) return
+      if (e) e.__trackInteractionHandled = true
+      const selected = !(best.interaction?.selected ?? false)
+      const trackingEnabled = best.interaction?.trackingEnabled ?? false
+      setTrackInteraction(best.deviceId, best.trackId, selected, trackingEnabled)
+    }
+
+    map.on('click', onClick)
+    return () => { map.off('click', onClick) }
+  }, [mapInstance, mapClass, acquisition, trailMap, setTrackInteraction])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -44,27 +85,38 @@ export default function TrackLayer({ device, mapInstance, mapClass }: Props) {
 
     for (const [, pts] of trailMap) {
       if (pts.length < 2) continue
-      const sp = pts.map(([lng, lat]) => map.lngLatToContainer(new AMap.LngLat(lng, lat)))
-                     .filter((p: any) => p && p.x > -50 && p.x < cw + 50 && p.y > -50 && p.y < ch + 50)
+      const sp = pts
+        .map((pt) => {
+          const p = map.lngLatToContainer(new AMap.LngLat(pt.lng, pt.lat))
+          return p ? { p, pt } : null
+        })
+        .filter((v): v is { p: any; pt: { lng: number; lat: number; deviceId: string; trackId: number; style?: any; interaction?: any } } => {
+          return !!v && v.p && v.p.x > -50 && v.p.x < cw + 50 && v.p.y > -50 && v.p.y < ch + 50
+        })
       if (sp.length < 2) continue
       const n = sp.length
 
-      // ── 航迹线 ──
+      const headMeta = sp[n - 1].pt
+      const color = headMeta.style?.color || COLOR
+      const opacity = typeof headMeta.style?.opacity === 'number' ? headMeta.style.opacity : 0.9
+      const headR = typeof headMeta.style?.size === 'number' ? headMeta.style.size : HEAD_R
+
+      ctx.save()
+      ctx.globalAlpha = opacity
       ctx.beginPath()
-      ctx.moveTo(sp[0].x, sp[0].y)
-      for (let i = 1; i < n; i++) ctx.lineTo(sp[i].x, sp[i].y)
-      ctx.strokeStyle = COLOR
+      ctx.moveTo(sp[0].p.x, sp[0].p.y)
+      for (let i = 1; i < n; i++) ctx.lineTo(sp[i].p.x, sp[i].p.y)
+      ctx.strokeStyle = color
       ctx.lineWidth = LINE_WIDTH
       ctx.lineJoin = 'round'
       ctx.lineCap = 'round'
       ctx.stroke()
 
-      // ── 头部标记点 ──
-      const head = sp[n - 1]
       ctx.beginPath()
-      ctx.arc(head.x, head.y, HEAD_R, 0, Math.PI * 2)
-      ctx.fillStyle = COLOR
+      ctx.arc(sp[n - 1].p.x, sp[n - 1].p.y, headR, 0, Math.PI * 2)
+      ctx.fillStyle = color
       ctx.fill()
+      ctx.restore()
     }
   }, [trailMap, acquisition, device, mapInstance, mapClass])
 

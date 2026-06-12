@@ -4,6 +4,7 @@ import type { DeviceDataRow } from '../../lib/protocol'
 import { DEVICE_COLUMNS, DEVICE_FORMATTERS, applyFilters } from '../../lib/columns'
 import type { ColumnDef, FilterValue } from '../../lib/columns'
 import DataTableFilterBar from './DataTableFilterBar'
+import { useCore } from '../../hooks/useCoreApi'
 
 interface Props {
   deviceType: DeviceType
@@ -27,6 +28,7 @@ function renderCell(key: string, row: DeviceDataRow, deviceType: DeviceType): st
 }
 
 export default function DataTable({ deviceType, rows, isLive }: Props) {
+  const { setTrackInteraction } = useCore()
   const [filters, setFilters] = useState<Record<string, FilterValue>>({})
   const [filterOpen, setFilterOpen] = useState(false)
   const [userScrolled, setUserScrolled] = useState(false)
@@ -145,6 +147,16 @@ export default function DataTable({ deviceType, rows, isLive }: Props) {
                   key={i}
                   className="group transition-colors hover:bg-stone-50"
                   style={{ borderTop: i > 0 ? '1px solid rgba(229,231,226,0.3)' : 'none' }}
+                  onClick={() => {
+                    if (deviceType !== DeviceType.RADAR) return
+                    const deviceId = (row as any).deviceId
+                    const trackId = (row as any).trackId
+                    if (typeof deviceId !== 'string' || typeof trackId !== 'number') return
+                    const interaction = (row as any).interaction
+                    const selected = !(interaction?.selected ?? false)
+                    const trackingEnabled = interaction?.trackingEnabled ?? false
+                    setTrackInteraction(deviceId, trackId, selected, trackingEnabled)
+                  }}
                 >
                   {columns.map((col) => {
                     const isTs = col.key === 'timestamp'

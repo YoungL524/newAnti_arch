@@ -69,6 +69,8 @@ export const DEVICE_TYPE_OPTIONS: { value: string; label: string; deviceType: De
 
 export interface RadarTrack {
   batchId: number          // 批号
+  deviceId?: string
+  trackId?: number
   slantRange: number       // 斜距 (m)
   azimuth: number          // 方位角 (°)
   elevation: number        // 俯仰角 (°)
@@ -81,6 +83,16 @@ export interface RadarTrack {
   signalId: number         // 信号识别标识
   sceneNum: number         // 景幅
   timestamp: number
+  pointIndex?: number
+  style?: {
+    color: string
+    size: number
+    opacity: number
+  }
+  interaction?: {
+    selected: boolean
+    trackingEnabled: boolean
+  }
 }
 
 export interface LevelSensorData {

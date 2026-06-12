@@ -41,6 +41,7 @@ interface CoreState {
   dismissNoSelectionHint: () => void
   dismissCommandError: () => void
   toggleAcquisition: () => void
+  setTrackInteraction: (deviceId: string, trackId: number, selected: boolean, trackingEnabled: boolean) => void
 }
 
 const defaultState: CoreState = {
@@ -48,6 +49,7 @@ const defaultState: CoreState = {
   devices: [], checkedDeviceIds: [], noSelectionHint: false, commandError: '',
   tracks: [], trackRate: 0, logEntries: [],
   setCheckedDevices: () => {}, dismissNoSelectionHint: () => {}, dismissCommandError: () => {}, toggleAcquisition: () => {},
+  setTrackInteraction: () => {},
 }
 
 const CoreContext = createContext<CoreState>(defaultState)
@@ -88,6 +90,20 @@ export function CoreProvider({ children }: { children: ReactNode }) {
 
   const dismissCommandError = useCallback(() => {
     setState(prev => ({ ...prev, commandError: '' }))
+  }, [])
+
+  const setTrackInteraction = useCallback(async (deviceId: string, trackId: number, selected: boolean, trackingEnabled: boolean) => {
+    try {
+      const res = await fetch(`/api/devices/${encodeURIComponent(deviceId)}/tracks/${trackId}/interaction`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selected, trackingEnabled }),
+      })
+      const data = await safeJsonParse(res)
+      if (!data?.ok) console.warn('[interaction]', data?.error || `HTTP ${res.status}`)
+    } catch {
+      console.warn('[interaction]', '网络错误')
+    }
   }, [])
 
   // 同步 workingRef 与 state.acquisition
@@ -218,6 +234,8 @@ export function CoreProvider({ children }: { children: ReactNode }) {
             if (msg.mode === 'snapshot' && Array.isArray(msg.tracks)) {
               tracksRef.current = (msg.tracks as WsTrackDisplayPoint[]).map((t) => ({
                 batchId: t.trackId ?? 0,
+                deviceId: t.deviceId,
+                trackId: t.trackId,
                 slantRange: t.range ?? 0,
                 azimuth: ((t.azimuth ?? 0) * 180) / Math.PI,
                 elevation: ((t.elevation ?? 0) * 180) / Math.PI,
@@ -226,6 +244,9 @@ export function CoreProvider({ children }: { children: ReactNode }) {
                 amplitude: 0, snr: 0, extrapolateFlag: 0,
                 targetType: t.trackId ?? 0, signalId: 0, sceneNum: 0,
                 timestamp: t.timestamp ?? Date.now(),
+                pointIndex: t.pointIndex,
+                style: t.style,
+                interaction: (t as any).interaction,
               } as RadarTrack))
               trackCountRef.current = msg.tracks.length
             }
@@ -260,8 +281,8 @@ export function CoreProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const contextValue = useMemo(() => ({
-    ...state, setCheckedDevices, dismissNoSelectionHint, dismissCommandError, toggleAcquisition,
-  }), [state, setCheckedDevices, dismissNoSelectionHint, dismissCommandError, toggleAcquisition])
+    ...state, setCheckedDevices, dismissNoSelectionHint, dismissCommandError, toggleAcquisition, setTrackInteraction,
+  }), [state, setCheckedDevices, dismissNoSelectionHint, dismissCommandError, toggleAcquisition, setTrackInteraction])
 
   return (
     <CoreContext.Provider value={contextValue}>
