@@ -83,10 +83,6 @@ bool AppController::initialize()
     // 航迹显示管理器
     m_trackDisplayManager = std::make_unique<TrackDisplayManager>(this);
 
-    // DeviceRegistry → RadarDataProcessor（endpointId → 业务 deviceId 映射）
-    if (m_deviceRegistry && m_radarProcessor)
-        m_radarProcessor->setDeviceRegistry(m_deviceRegistry.get());
-
     qDebug() << QStringLiteral("[AppController] 初始化完成");
     return true;
 }

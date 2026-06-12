@@ -32,7 +32,7 @@ export default function StatusBar() {
       <div className="flex gap-4 items-center">
         {acquisition && (
           <span className="flex items-center gap-1.5">
-            <span>航迹 {trackRate} 条/秒</span>
+            <span>显示点数 {trackRate}</span>
             <span className="w-1.5 h-1.5 rounded-full"
               style={{ background: trackRate > 0 ? '#22c55e' : 'var(--hairlineStrong)' }} />
           </span>

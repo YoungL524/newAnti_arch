@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { StatusResponse, LogsResponse, WsMessage, RadarTrack, DeviceStatus } from '../lib/protocol'
+import type { StatusResponse, LogsResponse, WsMessage, WsTrackDisplayPoint, RadarTrack, DeviceStatus } from '../lib/protocol'
 
 interface CommandResponse {
   ok: boolean
@@ -216,7 +216,7 @@ export function CoreProvider({ children }: { children: ReactNode }) {
           } else if (msg.type === 'tracks') {
             // 全量 snapshot 替换
             if (msg.mode === 'snapshot' && Array.isArray(msg.tracks)) {
-              tracksRef.current = (msg.tracks as any[]).map((t: any) => ({
+              tracksRef.current = (msg.tracks as WsTrackDisplayPoint[]).map((t) => ({
                 batchId: t.trackId ?? 0,
                 slantRange: t.range ?? 0,
                 azimuth: ((t.azimuth ?? 0) * 180) / Math.PI,
