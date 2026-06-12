@@ -132,14 +132,17 @@ std::optional<DeviceInfo> DeviceRegistry::get(const QString& id) const {
     return DeviceInfo::fromVariantMap(rows.first());
 }
 
-std::optional<DeviceInfo> DeviceRegistry::findByEndpointId(const QString& endpointId) const {
+std::optional<DeviceInfo> DeviceRegistry::findRadarByEndpointId(const QString& endpointId) const {
     if (!m_store) return std::nullopt;
     auto rows = m_store->query(
-        QStringLiteral("SELECT * FROM devices WHERE endpoint_id = ?"),
-        {endpointId});
+        QStringLiteral("SELECT * FROM devices WHERE endpoint_id = ? AND kind = ?"),
+        {endpointId, static_cast<int>(DeviceKind::Radar)});
     if (rows.isEmpty()) return std::nullopt;
-    if (rows.size() > 1)
-        qWarning() << "[DeviceRegistry] endpoint_id" << endpointId << "绑定了" << rows.size() << "个设备，使用第一个";
+    if (rows.size() > 1) {
+        qWarning() << "[DeviceRegistry] endpointId" << endpointId
+                   << "绑定了" << rows.size() << "个雷达设备，拒绝返回，避免航迹错误归属";
+        return std::nullopt;
+    }
     return DeviceInfo::fromVariantMap(rows.first());
 }
 
@@ -147,7 +150,7 @@ bool DeviceRegistry::create(const DeviceInfo& dev) {
     if (!m_store) return false;
     // 非空 endpointId 不能与已有设备冲突（雷达设备）
     if (!dev.endpointId.isEmpty() && dev.kind == DeviceKind::Radar) {
-        auto existing = findByEndpointId(dev.endpointId);
+        auto existing = findRadarByEndpointId(dev.endpointId);
         if (existing.has_value() && existing->id != dev.id) {
             qWarning() << "[DeviceRegistry] 创建失败: endpointId" << dev.endpointId
                        << "已被设备" << existing->id << "绑定";
@@ -180,7 +183,7 @@ bool DeviceRegistry::update(const DeviceInfo& dev) {
     if (!m_store) return false;
     if (!get(dev.id).has_value()) return false;
     if (!dev.endpointId.isEmpty() && dev.kind == DeviceKind::Radar) {
-        auto existing = findByEndpointId(dev.endpointId);
+        auto existing = findRadarByEndpointId(dev.endpointId);
         if (existing.has_value() && existing->id != dev.id) {
             qWarning() << "[DeviceRegistry] 更新失败: endpointId" << dev.endpointId
                        << "已被设备" << existing->id << "绑定";
