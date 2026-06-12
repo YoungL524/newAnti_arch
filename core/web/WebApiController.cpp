@@ -5,6 +5,7 @@
 #include "RadarWorkModeController.h"
 #include "business/DeviceRegistry.h"
 #include "business/RuntimeSettingsService.h"
+#include "business/TrackDisplayManager.h"
 #include "log/Logger.h"
 #include <cmath>
 #include <limits>
@@ -21,6 +22,7 @@ WebApiController::WebApiController(web::WebService* ws,
                                    RuntimeSettingsService* runtimeSettings,
                                    RuntimeStatusProvider runtimeStatusProvider,
                                    HealthProvider healthProvider,
+                                   TrackDisplayManager* trackDisplayManager,
                                    QObject* parent)
     : QObject(parent)
     , m_ws(ws)
@@ -29,6 +31,7 @@ WebApiController::WebApiController(web::WebService* ws,
     , m_runtimeSettings(runtimeSettings)
     , m_runtimeStatusProvider(std::move(runtimeStatusProvider))
     , m_health(std::move(healthProvider))
+    , m_trackMgr(trackDisplayManager)
 {
 }
 
@@ -269,6 +272,25 @@ void WebApiController::registerRestRoutes()
             r[QStringLiteral("settings")] = settingsJson;
             r[QStringLiteral("status")] = buildStatusJson();
             return r;
+        });
+    }
+
+    // ── Track Interaction API ──
+    if (m_trackMgr) {
+        // POST /api/tracks/interaction — body 中含有 deviceId、trackId
+        m_ws->handlePost(QStringLiteral("/api/tracks/interaction"), [this](const QJsonObject& body) {
+            QString deviceId = body[QStringLiteral("deviceId")].toString();
+            bool ok = false;
+            uint32_t trackId = body[QStringLiteral("trackId")].toVariant().toUInt(&ok);
+            if (deviceId.isEmpty() || !ok)
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("deviceId 和 trackId 不能为空")}};
+            bool selected = body.value(QStringLiteral("selected")).toBool();
+            bool trackingEnabled = body.value(QStringLiteral("trackingEnabled")).toBool();
+            m_trackMgr->setInteraction(deviceId, trackId, selected, trackingEnabled);
+            QJsonObject interaction;
+            interaction[QStringLiteral("selected")] = selected;
+            interaction[QStringLiteral("trackingEnabled")] = trackingEnabled;
+            return QJsonObject{{QStringLiteral("ok"), true}, {QStringLiteral("interaction"), interaction}};
         });
     }
 }

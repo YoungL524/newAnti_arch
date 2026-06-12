@@ -642,7 +642,7 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
             if (dph) { st.currentSceneNumber = dph->sceneNumber(); st.sendCount = dph->sendCount(); }
             return st;
         },
-        [this]() { return healthReport(); }, this);
+        [this]() { return healthReport(); }, m_trackDisplayManager.get(), this);
     m_webApi->registerRestRoutes();
     m_webApi->connectWebPush();
 
