@@ -62,5 +62,4 @@ private:
     HealthProvider             m_health;
     qint64                     m_lastStartMs = 0;   ///< 上次开始采集时间戳（节流）
     qint64                     m_lastStopMs = 0;    ///< 上次停止采集时间戳（节流）
-    uint32_t                   m_trackSubId = 0;
 };

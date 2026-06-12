@@ -2,7 +2,6 @@
 #include "WebService.h"
 #include "bus/SystemBus.h"
 #include "bus/GenericPackets.h"
-#include "protocol/StructureReceive.h"
 #include "RadarWorkModeController.h"
 #include "business/DeviceRegistry.h"
 #include "business/RuntimeSettingsService.h"
@@ -287,35 +286,6 @@ void WebApiController::connectWebPush()
         else qDebug().noquote() << QStringLiteral("[HTTP]") << msg;
     });
 
-    // SystemBus → WS 航迹推送
-    m_trackSubId = SystemBus::getInstance().subscribeByTarget(UI_OUTPUTWIDGET,
-        [ws](const DataPacket* pkt) {
-            if (!pkt || pkt->payloadType != PAYLOAD_TYPE_GENERAL_PACKAGE) return;
-            if (pkt->payloadSize < sizeof(GeneralPackage)) return;
-            GeneralPackage gp;
-            memcpy(&gp, pkt->payload.rawData, sizeof(GeneralPackage));
-            const TargetType& tgt = gp.h_c.TrackInfo;
-            QJsonObject msg;
-            msg[QStringLiteral("type")] = QStringLiteral("tracks");
-            msg[QStringLiteral("deviceType")] = static_cast<int>(pkt->sourceType);
-            QJsonObject track;
-            track[QStringLiteral("targetId")]    = static_cast<int>(tgt.TargetID);
-            track[QStringLiteral("range")]       = tgt.Range;
-            track[QStringLiteral("azimuth")]     = tgt.Azimuth;
-            track[QStringLiteral("elevation")]   = tgt.Elevation;
-            track[QStringLiteral("radialSpeed")] = tgt.RadialSpeed;
-            track[QStringLiteral("rcs")]         = tgt.RCS;
-            track[QStringLiteral("altitude")]    = tgt.Altitude;
-            track[QStringLiteral("x")]           = tgt.x;
-            track[QStringLiteral("y")]           = tgt.y;
-            track[QStringLiteral("z")]           = tgt.z;
-            track[QStringLiteral("vx")]          = tgt.vx;
-            track[QStringLiteral("vy")]          = tgt.vy;
-            track[QStringLiteral("vz")]          = tgt.vz;
-            track[QStringLiteral("timestamp")]   = static_cast<double>(pkt->timeStamp);
-            msg[QStringLiteral("track")] = track;
-            QMetaObject::invokeMethod(ws, [ws, msg]() { ws->broadcast(msg); }, Qt::QueuedConnection);
-        });
     // Logger → WS 日志推送
     Logger::instance().setExternalCallback([ws](const QString& level, const QString& msg) {
         if (level == QStringLiteral("DEBUG")) return;
@@ -347,10 +317,6 @@ void WebApiController::connectWebPush()
 
 void WebApiController::shutdown()
 {
-    if (m_trackSubId != 0) {
-        SystemBus::getInstance().unsubscribe(m_trackSubId);
-        m_trackSubId = 0;
-    }
     Logger::instance().setExternalCallback(nullptr);
 }
 

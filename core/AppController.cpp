@@ -84,13 +84,8 @@ bool AppController::initialize()
     m_trackDisplayManager = std::make_unique<TrackDisplayManager>(this);
 
     // DeviceRegistry → RadarDataProcessor（endpointId → 业务 deviceId 映射）
-    if (m_radarProcessor && m_deviceRegistry) {
+    if (m_deviceRegistry && m_radarProcessor)
         m_radarProcessor->setDeviceRegistry(m_deviceRegistry.get());
-        // RadarDataProcessor → TrackDisplayManager
-        QObject::connect(m_radarProcessor.get(), &RadarDataProcessor::trackPointReady,
-                         m_trackDisplayManager.get(), &TrackDisplayManager::addPoint);
-        qDebug() << "[AppController] RadarDataProcessor → TrackDisplayManager 已连接";
-    }
 
     qDebug() << QStringLiteral("[AppController] 初始化完成");
     return true;
@@ -264,6 +259,11 @@ void AppController::stop()
         m_webApi.reset();
     }
 
+    if (m_trackDisplayManager) {
+        m_trackDisplayManager->stop();
+        m_trackDisplayManager->clear();
+    }
+
     if (!m_running) {
         return;
     }
@@ -386,6 +386,14 @@ void AppController::configureRadarProcessor(const QJsonObject& processorConfig)
         qDebug() << QStringLiteral("[AppController] 端点源映射使用内置默认值");
         registerDefaultEndpointSources();
     }
+
+    // RadarDataProcessor → TrackDisplayManager
+    if (m_trackDisplayManager) {
+        QObject::connect(m_radarProcessor.get(), &RadarDataProcessor::trackPointReady,
+                         m_trackDisplayManager.get(), &TrackDisplayManager::addPoint);
+    }
+    if (m_deviceRegistry)
+        m_radarProcessor->setDeviceRegistry(m_deviceRegistry.get());
 
     qDebug() << QStringLiteral("[AppController] RadarDataProcessor 已创建并订阅 Comm::dataReceived");
 }
@@ -682,9 +690,15 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
                 t[QStringLiteral("rcs")]        = dp.rcs;
                 t[QStringLiteral("altitude")]   = dp.altitude;
                 t[QStringLiteral("pointIndex")] = static_cast<int>(dp.pointIndex);
-                t[QStringLiteral("color")]      = dp.style.color;
-                t[QStringLiteral("size")]       = dp.style.size;
-                t[QStringLiteral("opacity")]    = dp.style.opacity;
+                QJsonObject style;
+                style[QStringLiteral("color")]   = dp.style.color;
+                style[QStringLiteral("size")]    = dp.style.size;
+                style[QStringLiteral("opacity")] = dp.style.opacity;
+                t[QStringLiteral("style")] = style;
+                QJsonObject interaction;
+                interaction[QStringLiteral("selected")]        = dp.interaction.selected;
+                interaction[QStringLiteral("trackingEnabled")] = dp.interaction.trackingEnabled;
+                t[QStringLiteral("interaction")] = interaction;
                 tracks.append(t);
             }
             msg[QStringLiteral("tracks")] = tracks;

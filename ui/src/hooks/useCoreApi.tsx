@@ -214,17 +214,20 @@ export function CoreProvider({ children }: { children: ReactNode }) {
               ...prev, connected: msg.connected, devices, ...agg,
             }))
           } else if (msg.type === 'tracks') {
-            const t = msg.track
-            if (t) {
-              const row: RadarTrack = {
-                batchId: t.targetId, slantRange: t.range,
-                azimuth: t.azimuth * 180 / Math.PI, elevation: t.elevation * 180 / Math.PI,
-                altitude: t.altitude, radialSpeed: t.radialSpeed,
+            // 全量 snapshot 替换
+            if (msg.mode === 'snapshot' && Array.isArray(msg.tracks)) {
+              tracksRef.current = (msg.tracks as any[]).map((t: any) => ({
+                batchId: t.trackId ?? 0,
+                slantRange: t.range ?? 0,
+                azimuth: ((t.azimuth ?? 0) * 180) / Math.PI,
+                elevation: ((t.elevation ?? 0) * 180) / Math.PI,
+                altitude: t.altitude ?? 0,
+                radialSpeed: t.radialSpeed ?? 0,
                 amplitude: 0, snr: 0, extrapolateFlag: 0,
-                targetType: t.targetId, signalId: 0, sceneNum: 0, timestamp: t.timestamp,
-              }
-              tracksRef.current = [...tracksRef.current, row].slice(-500)
-              trackCountRef.current++
+                targetType: t.trackId ?? 0, signalId: 0, sceneNum: 0,
+                timestamp: t.timestamp ?? Date.now(),
+              } as RadarTrack))
+              trackCountRef.current = msg.tracks.length
             }
           } else if (msg.type === 'log') {
             logRef.current = [...logRef.current, {
