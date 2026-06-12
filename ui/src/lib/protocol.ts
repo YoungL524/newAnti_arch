@@ -119,6 +119,9 @@ export interface WsTrackDisplayPoint {
   azimuth: number          // rad
   elevation: number        // rad
   altitude: number
+  x: number
+  y: number
+  z: number
   radialSpeed: number
   rcs: number
   pointIndex: number

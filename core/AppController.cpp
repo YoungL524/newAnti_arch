@@ -685,6 +685,9 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
                 t[QStringLiteral("radialSpeed")]= dp.radialSpeed;
                 t[QStringLiteral("rcs")]        = dp.rcs;
                 t[QStringLiteral("altitude")]   = dp.altitude;
+                t[QStringLiteral("x")]          = dp.x;
+                t[QStringLiteral("y")]          = dp.y;
+                t[QStringLiteral("z")]          = dp.z;
                 t[QStringLiteral("pointIndex")] = static_cast<int>(dp.pointIndex);
                 QJsonObject style;
                 style[QStringLiteral("color")]   = dp.style.color;
