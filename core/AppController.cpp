@@ -3,6 +3,7 @@
 #include "web/WebApiController.h"
 #include "business/DeviceRegistry.h"
 #include "business/RuntimeSettingsService.h"
+#include "business/TrackDisplayManager.h"
 #include "EndpointConfigLoader.h"
 #include "bus/SystemBus.h"
 #include "GenericPackets.h"
@@ -78,6 +79,18 @@ bool AppController::initialize()
 
     m_runtimeSettings = std::make_unique<RuntimeSettingsService>();
     qDebug() << "[AppController] 运行时参数服务已就绪";
+
+    // 航迹显示管理器
+    m_trackDisplayManager = std::make_unique<TrackDisplayManager>(this);
+
+    // DeviceRegistry → RadarDataProcessor（endpointId → 业务 deviceId 映射）
+    if (m_radarProcessor && m_deviceRegistry) {
+        m_radarProcessor->setDeviceRegistry(m_deviceRegistry.get());
+        // RadarDataProcessor → TrackDisplayManager
+        QObject::connect(m_radarProcessor.get(), &RadarDataProcessor::trackPointReady,
+                         m_trackDisplayManager.get(), &TrackDisplayManager::addPoint);
+        qDebug() << "[AppController] RadarDataProcessor → TrackDisplayManager 已连接";
+    }
 
     qDebug() << QStringLiteral("[AppController] 初始化完成");
     return true;
@@ -645,6 +658,40 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
         } else {
             qDebug() << "[AppController] RuntimeSettings → DphPublisher bridge 已就绪";
         }
+    }
+
+    // TrackDisplayManager snapshot → WebSocket 推送
+    if (m_trackDisplayManager && m_webService) {
+        auto* ws = m_webService.get();
+        QObject::connect(m_trackDisplayManager.get(), &TrackDisplayManager::snapshotReady,
+                         ws, [ws](const TrackDisplaySnapshot& snap) {
+            QJsonObject msg;
+            msg[QStringLiteral("type")] = QStringLiteral("tracks");
+            msg[QStringLiteral("mode")] = QStringLiteral("snapshot");
+            msg[QStringLiteral("timestamp")] = snap.timestamp;
+            QJsonArray tracks;
+            for (const auto& dp : snap.tracks) {
+                QJsonObject t;
+                t[QStringLiteral("trackId")]    = static_cast<int>(dp.trackId);
+                t[QStringLiteral("deviceId")]   = dp.deviceId;
+                t[QStringLiteral("timestamp")]  = dp.timestamp;
+                t[QStringLiteral("range")]      = dp.range;
+                t[QStringLiteral("azimuth")]    = dp.azimuth;
+                t[QStringLiteral("elevation")]  = dp.elevation;
+                t[QStringLiteral("radialSpeed")]= dp.radialSpeed;
+                t[QStringLiteral("rcs")]        = dp.rcs;
+                t[QStringLiteral("altitude")]   = dp.altitude;
+                t[QStringLiteral("pointIndex")] = static_cast<int>(dp.pointIndex);
+                t[QStringLiteral("color")]      = dp.style.color;
+                t[QStringLiteral("size")]       = dp.style.size;
+                t[QStringLiteral("opacity")]    = dp.style.opacity;
+                tracks.append(t);
+            }
+            msg[QStringLiteral("tracks")] = tracks;
+            ws->broadcast(msg);
+        });
+        m_trackDisplayManager->start();
+        qDebug() << "[AppController] TrackDisplayManager → WS snapshot 推送已就绪";
     }
 
     qInfo() << "[AppController] Web 服务已启动";

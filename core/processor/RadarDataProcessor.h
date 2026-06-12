@@ -8,10 +8,12 @@
 #include <cstdint>
 #include "StructureReceive.h"
 #include "GenericPackets.h"
+#include "TrackTypes.h"
 #include "LatencyStats.h"
 
 class CommunicationManager;
 class DataStore;
+class DeviceRegistry;
 
 /**
  * @file RadarDataProcessor.h
@@ -41,6 +43,11 @@ public:
                        QObject* parent = nullptr);
 
     ~RadarDataProcessor() override;
+
+    /**
+     * @brief 关联 DeviceRegistry（用于 endpointId → 业务 deviceId 映射）
+     */
+    void setDeviceRegistry(DeviceRegistry* reg);
 
     /**
      * @brief 注册端点到设备源类型的映射
@@ -73,6 +80,12 @@ signals:
      * @param mode     回显的 Work_Standby_Mode (1=工作, 0=待机)
      */
     void radarWorkModeEcho(uint16_t deviceId, uint32_t mode);
+
+    /**
+     * @brief 输出解析后的业务航迹点（含 deviceId）
+     * @param pt 业务航迹点
+     */
+    void trackPointReady(const TrackPoint& pt);
 
 public slots:
     /**
@@ -119,6 +132,7 @@ private:
 private:
     CommunicationManager* m_commManager = nullptr;   ///< 通信管理器（非持有）
     DataStore* m_dataStore = nullptr;                ///< 数据存储（非持有）
+    DeviceRegistry* m_deviceReg = nullptr;            ///< 设备台账（非持有，用于 endpoint→deviceId 映射）
 
     QMap<QString, uint16_t> m_endpointSourceMap;     ///< 端点ID → DeviceType 映射
     uint32_t m_sequence = 0;                         ///< DataPacket 发布序列号

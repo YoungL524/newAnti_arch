@@ -39,6 +39,7 @@ void TrackDisplayManager::addPoint(const TrackPoint& pt)
         m_interactions[key] = TrackDisplayPoint::Interaction{};
 
     auto& cache = m_caches[key];
+    // 假设同一 (deviceId, trackId) 的点按 timestamp 递增到达（实时链路成立）
     cache.points.append({pt, cache.nextPointIndex++});
 
     const qint64 cutoff = pt.timestampMs - kTimeWindowMs;
@@ -134,6 +135,7 @@ TrackDisplaySnapshot TrackDisplayManager::snapshot(qint64 nowMs) const
             dp.z            = pt.z;
             dp.radialSpeed  = pt.radialSpeed;
             dp.rcs          = pt.rcs;
+            dp.altitude     = pt.altitude;
             dp.pointIndex   = cp.pointIndex;  // 绝对递增序号
             dp.interaction  = interaction;
             applyStyle(dp, cp.pointIndex, interaction);

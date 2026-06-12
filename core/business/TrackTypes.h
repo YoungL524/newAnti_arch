@@ -47,6 +47,7 @@ struct TrackDisplayPoint {
     double    range = 0;
     double    azimuth = 0;
     double    elevation = 0;
+    double    altitude = 0;
     double    x = 0, y = 0, z = 0;
     double    radialSpeed = 0;
     double    rcs = 0;

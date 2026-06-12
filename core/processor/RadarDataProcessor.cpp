@@ -1,5 +1,6 @@
 ﻿#include "RadarDataProcessor.h"
 #include "CommunicationManager.h"
+#include "DeviceRegistry.h"
 #include "DataStore.h"
 #include "SystemBus.h"
 
@@ -27,6 +28,11 @@ RadarDataProcessor::RadarDataProcessor(CommunicationManager* commManager,
     m_flushTimer->start(kFlushIntervalMs);
 
     qDebug() << QStringLiteral("[RadarDataProcessor] 已创建，订阅 CommunicationManager::dataReceived");
+}
+
+void RadarDataProcessor::setDeviceRegistry(DeviceRegistry* reg)
+{
+    m_deviceReg = reg;
 }
 
 RadarDataProcessor::~RadarDataProcessor()
@@ -131,6 +137,30 @@ void RadarDataProcessor::handleGeneralPackage(const QString& endpointId,
     if (!SystemBus::getInstance().publish(std::move(packet))) {
         qWarning() << QStringLiteral("[RadarDataProcessor] 发布 GeneralPackage 到总线失败, seq=%1")
                       .arg(m_sequence);
+    }
+
+    // 3) 输出业务 TrackPoint（供 TrackDisplayManager / 全量 snapshot 使用）
+    if (m_deviceReg) {
+        auto dev = m_deviceReg->findRadarByEndpointId(endpointId);
+        if (dev.has_value()) {
+            TrackPoint pt;
+            pt.deviceId     = dev->id;
+            pt.trackId      = tgt.TargetID;
+            pt.timestampMs  = receivedMs;
+            pt.range        = tgt.Range;
+            pt.azimuth      = tgt.Azimuth;
+            pt.elevation    = tgt.Elevation;
+            pt.radialSpeed  = tgt.RadialSpeed;
+            pt.rcs          = tgt.RCS;
+            pt.altitude     = tgt.Altitude;
+            pt.x            = tgt.x;
+            pt.y            = tgt.y;
+            pt.z            = tgt.z;
+            pt.sceneNumber  = sceneNum;
+            emit trackPointReady(pt);
+        } else {
+            qDebug() << "[RadarDataProcessor] endpointId" << endpointId << "未绑定雷达业务设备，跳过 TrackPoint";
+        }
     }
 
     // 低频采样打印，避免刷屏
