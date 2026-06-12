@@ -56,6 +56,8 @@ public:
     bool ensureDefaultControllableRadar();
     QVector<DeviceInfo> list() const;
     std::optional<DeviceInfo> get(const QString& id) const;
+    /// 按 endpointId 查找绑定的业务设备（应唯一；多个时返回第一个并输出 warning）
+    std::optional<DeviceInfo> findByEndpointId(const QString& endpointId) const;
     bool create(const DeviceInfo& dev);
     /// 创建设备，id 为空时自动生成（含冲突重试）
     std::optional<DeviceInfo> createAssigningId(DeviceInfo dev);
