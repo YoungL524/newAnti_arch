@@ -8,9 +8,7 @@
 #include "business/TrackDisplayManager.h"
 #include "log/Logger.h"
 #include <cmath>
-#include <functional>
 #include <limits>
-#include <memory>
 #include <optional>
 #include <QDateTime>
 #include <QDebug>
@@ -104,8 +102,7 @@ void WebApiController::registerRestRoutes()
         m_ws->handlePost(QStringLiteral("/api/stop"),  [this, handleCommand](const QJsonObject& body) { return handleCommand(body, false); });
     }
 
-    auto handleTrackInteraction = std::make_shared<std::function<std::optional<QJsonObject>(const QString&, const QJsonObject&)>>(
-        [this](const QString& suffix, const QJsonObject& body) -> std::optional<QJsonObject> {
+    auto handleTrackInteraction = [this](const QString& suffix, const QJsonObject& body) -> std::optional<QJsonObject> {
         if (!m_trackMgr)
             return std::nullopt;
 
@@ -137,8 +134,7 @@ void WebApiController::registerRestRoutes()
         interaction[QStringLiteral("selected")] = selected;
         interaction[QStringLiteral("trackingEnabled")] = trackingEnabled;
         return QJsonObject{{QStringLiteral("ok"), true}, {QStringLiteral("interaction"), interaction}};
-        }
-    );
+    };
 
     // ── Device Registry API ──
     if (m_deviceReg) {
@@ -222,7 +218,7 @@ void WebApiController::registerRestRoutes()
         });
 
         m_ws->handlePutPrefix(QStringLiteral("/api/devices/"), [this, validate, deviceFromBody, handleTrackInteraction](const QString& suffix, const QJsonObject& body) {
-            if (auto r = (*handleTrackInteraction)(suffix, body))
+            if (auto r = handleTrackInteraction(suffix, body))
                 return *r;
 
             if (suffix.contains(QChar('/')))
@@ -254,7 +250,7 @@ void WebApiController::registerRestRoutes()
     // ── Track Interaction API ──
     if (!m_deviceReg && m_trackMgr) {
         m_ws->handlePutPrefix(QStringLiteral("/api/devices/"), [this, handleTrackInteraction](const QString& suffix, const QJsonObject& body) {
-            if (auto r = (*handleTrackInteraction)(suffix, body))
+            if (auto r = handleTrackInteraction(suffix, body))
                 return *r;
             return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("无效路径")}};
         });
