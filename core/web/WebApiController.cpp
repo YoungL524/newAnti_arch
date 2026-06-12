@@ -183,6 +183,39 @@ void WebApiController::registerRestRoutes()
         });
 
         m_ws->handlePutPrefix(QStringLiteral("/api/devices/"), [this, validate, deviceFromBody](const QString& suffix, const QJsonObject& body) {
+            if (m_trackMgr) {
+                const auto parts = suffix.split(QChar('/'), Qt::SkipEmptyParts);
+                if (parts.size() == 4
+                 && parts[1] == QStringLiteral("tracks")
+                 && parts[3] == QStringLiteral("interaction")) {
+                    const QString deviceId = parts[0];
+                    bool ok = false;
+                    quint64 trackId64 = parts[2].toULongLong(&ok);
+                    if (deviceId.isEmpty() || !ok || trackId64 > std::numeric_limits<uint32_t>::max())
+                        return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("deviceId 或 trackId 无效")}};
+
+                    if (!body.contains(QStringLiteral("selected")) || !body.value(QStringLiteral("selected")).isBool())
+                        return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("selected 必须是 bool")}};
+                    if (!body.contains(QStringLiteral("trackingEnabled")) || !body.value(QStringLiteral("trackingEnabled")).isBool())
+                        return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("trackingEnabled 必须是 bool")}};
+
+                    const bool selected = body.value(QStringLiteral("selected")).toBool();
+                    const bool trackingEnabled = body.value(QStringLiteral("trackingEnabled")).toBool();
+                    const uint32_t trackId = static_cast<uint32_t>(trackId64);
+                    m_trackMgr->setInteraction(deviceId, trackId, selected, trackingEnabled);
+
+                    QJsonObject interaction;
+                    interaction[QStringLiteral("deviceId")] = deviceId;
+                    interaction[QStringLiteral("trackId")] = static_cast<qint64>(trackId);
+                    interaction[QStringLiteral("selected")] = selected;
+                    interaction[QStringLiteral("trackingEnabled")] = trackingEnabled;
+                    return QJsonObject{{QStringLiteral("ok"), true}, {QStringLiteral("interaction"), interaction}};
+                }
+            }
+
+            if (suffix.contains(QChar('/')))
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("无效路径")}};
+
             auto d = deviceFromBody(body);
             if (!d.id.isEmpty() && d.id != suffix)
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("路径 id 与 body id 不匹配")}};
@@ -203,6 +236,40 @@ void WebApiController::registerRestRoutes()
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("设备不存在")}};
             bool ok = m_deviceReg->remove(suffix);
             return QJsonObject{{QStringLiteral("ok"), ok}};
+        });
+    }
+
+    // ── Track Interaction API ──
+    if (!m_deviceReg && m_trackMgr) {
+        m_ws->handlePutPrefix(QStringLiteral("/api/devices/"), [this](const QString& suffix, const QJsonObject& body) {
+            const auto parts = suffix.split(QChar('/'), Qt::SkipEmptyParts);
+            if (parts.size() != 4
+             || parts[1] != QStringLiteral("tracks")
+             || parts[3] != QStringLiteral("interaction"))
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("无效路径")}};
+
+            const QString deviceId = parts[0];
+            bool ok = false;
+            quint64 trackId64 = parts[2].toULongLong(&ok);
+            if (deviceId.isEmpty() || !ok || trackId64 > std::numeric_limits<uint32_t>::max())
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("deviceId 或 trackId 无效")}};
+
+            if (!body.contains(QStringLiteral("selected")) || !body.value(QStringLiteral("selected")).isBool())
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("selected 必须是 bool")}};
+            if (!body.contains(QStringLiteral("trackingEnabled")) || !body.value(QStringLiteral("trackingEnabled")).isBool())
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("trackingEnabled 必须是 bool")}};
+
+            const bool selected = body.value(QStringLiteral("selected")).toBool();
+            const bool trackingEnabled = body.value(QStringLiteral("trackingEnabled")).toBool();
+            const uint32_t trackId = static_cast<uint32_t>(trackId64);
+            m_trackMgr->setInteraction(deviceId, trackId, selected, trackingEnabled);
+
+            QJsonObject interaction;
+            interaction[QStringLiteral("deviceId")] = deviceId;
+            interaction[QStringLiteral("trackId")] = static_cast<qint64>(trackId);
+            interaction[QStringLiteral("selected")] = selected;
+            interaction[QStringLiteral("trackingEnabled")] = trackingEnabled;
+            return QJsonObject{{QStringLiteral("ok"), true}, {QStringLiteral("interaction"), interaction}};
         });
     }
 
@@ -275,24 +342,6 @@ void WebApiController::registerRestRoutes()
         });
     }
 
-    // ── Track Interaction API ──
-    if (m_trackMgr) {
-        // POST /api/tracks/interaction — body 中含有 deviceId、trackId
-        m_ws->handlePost(QStringLiteral("/api/tracks/interaction"), [this](const QJsonObject& body) {
-            QString deviceId = body[QStringLiteral("deviceId")].toString();
-            bool ok = false;
-            uint32_t trackId = body[QStringLiteral("trackId")].toVariant().toUInt(&ok);
-            if (deviceId.isEmpty() || !ok)
-                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("deviceId 和 trackId 不能为空")}};
-            bool selected = body.value(QStringLiteral("selected")).toBool();
-            bool trackingEnabled = body.value(QStringLiteral("trackingEnabled")).toBool();
-            m_trackMgr->setInteraction(deviceId, trackId, selected, trackingEnabled);
-            QJsonObject interaction;
-            interaction[QStringLiteral("selected")] = selected;
-            interaction[QStringLiteral("trackingEnabled")] = trackingEnabled;
-            return QJsonObject{{QStringLiteral("ok"), true}, {QStringLiteral("interaction"), interaction}};
-        });
-    }
 }
 
 void WebApiController::connectWebPush()

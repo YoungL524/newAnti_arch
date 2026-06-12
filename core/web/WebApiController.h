@@ -42,10 +42,10 @@ public:
     /// 注册 REST 路由（/api/status, /api/logs, /api/start, /api/stop）
     void registerRestRoutes();
 
-    /// 连接 WS 推送（SystemBus 航迹、Logger 日志、1s 状态定时器）
+    /// 连接 WS 推送（Logger 日志、1s 状态定时器）
     void connectWebPush();
 
-    /// 关闭时释放订阅（取消 SystemBus 订阅、清 Logger 回调）
+    /// 关闭时释放订阅（清 Logger 回调）
     void shutdown();
 
 private:
