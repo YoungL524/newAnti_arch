@@ -13,20 +13,22 @@ public:
 
     void addPoint(const TrackPoint& pt);
     TrackDisplaySnapshot snapshot() const;
+    /// 显式传时间戳（timer 内部调用，避免两次 syscall）
+    TrackDisplaySnapshot snapshot(qint64 nowMs) const;
     void setInteraction(const QString& deviceId, uint32_t trackId,
                         bool selected, bool trackingEnabled);
-
-signals:
-    void snapshotReady(const TrackDisplaySnapshot& snapshot);
-
-public:
     void start();
     void stop();
     void clear();
 
+signals:
+    void snapshotReady(const TrackDisplaySnapshot& snapshot);
+
 private:
     void applyStyle(TrackDisplayPoint& dp, uint32_t pointIndex,
                     const TrackDisplayPoint::Interaction& interaction) const;
+    /// 清理所有超过 nowMs - 60s 的过期缓存点（timer timeout 时调用）
+    void pruneExpired(qint64 nowMs);
 
     struct CachedPoint {
         TrackPoint point;

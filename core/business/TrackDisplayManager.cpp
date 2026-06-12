@@ -14,7 +14,9 @@ TrackDisplayManager::TrackDisplayManager(QObject* parent)
     m_timer = new QTimer(this);
     m_timer->setSingleShot(false);
     connect(m_timer, &QTimer::timeout, this, [this]() {
-        auto snap = snapshot();
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        pruneExpired(now);
+        auto snap = snapshot(now);
         if (!snap.tracks.isEmpty())
             emit snapshotReady(snap);
     });
@@ -52,6 +54,30 @@ void TrackDisplayManager::addPoint(const TrackPoint& pt)
     }
 }
 
+void TrackDisplayManager::pruneExpired(qint64 nowMs)
+{
+    const qint64 cutoff = nowMs - kTimeWindowMs;
+    QList<TrackKey> toRemove;
+
+    for (auto it = m_caches.begin(); it != m_caches.end(); ++it) {
+        auto& points = it.value().points;
+        while (!points.isEmpty() && points.first().point.timestampMs < cutoff)
+            points.removeFirst();
+        if (points.isEmpty())
+            toRemove.append(it.key());
+    }
+
+    for (const auto& key : toRemove) {
+        m_caches.remove(key);
+        m_interactions.remove(key);
+    }
+}
+
+TrackDisplaySnapshot TrackDisplayManager::snapshot() const
+{
+    return snapshot(QDateTime::currentMSecsSinceEpoch());
+}
+
 void TrackDisplayManager::applyStyle(
     TrackDisplayPoint& dp, uint32_t pointIndex,
     const TrackDisplayPoint::Interaction& interaction) const
@@ -75,10 +101,10 @@ void TrackDisplayManager::applyStyle(
     }
 }
 
-TrackDisplaySnapshot TrackDisplayManager::snapshot() const
+TrackDisplaySnapshot TrackDisplayManager::snapshot(qint64 nowMs) const
 {
     TrackDisplaySnapshot snap;
-    snap.timestamp = QDateTime::currentMSecsSinceEpoch();
+    snap.timestamp = nowMs;
     const qint64 cutoff = snap.timestamp - kTimeWindowMs;
 
     struct Candidate {
