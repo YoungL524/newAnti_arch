@@ -25,6 +25,8 @@ set(CORE_HEADERS
     business/DeviceRegistry.h
     business/RuntimeSettingsTypes.h
     business/RuntimeSettingsService.h
+    business/TrackTypes.h
+    business/TrackDisplayManager.h
     AppController.h
     StdinReader.h
 )
@@ -48,6 +50,7 @@ set(CORE_SOURCES
     business/RadarWorkModeController.cpp
     business/BusWorkModeSender.cpp
     business/DeviceRegistry.cpp
+    business/TrackDisplayManager.cpp
     business/RuntimeSettingsService.cpp
     AppController.cpp
 )
