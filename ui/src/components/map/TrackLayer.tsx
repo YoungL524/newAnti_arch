@@ -1,6 +1,19 @@
 import { useEffect, useRef, useMemo } from 'react'
 import { useCore } from '../../hooks/useCoreApi'
+import type { RadarTrack } from '../../lib/protocol'
 import type { RadarDevice } from './types'
+
+type TrackStyle = NonNullable<RadarTrack['style']>
+type TrackInteraction = NonNullable<RadarTrack['interaction']>
+
+interface TrailPoint {
+  lng: number
+  lat: number
+  deviceId: string
+  trackId: number
+  style?: TrackStyle
+  interaction?: TrackInteraction
+}
 
 const COLOR = 'rgba(30,90,70,0.9)'
 const LINE_WIDTH = 2.2
@@ -19,7 +32,7 @@ export default function TrackLayer({ device, mapInstance, mapClass }: Props) {
   const { tracks, acquisition, setTrackInteraction } = useCore()
 
   const trailMap = useMemo(() => {
-    const m = new Map<number, { lng: number; lat: number; deviceId: string; trackId: number; style?: any; interaction?: any }[]>()
+    const m = new Map<number, TrailPoint[]>()
     if (!acquisition) return m
     for (const t of tracks) {
       const deviceId = t.deviceId || device.id
@@ -47,7 +60,7 @@ export default function TrackLayer({ device, mapInstance, mapClass }: Props) {
       const y = e?.pixel?.y
       if (typeof x !== 'number' || typeof y !== 'number') return
 
-      let best: { deviceId: string; trackId: number; interaction?: any; d2: number } | null = null
+      let best: { deviceId: string; trackId: number; interaction?: TrackInteraction; d2: number } | null = null
 
       for (const [, pts] of trailMap) {
         const headPt = pts[pts.length - 1]
@@ -90,7 +103,7 @@ export default function TrackLayer({ device, mapInstance, mapClass }: Props) {
           const p = map.lngLatToContainer(new AMap.LngLat(pt.lng, pt.lat))
           return p ? { p, pt } : null
         })
-        .filter((v): v is { p: any; pt: { lng: number; lat: number; deviceId: string; trackId: number; style?: any; interaction?: any } } => {
+        .filter((v): v is { p: { x: number; y: number }; pt: TrailPoint } => {
           return !!v && v.p && v.p.x > -50 && v.p.x < cw + 50 && v.p.y > -50 && v.p.y < ch + 50
         })
       if (sp.length < 2) continue

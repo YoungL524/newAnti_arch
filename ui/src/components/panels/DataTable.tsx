@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { DeviceType } from '../../lib/protocol'
-import type { DeviceDataRow } from '../../lib/protocol'
+import type { DeviceDataRow, RadarTrack } from '../../lib/protocol'
 import { DEVICE_COLUMNS, DEVICE_FORMATTERS, applyFilters } from '../../lib/columns'
 import type { ColumnDef, FilterValue } from '../../lib/columns'
 import DataTableFilterBar from './DataTableFilterBar'
@@ -149,10 +149,11 @@ export default function DataTable({ deviceType, rows, isLive }: Props) {
                   style={{ borderTop: i > 0 ? '1px solid rgba(229,231,226,0.3)' : 'none' }}
                   onClick={() => {
                     if (deviceType !== DeviceType.RADAR) return
-                    const deviceId = (row as any).deviceId
-                    const trackId = (row as any).trackId
+                    const track = row as RadarTrack
+                    const deviceId = track.deviceId
+                    const trackId = track.trackId
                     if (typeof deviceId !== 'string' || typeof trackId !== 'number') return
-                    const interaction = (row as any).interaction
+                    const { interaction } = track
                     const selected = !(interaction?.selected ?? false)
                     const trackingEnabled = interaction?.trackingEnabled ?? false
                     setTrackInteraction(deviceId, trackId, selected, trackingEnabled)

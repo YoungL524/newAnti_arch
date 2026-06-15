@@ -325,32 +325,6 @@ void WebApiController::registerRestRoutes()
         });
     }
 
-    // ── Track Interaction API ──
-    if (m_trackMgr) {
-        m_ws->handlePutPrefix(QStringLiteral("/api/devices/"), [this](const QString& suffix, const QJsonObject& body) {
-            // suffix = "radar_001/tracks/123/interaction"
-            QStringList parts = suffix.split('/');
-            if (parts.size() != 4 || parts[1] != QStringLiteral("tracks") || parts[3] != QStringLiteral("interaction"))
-                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("路径格式错误: 期望 /api/devices/{deviceId}/tracks/{trackId}/interaction")}};
-            QString deviceId = parts[0];
-            bool ok = false;
-            uint32_t trackId = parts[2].toUInt(&ok);
-            if (!ok)
-                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("trackId 必须是数字")}};
-            if (!body.contains(QStringLiteral("selected")) || !body[QStringLiteral("selected")].isBool())
-                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("selected 字段必须是 bool")}};
-            if (!body.contains(QStringLiteral("trackingEnabled")) || !body[QStringLiteral("trackingEnabled")].isBool())
-                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("trackingEnabled 字段必须是 bool")}};
-            bool selected = body[QStringLiteral("selected")].toBool();
-            bool trackingEnabled = body[QStringLiteral("trackingEnabled")].toBool();
-            m_trackMgr->setInteraction(deviceId, trackId, selected, trackingEnabled);
-            QJsonObject interaction;
-            interaction[QStringLiteral("selected")] = selected;
-            interaction[QStringLiteral("trackingEnabled")] = trackingEnabled;
-            return QJsonObject{{QStringLiteral("ok"), true}, {QStringLiteral("interaction"), interaction}};
-        });
-    }
-
 }
 
 void WebApiController::connectWebPush()
