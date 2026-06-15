@@ -34,22 +34,24 @@ interface CoreState {
   checkedDeviceIds: string[]
   noSelectionHint: boolean
   commandError: string          // 启停命令失败原因（用户可见）
+  interactionError: string      // 航迹交互失败原因（用户可见）
   tracks: RadarTrack[]
   trackRate: number
   logEntries: { level: string; message: string; timestamp: number }[]
   setCheckedDevices: (ids: string[]) => void
   dismissNoSelectionHint: () => void
   dismissCommandError: () => void
+  dismissInteractionError: () => void
   toggleAcquisition: () => void
-  setTrackInteraction: (deviceId: string, trackId: number, selected: boolean, trackingEnabled: boolean) => void
+  setTrackInteraction: (deviceId: string, trackId: number, selected: boolean, trackingEnabled: boolean) => Promise<boolean>
 }
 
 const defaultState: CoreState = {
   connected: false, acquisition: false, state: 'Unknown',
-  devices: [], checkedDeviceIds: [], noSelectionHint: false, commandError: '',
+  devices: [], checkedDeviceIds: [], noSelectionHint: false, commandError: '', interactionError: '',
   tracks: [], trackRate: 0, logEntries: [],
-  setCheckedDevices: () => {}, dismissNoSelectionHint: () => {}, dismissCommandError: () => {}, toggleAcquisition: () => {},
-  setTrackInteraction: () => {},
+  setCheckedDevices: () => {}, dismissNoSelectionHint: () => {}, dismissCommandError: () => {}, dismissInteractionError: () => {}, toggleAcquisition: () => {},
+  setTrackInteraction: async () => false,
 }
 
 const CoreContext = createContext<CoreState>(defaultState)
@@ -92,7 +94,12 @@ export function CoreProvider({ children }: { children: ReactNode }) {
     setState(prev => ({ ...prev, commandError: '' }))
   }, [])
 
-  const setTrackInteraction = useCallback(async (deviceId: string, trackId: number, selected: boolean, trackingEnabled: boolean) => {
+  const dismissInteractionError = useCallback(() => {
+    setState(prev => ({ ...prev, interactionError: '' }))
+  }, [])
+
+  const setTrackInteraction = useCallback(async (deviceId: string, trackId: number, selected: boolean, trackingEnabled: boolean): Promise<boolean> => {
+    setState(prev => ({ ...prev, interactionError: '' }))
     try {
       const res = await fetch(`/api/devices/${encodeURIComponent(deviceId)}/tracks/${trackId}/interaction`, {
         method: 'PUT',
@@ -100,9 +107,17 @@ export function CoreProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ selected, trackingEnabled }),
       })
       const data = await safeJsonParse(res)
-      if (!data?.ok) console.warn('[interaction]', data?.error || `HTTP ${res.status}`)
+      if (!data?.ok) {
+        const msg = data?.error || `HTTP ${res.status}`
+        console.warn('[interaction]', msg)
+        setState(prev => ({ ...prev, interactionError: `航迹交互失败: ${msg}` }))
+        return false
+      }
+      return true
     } catch {
       console.warn('[interaction]', '网络错误')
+      setState(prev => ({ ...prev, interactionError: '航迹交互失败: 网络错误' }))
+      return false
     }
   }, [])
 
@@ -281,8 +296,8 @@ export function CoreProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const contextValue = useMemo(() => ({
-    ...state, setCheckedDevices, dismissNoSelectionHint, dismissCommandError, toggleAcquisition, setTrackInteraction,
-  }), [state, setCheckedDevices, dismissNoSelectionHint, dismissCommandError, toggleAcquisition, setTrackInteraction])
+    ...state, setCheckedDevices, dismissNoSelectionHint, dismissCommandError, dismissInteractionError, toggleAcquisition, setTrackInteraction,
+  }), [state, setCheckedDevices, dismissNoSelectionHint, dismissCommandError, dismissInteractionError, toggleAcquisition, setTrackInteraction])
 
   return (
     <CoreContext.Provider value={contextValue}>

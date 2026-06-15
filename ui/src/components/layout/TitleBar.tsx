@@ -6,7 +6,7 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 export default function TitleBar({ activeTask }: { activeTask: Task | null }) {
-  const { connected, acquisition, state, checkedDeviceIds, devices, noSelectionHint, commandError, dismissNoSelectionHint, dismissCommandError, toggleAcquisition } = useCore()
+  const { connected, acquisition, state, checkedDeviceIds, devices, noSelectionHint, commandError, interactionError, dismissNoSelectionHint, dismissCommandError, dismissInteractionError, toggleAcquisition } = useCore()
 
   const isTransient = state === 'Starting' || state === 'Stopping'
   const isFault = state === 'Fault'
@@ -90,6 +90,16 @@ export default function TitleBar({ activeTask }: { activeTask: Task | null }) {
           <button className="ml-2 px-1.5 py-0.5 rounded text-[10px] border-none cursor-pointer"
             style={{ background: '#fee2e2', color: '#991b1b' }}
             onClick={dismissCommandError}
+          >×</button>
+        </div>
+      )}
+      {interactionError && (
+        <div className={`absolute top-full right-4 px-3 py-2 rounded-lg text-[11px] z-50 ${commandError ? 'mt-10' : 'mt-1'}`}
+          style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b' }}>
+          ⚠ {interactionError}
+          <button className="ml-2 px-1.5 py-0.5 rounded text-[10px] border-none cursor-pointer"
+            style={{ background: '#fee2e2', color: '#991b1b' }}
+            onClick={dismissInteractionError}
           >×</button>
         </div>
       )}
