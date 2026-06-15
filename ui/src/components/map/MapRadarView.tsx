@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import AMapLoader from '@amap/amap-jsapi-loader'
 import PPIOverlay from './PPIOverlay'
 import TrackLayer from './TrackLayer'
+import SelectedTracksPanel from './SelectedTracksPanel'
 import { type RadarDevice, RADAR_CENTER } from './types'
 import { useCore } from '../../hooks/useCoreApi'
 
@@ -159,6 +160,7 @@ export default function MapRadarView({ devices }: { devices: RadarDevice[] }) {
               mapClass={mapRef.current}
             />
           ))}
+          <SelectedTracksPanel />
 
           {/* Floating Map Controls */}
           <div className="absolute right-4 top-16 flex flex-col gap-2 z-10">

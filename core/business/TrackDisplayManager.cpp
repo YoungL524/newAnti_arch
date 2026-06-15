@@ -3,10 +3,9 @@
 #include <QDebug>
 #include <algorithm>
 
-static constexpr int kMaxPointsPerTrack = 500;
-static constexpr qint64 kTimeWindowMs = 60 * 1000;
-static constexpr int kMaxSnapshotPoints = 5000;
-static constexpr int kSnapshotIntervalMs = 1000;
+static constexpr int kMaxSnapshotPoints = 8000;
+static constexpr int kSnapshotIntervalMs = 500;
+static constexpr qint64 kTrackStaleMs = 5000;
 
 TrackDisplayManager::TrackDisplayManager(QObject* parent)
     : QObject(parent)
@@ -15,10 +14,8 @@ TrackDisplayManager::TrackDisplayManager(QObject* parent)
     m_timer->setSingleShot(false);
     connect(m_timer, &QTimer::timeout, this, [this]() {
         const qint64 now = QDateTime::currentMSecsSinceEpoch();
-        pruneExpired(now);
-        auto snap = snapshot(now);
-        if (!snap.tracks.isEmpty())
-            emit snapshotReady(snap);
+        pruneStaleTracks(now);
+        emit snapshotReady(snapshot(now));
     });
 }
 
@@ -39,15 +36,8 @@ void TrackDisplayManager::addPoint(const TrackPoint& pt)
         m_interactions[key] = TrackDisplayPoint::Interaction{};
 
     auto& cache = m_caches[key];
-    // 假设同一 (deviceId, trackId) 的点按 timestamp 递增到达（实时链路成立）
     cache.points.append({pt, cache.nextPointIndex++});
-
-    const qint64 cutoff = pt.timestampMs - kTimeWindowMs;
-    while (!cache.points.isEmpty() && cache.points.first().point.timestampMs < cutoff)
-        cache.points.removeFirst();
-
-    while (cache.points.size() > kMaxPointsPerTrack)
-        cache.points.removeFirst();
+    cache.lastUpdateMs = pt.timestampMs;
 
     if (cache.points.isEmpty()) {
         m_caches.remove(key);
@@ -55,19 +45,13 @@ void TrackDisplayManager::addPoint(const TrackPoint& pt)
     }
 }
 
-void TrackDisplayManager::pruneExpired(qint64 nowMs)
+void TrackDisplayManager::pruneStaleTracks(qint64 nowMs)
 {
-    const qint64 cutoff = nowMs - kTimeWindowMs;
     QList<TrackKey> toRemove;
-
     for (auto it = m_caches.begin(); it != m_caches.end(); ++it) {
-        auto& points = it.value().points;
-        while (!points.isEmpty() && points.first().point.timestampMs < cutoff)
-            points.removeFirst();
-        if (points.isEmpty())
+        if (nowMs - it.value().lastUpdateMs > kTrackStaleMs)
             toRemove.append(it.key());
     }
-
     for (const auto& key : toRemove) {
         m_caches.remove(key);
         m_interactions.remove(key);
@@ -84,29 +68,29 @@ void TrackDisplayManager::applyStyle(
     const TrackDisplayPoint::Interaction& interaction) const
 {
     if (interaction.trackingEnabled) {
-        dp.style.color = QStringLiteral("#f59e0b");
+        dp.style.color = QStringLiteral("#ea580c");
         dp.style.size = 5.0;
         dp.style.opacity = 1.0;
     } else if (interaction.selected) {
-        dp.style.color = QStringLiteral("#3b82f6");
-        dp.style.size = 4.5;
+        dp.style.color = QStringLiteral("#ea580c");
+        dp.style.size = 4.0;
         dp.style.opacity = 1.0;
     } else if (pointIndex < 3) {
-        dp.style.color = QStringLiteral("#22c55e");
-        dp.style.size = 4.0;
-        dp.style.opacity = 0.9;
+        dp.style.color = QStringLiteral("#059669");
+        dp.style.size = 3.5;
+        dp.style.opacity = 0.95;
     } else {
-        dp.style.color = QStringLiteral("#22c55e");
-        dp.style.size = 3.0;
-        dp.style.opacity = 0.7;
+        dp.style.color = QStringLiteral("#059669");
+        dp.style.size = 2.5;
+        dp.style.opacity = 0.75;
     }
 }
 
 TrackDisplaySnapshot TrackDisplayManager::snapshot(qint64 nowMs) const
 {
+    Q_UNUSED(nowMs);
     TrackDisplaySnapshot snap;
     snap.timestamp = nowMs;
-    const qint64 cutoff = snap.timestamp - kTimeWindowMs;
 
     struct Candidate {
         TrackDisplayPoint dp;
@@ -121,7 +105,6 @@ TrackDisplaySnapshot TrackDisplayManager::snapshot(qint64 nowMs) const
 
         for (const auto& cp : cache.points) {
             const auto& pt = cp.point;
-            if (pt.timestampMs < cutoff) continue;
 
             TrackDisplayPoint dp;
             dp.trackId      = pt.trackId;
@@ -136,20 +119,18 @@ TrackDisplaySnapshot TrackDisplayManager::snapshot(qint64 nowMs) const
             dp.radialSpeed  = pt.radialSpeed;
             dp.rcs          = pt.rcs;
             dp.altitude     = pt.altitude;
-            dp.pointIndex   = cp.pointIndex;  // 绝对递增序号
+            dp.pointIndex   = cp.pointIndex;
             dp.interaction  = interaction;
             applyStyle(dp, cp.pointIndex, interaction);
             candidates.append({dp, pt.timestampMs});
         }
     }
 
-    // 降序保留最新点
     std::sort(candidates.begin(), candidates.end(),
               [](const Candidate& a, const Candidate& b) { return a.ts > b.ts; });
     if (candidates.size() > kMaxSnapshotPoints)
         candidates.resize(kMaxSnapshotPoints);
 
-    // 升序输出
     std::sort(candidates.begin(), candidates.end(),
               [](const Candidate& a, const Candidate& b) { return a.ts < b.ts; });
 
@@ -167,4 +148,5 @@ void TrackDisplayManager::setInteraction(
     auto& interaction = m_interactions[key];
     interaction.selected = selected;
     interaction.trackingEnabled = trackingEnabled;
+    emit snapshotReady(snapshot(QDateTime::currentMSecsSinceEpoch()));
 }

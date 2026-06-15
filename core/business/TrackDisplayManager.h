@@ -27,8 +27,8 @@ signals:
 private:
     void applyStyle(TrackDisplayPoint& dp, uint32_t pointIndex,
                     const TrackDisplayPoint::Interaction& interaction) const;
-    /// 清理所有超过 nowMs - 60s 的过期缓存点（timer timeout 时调用）
-    void pruneExpired(qint64 nowMs);
+    /// 航迹无新点超过该时长后整条移除（ms）
+    void pruneStaleTracks(qint64 nowMs);
 
     struct CachedPoint {
         TrackPoint point;
@@ -37,6 +37,7 @@ private:
     struct TrackCache {
         QVector<CachedPoint> points;
         uint32_t nextPointIndex = 0;
+        qint64 lastUpdateMs = 0;
     };
 
     QHash<TrackKey, TrackCache> m_caches;

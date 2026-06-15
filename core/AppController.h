@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <QObject>
 #include <QJsonObject>
@@ -240,6 +240,11 @@ private:
      * @return 是否成功
      */
     bool initializeBusinessLogic();
+
+    /**
+     * @brief 在 DeviceRegistry / TrackDisplayManager 就绪后接通航迹显示链路
+     */
+    void wireTrackDisplayPipeline();
 
 private:
     ConfigManager m_configManager;                          ///< 配置管理器（数据访问层）

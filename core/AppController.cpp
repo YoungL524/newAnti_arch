@@ -1,4 +1,4 @@
-﻿#include "AppController.h"
+#include "AppController.h"
 #include "web/WebService.h"
 #include "web/WebApiController.h"
 #include "business/DeviceRegistry.h"
@@ -82,6 +82,7 @@ bool AppController::initialize()
 
     // 航迹显示管理器
     m_trackDisplayManager = std::make_unique<TrackDisplayManager>(this);
+    wireTrackDisplayPipeline();
 
     qDebug() << QStringLiteral("[AppController] 初始化完成");
     return true;
@@ -383,15 +384,27 @@ void AppController::configureRadarProcessor(const QJsonObject& processorConfig)
         registerDefaultEndpointSources();
     }
 
-    // RadarDataProcessor → TrackDisplayManager
-    if (m_trackDisplayManager) {
-        QObject::connect(m_radarProcessor.get(), &RadarDataProcessor::trackPointReady,
-                         m_trackDisplayManager.get(), &TrackDisplayManager::addPoint);
+    qDebug() << QStringLiteral("[AppController] RadarDataProcessor 已创建并订阅 Comm::dataReceived");
+}
+
+void AppController::wireTrackDisplayPipeline()
+{
+    if (!m_radarProcessor || !m_trackDisplayManager) {
+        qWarning() << "[AppController] 航迹显示链路未接通: processor 或 TrackDisplayManager 不可用";
+        return;
     }
+
+    QObject::disconnect(m_radarProcessor.get(), &RadarDataProcessor::trackPointReady,
+                        nullptr, nullptr);
+    QObject::connect(m_radarProcessor.get(), &RadarDataProcessor::trackPointReady,
+                     m_trackDisplayManager.get(), &TrackDisplayManager::addPoint);
+
     if (m_deviceRegistry)
         m_radarProcessor->setDeviceRegistry(m_deviceRegistry.get());
+    else
+        qWarning() << "[AppController] DeviceRegistry 不可用，TrackPoint 将无法映射 deviceId";
 
-    qDebug() << QStringLiteral("[AppController] RadarDataProcessor 已创建并订阅 Comm::dataReceived");
+    qDebug() << "[AppController] RadarDataProcessor → TrackDisplayManager 航迹显示链路已接通";
 }
 
 bool AppController::registerConfiguredEndpointSources(const QJsonObject& processorConfig)

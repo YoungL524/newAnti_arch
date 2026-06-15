@@ -89,10 +89,16 @@ bool DeviceRegistry::ensureSchema() {
 bool DeviceRegistry::ensureDefaultControllableRadar() {
     for (const auto& d : list()) {
         if (d.id == QStringLiteral("radar_cpu") || d.endpointId == QStringLiteral("radar_cpu")) {
-            if (d.id == QStringLiteral("radar_cpu"))
+            if (d.id == QStringLiteral("radar_cpu") && d.endpointId.isEmpty()) {
+                DeviceInfo patched = d;
+                patched.endpointId = QStringLiteral("radar_cpu");
+                if (update(patched))
+                    qDebug() << "[DeviceRegistry] 已补全历史设备 endpointId: id=radar_cpu";
+            } else if (d.id == QStringLiteral("radar_cpu")) {
                 qWarning() << "[DeviceRegistry] 默认可控设备使用历史 id=radar_cpu (业务设备 id 与端点 id 相同)";
-            else
+            } else {
                 qDebug() << "[DeviceRegistry] 默认可控设备: id=" << d.id << "endpointId=" << d.endpointId;
+            }
             return true;
         }
     }
@@ -137,7 +143,13 @@ std::optional<DeviceInfo> DeviceRegistry::findRadarByEndpointId(const QString& e
     auto rows = m_store->query(
         QStringLiteral("SELECT * FROM devices WHERE endpoint_id = ? AND kind = ?"),
         {endpointId, static_cast<int>(DeviceKind::Radar)});
-    if (rows.isEmpty()) return std::nullopt;
+    if (rows.isEmpty()) {
+        // 历史数据：业务 id 与 endpoints.json 端点 id 相同（如 radar_cpu），但未写 endpoint_id
+        auto legacy = get(endpointId);
+        if (legacy.has_value() && legacy->kind == DeviceKind::Radar)
+            return legacy;
+        return std::nullopt;
+    }
     if (rows.size() > 1) {
         qWarning() << "[DeviceRegistry] endpointId" << endpointId
                    << "绑定了" << rows.size() << "个雷达设备，拒绝返回，避免航迹错误归属";

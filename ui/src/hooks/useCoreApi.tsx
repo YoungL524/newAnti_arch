@@ -79,7 +79,30 @@ export function CoreProvider({ children }: { children: ReactNode }) {
   const logRef = useRef<{ level: string; message: string; timestamp: number }[]>([])
   const checkedRef = useRef<string[]>([])
   const pendingRef = useRef(false)
-  const workingRef = useRef(false)  // 与 state.acquisition 同步，供 toggleAcquisition 读取
+  const workingRef = useRef(false)
+  const pendingInteractionRef = useRef<Map<string, { selected: boolean; trackingEnabled: boolean }>>(new Map())
+
+  const applyPendingInteractions = useCallback((list: RadarTrack[]): RadarTrack[] => {
+    const pending = pendingInteractionRef.current
+    if (pending.size === 0) return list
+    return list.map(t => {
+      const trackId = t.trackId ?? t.batchId
+      if (!t.deviceId || trackId == null) return t
+      const p = pending.get(`${t.deviceId}:${trackId}`)
+      return p ? { ...t, interaction: p } : t
+    })
+  }, [])
+
+  const flushTracksToState = useCallback(() => {
+    setState(prev => {
+      if (!prev.acquisition) return prev
+      return {
+        ...prev,
+        tracks: applyPendingInteractions([...tracksRef.current]),
+        logEntries: [...logRef.current],
+      }
+    })
+  }, [applyPendingInteractions])
 
   const setCheckedDevices = useCallback((ids: string[]) => {
     checkedRef.current = ids
@@ -99,7 +122,12 @@ export function CoreProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const setTrackInteraction = useCallback(async (deviceId: string, trackId: number, selected: boolean, trackingEnabled: boolean): Promise<boolean> => {
+    const key = `${deviceId}:${trackId}`
+    const interaction = { selected, trackingEnabled }
+    pendingInteractionRef.current.set(key, interaction)
+    flushTracksToState()
     setState(prev => ({ ...prev, interactionError: '' }))
+
     try {
       const res = await fetch(`/api/devices/${encodeURIComponent(deviceId)}/tracks/${trackId}/interaction`, {
         method: 'PUT',
@@ -108,6 +136,8 @@ export function CoreProvider({ children }: { children: ReactNode }) {
       })
       const data = await safeJsonParse(res)
       if (!data?.ok) {
+        pendingInteractionRef.current.delete(key)
+        flushTracksToState()
         const msg = data?.error || `HTTP ${res.status}`
         console.warn('[interaction]', msg)
         setState(prev => ({ ...prev, interactionError: `航迹交互失败: ${msg}` }))
@@ -115,11 +145,13 @@ export function CoreProvider({ children }: { children: ReactNode }) {
       }
       return true
     } catch {
+      pendingInteractionRef.current.delete(key)
+      flushTracksToState()
       console.warn('[interaction]', '网络错误')
       setState(prev => ({ ...prev, interactionError: '航迹交互失败: 网络错误' }))
       return false
     }
-  }, [])
+  }, [flushTracksToState])
 
   // 同步 workingRef 与 state.acquisition
   useEffect(() => { workingRef.current = state.acquisition }, [state.acquisition])
@@ -143,7 +175,11 @@ export function CoreProvider({ children }: { children: ReactNode }) {
     const savedTracks = tracksRef.current
     const savedTrackCount = trackCountRef.current
 
-    if (!isWorking) { tracksRef.current = []; trackCountRef.current = 0 }
+    if (!isWorking) {
+      tracksRef.current = []
+      trackCountRef.current = 0
+      pendingInteractionRef.current.clear()
+    }
 
     setState(prev => ({
       ...prev,
@@ -245,7 +281,6 @@ export function CoreProvider({ children }: { children: ReactNode }) {
               ...prev, connected: msg.connected, devices, ...agg,
             }))
           } else if (msg.type === 'tracks') {
-            // 全量 snapshot 替换
             if (msg.mode === 'snapshot' && Array.isArray(msg.tracks)) {
               tracksRef.current = msg.tracks.map((t): RadarTrack => ({
                 batchId: t.trackId ?? 0,
@@ -264,6 +299,20 @@ export function CoreProvider({ children }: { children: ReactNode }) {
                 interaction: t.interaction,
               }))
               trackCountRef.current = msg.tracks.length
+              for (const k of [...pendingInteractionRef.current.keys()]) {
+                const [devId, tidStr] = k.split(':')
+                const tid = Number(tidStr)
+                const head = tracksRef.current.find(
+                  tr => tr.deviceId === devId && (tr.trackId ?? tr.batchId) === tid,
+                )
+                const pending = pendingInteractionRef.current.get(k)
+                if (head?.interaction && pending
+                    && head.interaction.selected === pending.selected
+                    && head.interaction.trackingEnabled === pending.trackingEnabled) {
+                  pendingInteractionRef.current.delete(k)
+                }
+              }
+              flushTracksToState()
             }
           } else if (msg.type === 'log') {
             logRef.current = [...logRef.current, {
@@ -281,14 +330,14 @@ export function CoreProvider({ children }: { children: ReactNode }) {
 
     connect()
     return () => { ws?.close(); clearTimeout(reconnectTimer) }
-  }, [])
+  }, [flushTracksToState])
 
-  // ── 1s 节流 flush ──
+  // ── 1s 节流：仅刷新 trackRate，航迹数据已在 WS 到达时即时更新 ──
   useEffect(() => {
     const id = setInterval(() => {
       setState(prev => {
         if (!prev.acquisition) return prev
-        return { ...prev, tracks: [...tracksRef.current], trackRate: trackCountRef.current, logEntries: [...logRef.current] }
+        return { ...prev, trackRate: trackCountRef.current, logEntries: [...logRef.current] }
       })
       trackCountRef.current = 0
     }, 1000)
