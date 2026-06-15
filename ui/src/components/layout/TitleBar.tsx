@@ -19,6 +19,14 @@ export default function TitleBar({ activeTask }: { activeTask: Task | null }) {
   const btnBg = isFault ? '#ef4444'
     : 'var(--primaryContainer)'
 
+  const hintStyle = {
+    background: '#fef2f2',
+    border: '1px solid #fecaca',
+    color: '#991b1b',
+  } as const
+  const hintDismissStyle = { background: '#fee2e2', color: '#991b1b' } as const
+  const hasHints = noSelectionHint || !!commandError || !!interactionError
+
   return (
     <header className="h-11 glass-panel flex justify-between items-center w-full px-4 z-20 shrink-0 relative"
       style={{ borderBottom: '1px solid rgba(229, 231, 226, 0.5)' }}
@@ -72,35 +80,35 @@ export default function TitleBar({ activeTask }: { activeTask: Task | null }) {
         {btnLabel}
       </button>
 
-      {/* 未勾选设备提示 */}
-      {noSelectionHint && (
-        <div className="absolute top-full right-4 mt-1 px-3 py-2 rounded-lg text-[11px] z-50"
-          style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b' }}>
-          请先在设备列表中勾选要控制的雷达
-          <button className="ml-2 px-1.5 py-0.5 rounded text-[10px] border-none cursor-pointer"
-            style={{ background: '#fee2e2', color: '#991b1b' }}
-            onClick={dismissNoSelectionHint}
-          >×</button>
-        </div>
-      )}
-      {commandError && (
-        <div className="absolute top-full right-4 mt-1 px-3 py-2 rounded-lg text-[11px] z-50"
-          style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b' }}>
-          ⚠ {commandError}
-          <button className="ml-2 px-1.5 py-0.5 rounded text-[10px] border-none cursor-pointer"
-            style={{ background: '#fee2e2', color: '#991b1b' }}
-            onClick={dismissCommandError}
-          >×</button>
-        </div>
-      )}
-      {interactionError && (
-        <div className={`absolute top-full right-4 px-3 py-2 rounded-lg text-[11px] z-50 ${commandError ? 'mt-10' : 'mt-1'}`}
-          style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b' }}>
-          ⚠ {interactionError}
-          <button className="ml-2 px-1.5 py-0.5 rounded text-[10px] border-none cursor-pointer"
-            style={{ background: '#fee2e2', color: '#991b1b' }}
-            onClick={dismissInteractionError}
-          >×</button>
+      {hasHints && (
+        <div className="absolute top-full right-4 mt-1 flex flex-col gap-2 z-50">
+          {noSelectionHint && (
+            <div className="px-3 py-2 rounded-lg text-[11px]" style={hintStyle}>
+              请先在设备列表中勾选要控制的雷达
+              <button className="ml-2 px-1.5 py-0.5 rounded text-[10px] border-none cursor-pointer"
+                style={hintDismissStyle}
+                onClick={dismissNoSelectionHint}
+              >×</button>
+            </div>
+          )}
+          {commandError && (
+            <div className="px-3 py-2 rounded-lg text-[11px]" style={hintStyle}>
+              ⚠ {commandError}
+              <button className="ml-2 px-1.5 py-0.5 rounded text-[10px] border-none cursor-pointer"
+                style={hintDismissStyle}
+                onClick={dismissCommandError}
+              >×</button>
+            </div>
+          )}
+          {interactionError && (
+            <div className="px-3 py-2 rounded-lg text-[11px]" style={hintStyle}>
+              ⚠ {interactionError}
+              <button className="ml-2 px-1.5 py-0.5 rounded text-[10px] border-none cursor-pointer"
+                style={hintDismissStyle}
+                onClick={dismissInteractionError}
+              >×</button>
+            </div>
+          )}
         </div>
       )}
     </header>
