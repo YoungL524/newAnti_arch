@@ -1,0 +1,86 @@
+<mxfile host="app.diagrams.net" agent="Cursor" version="24.7.17">
+  <diagram id="tech-topology" name="运行时拓扑">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="700" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="04 - 技术架构 · 运行时拓扑" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=16;" vertex="1" parent="1">
+          <mxGeometry x="350" y="15" width="360" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="browser" value="浏览器&#xa;React Web" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="80" y="120" width="130" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="core" value="NewAntiDrone_core.exe&#xa;Qt Console" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="320" y="120" width="180" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="db" value="SQLite DB" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="580" y="110" width="90" height="75" as="geometry" />
+        </mxCell>
+        <mxCell id="testcomm" value="test_comm.exe&#xa;CSV 回放" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="80" y="320" width="130" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="radar" value="雷达设备" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="760" y="320" width="120" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="e-b-c" value="HTTP :8088&#xa;WebSocket :8089" style="endArrow=classic;startArrow=classic;html=1;fontSize=10;" edge="1" source="browser" target="core" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e-c-db" style="endArrow=classic;startArrow=classic;html=1;" edge="1" source="core" target="db" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e-tc-c" value="UDP track :7788" style="endArrow=classic;html=1;fontSize=10;" edge="1" source="testcomm" target="core" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e-c-tc-wm" value="UDP workmode :1234" style="endArrow=classic;html=1;fontSize=10;" edge="1" source="core" target="testcomm" parent="1"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="400" y="280" /><mxPoint x="145" y="280" /></Array></mxGeometry></mxCell>
+        <mxCell id="e-c-tc-dph" value="UDP DPH :3456" style="endArrow=classic;html=1;fontSize=10;" edge="1" source="core" target="testcomm" parent="1"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="420" y="300" /><mxPoint x="145" y="300" /></Array></mxGeometry></mxCell>
+        <mxCell id="e-r-c" value="UDP 上行数据" style="endArrow=classic;html=1;fontSize=10;" edge="1" source="radar" target="core" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e-c-r" value="UDP 下行命令 / DPH" style="endArrow=classic;html=1;fontSize=10;" edge="1" source="core" target="radar" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="stack" value="&lt;b&gt;技术栈&lt;/b&gt;&lt;br&gt;Core: Qt 5.14.2 / C++17 / CMake&lt;br&gt;Web: React 19 / TypeScript / Vite&lt;br&gt;通信: UDP + HTTP + WebSocket&lt;br&gt;数据库: SQLite（可扩展 PostgreSQL/MySQL）&lt;br&gt;测试: test_comm CSV 回放 / UDP" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffcc;strokeColor=#d6b656;fontSize=11;align=left;spacingLeft=10;verticalAlign=top;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="320" y="420" width="380" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="ports" value="&lt;b&gt;端口约定&lt;/b&gt;&lt;br&gt;8088 HTTP REST | 8089 WebSocket | 7788 雷达上行 | 1234 workStandby | 3456 DPH" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="80" y="420" width="220" height="70" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="tech-core-internal" name="Core内部结构">
+    <mxGraphModel dx="900" dy="700" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="900" pageHeight="750" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="04 - 技术架构 · Core 内部技术结构" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=16;" vertex="1" parent="1">
+          <mxGeometry x="220" y="15" width="400" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="main" value="main.cpp&#xa;QCoreApplication" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="360" y="70" width="160" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="app" value="AppController&#xa;组合根" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="360" y="170" width="160" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="comm" value="CommunicationManager&#xa;UDP Endpoint" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="80" y="300" width="160" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="bus" value="SystemBus&#xa;Worker thread" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="280" y="300" width="140" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="proc" value="RadarDataProcessor&#xa;协议解析" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="460" y="300" width="160" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="web" value="WebService&#xa;QTcpServer + QWebSocketServer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="660" y="300" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="store" value="DataStore&#xa;Qt SQL" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="280" y="430" width="100" height="65" as="geometry" />
+        </mxCell>
+        <mxCell id="stdin" value="StdinReader&#xa;控制台线程" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="560" y="430" width="140" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="e-m-a" style="endArrow=classic;html=1;strokeWidth=2;" edge="1" source="main" target="app" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e-a-c" style="endArrow=classic;html=1;" edge="1" source="app" target="comm" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e-a-b" style="endArrow=classic;html=1;" edge="1" source="app" target="bus" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e-a-p" style="endArrow=classic;html=1;" edge="1" source="app" target="proc" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e-a-w" style="endArrow=classic;html=1;" edge="1" source="app" target="web" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e-a-s" style="endArrow=classic;html=1;" edge="1" source="app" target="store" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e-m-si" style="endArrow=classic;html=1;" edge="1" source="main" target="stdin" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="threads" value="&lt;b&gt;线程模型&lt;/b&gt;&lt;br&gt;Qt 主线程：QObject / UDP / HTTP / WS / 业务服务 / 定时器&lt;br&gt;SystemBus worker：队列取事件并分发订阅者&lt;br&gt;StdinReader：阻塞读取控制台输入&lt;br&gt;&lt;br&gt;原则：业务 QObject 留主线程；跨线程用 QueuedConnection" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffcc;strokeColor=#d6b656;fontSize=11;align=left;spacingLeft=10;verticalAlign=top;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="80" y="540" width="780" height="100" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
