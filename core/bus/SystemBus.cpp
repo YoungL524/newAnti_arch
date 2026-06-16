@@ -1,4 +1,5 @@
-﻿#include "SystemBus.h"
+#include "SystemBus.h"
+#include "BusEnvelope.h"
 #include <algorithm>
 #include <QDebug>
 #include "GenericPackets.h"
@@ -59,15 +60,9 @@ bool SystemBus::publish(const DataPacket& dataPacket)
         return false;
     }
 
-    // 入队数据包（拷贝），仅成功后计数
-    if (!m_messageQueue.enqueue(dataPacket)) {
-        qWarning() << QStringLiteral("[SystemBus] 发布失败: 队列已满（容量=%1）")
-                      .arg(m_messageQueue.maxSize());
-        return false;
-    }
-
-    m_publishedCount.fetch_add(1);
-    return true;
+    auto env = std::make_unique<BusEnvelope>();
+    env->packet = dataPacket;
+    return publish(std::move(*env));
 }
 
 bool SystemBus::publish(DataPacket&& dataPacket)
@@ -76,8 +71,19 @@ bool SystemBus::publish(DataPacket&& dataPacket)
         return false;
     }
 
-    // 入队数据包（移动），仅成功后计数
-    if (!m_messageQueue.enqueue(std::move(dataPacket))) {
+    auto env = std::make_unique<BusEnvelope>();
+    env->packet = std::move(dataPacket);
+    return publish(std::move(*env));
+}
+
+bool SystemBus::publish(BusEnvelope&& envelope)
+{
+    if (isShutdown()) {
+        return false;
+    }
+
+    auto ptr = std::make_unique<BusEnvelope>(std::move(envelope));
+    if (!m_messageQueue.enqueue(std::move(ptr))) {
         qWarning() << QStringLiteral("[SystemBus] 发布失败: 队列已满（容量=%1）")
                       .arg(m_messageQueue.maxSize());
         return false;
@@ -401,8 +407,9 @@ void SystemBus::stopProcessing()
 
 // ========== 私有方法实现 ==========
 
-void SystemBus::dispatchToSubscribers(const DataPacket* dataPacket)
+void SystemBus::dispatchToSubscribers(const BusEnvelope& envelope)
 {
+    const DataPacket* dataPacket = &envelope.packet;
     if (!dataPacket) {
         qWarning() << QStringLiteral("[SystemBus] 分发失败: dataPacket 为空");
         return;
@@ -419,7 +426,21 @@ void SystemBus::dispatchToSubscribers(const DataPacket* dataPacket)
         callbacksToInvoke = collectCallbacks(matchingSubscriptions);
     }
 
+    BusEnvelope::setDispatchContext(&envelope);
     invokeCallbacks(callbacksToInvoke, dataPacket);
+    BusEnvelope::clearDispatchContext();
+}
+
+void SystemBus::dispatchToSubscribers(const DataPacket* dataPacket)
+{
+    if (!dataPacket) {
+        qWarning() << QStringLiteral("[SystemBus] 分发失败: dataPacket 为空");
+        return;
+    }
+
+    BusEnvelope env;
+    env.packet = *dataPacket;
+    dispatchToSubscribers(env);
 }
 
 // ========== BusWorker 实现 ==========
@@ -427,11 +448,10 @@ void SystemBus::dispatchToSubscribers(const DataPacket* dataPacket)
 void SystemBus::BusWorker::run()
 {
     while (true) {
-        DataPacket pkt;
-        if (m_bus->m_messageQueue.dequeue(pkt)) {
-            m_bus->dispatchToSubscribers(&pkt);
+        std::unique_ptr<BusEnvelope> env;
+        if (m_bus->m_messageQueue.dequeue(env)) {
+            m_bus->dispatchToSubscribers(*env);
         } else {
-            // 队列关闭，退出线程
             break;
         }
     }

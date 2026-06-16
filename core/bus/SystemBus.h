@@ -1,14 +1,16 @@
-﻿#pragma once
+#pragma once
 
 #include "ISystemBus.h"
 #include "ThreadSafeQueue.h"
 #include "GenericPackets.h"
-#include <QThread>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 #include <mutex>
-#include <memory>
 #include <atomic>
+#include <QThread>
+
+struct BusEnvelope;
 
 /**
  * @brief 系统总线实现类
@@ -36,6 +38,7 @@ public:
     bool publish(const DataPacket* dataPacket) override;
     bool publish(const DataPacket& dataPacket);
     bool publish(DataPacket&& dataPacket);
+    bool publish(BusEnvelope&& envelope);
     SubscriptionId subscribeBySource(uint16_t sourceType, BusCallback callback) override;
     SubscriptionId subscribeByTarget(uint16_t target, BusCallback callback) override;
     SubscriptionId subscribe(uint16_t sourceType, uint16_t target, BusCallback callback) override;
@@ -119,10 +122,7 @@ private:
             : callback(std::move(cb)), hasSourceType(false), hasTarget(false), isWildcard(true) {}
     };
 
-    /**
-     * @brief 分发数据包到所有匹配的订阅者
-     * @param dataPacket 要分发的数据包
-     */
+    void dispatchToSubscribers(const BusEnvelope& envelope);
     void dispatchToSubscribers(const DataPacket* dataPacket);
 
     /**
@@ -258,7 +258,7 @@ private:
     std::atomic<uint64_t> m_publishedCount;                                        // 发布计数
     std::atomic<State> m_state{State::Running};                                    // 总线状态（不可逆转为 ShutDown）
 
-    ThreadSafeQueue<DataPacket> m_messageQueue;                                    // 消息队列
+    ThreadSafeQueue<std::unique_ptr<BusEnvelope>> m_messageQueue;
     BusWorker* m_worker{nullptr};                                                  // 工作线程
 
     // 禁用拷贝构造和赋值

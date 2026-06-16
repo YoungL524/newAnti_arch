@@ -1,13 +1,23 @@
+<<<<<<< Updated upstream
 <mxfile host="app.diagrams.net" agent="Codex">
   <diagram id="system-arch" name="系统架构">
     <mxGraphModel dx="1704" dy="943" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="900" pageHeight="1100" math="0" shadow="0">
+=======
+<mxfile host="Electron" agent="Cursor">
+  <diagram id="system-arch" name="系统架构">
+    <mxGraphModel dx="1062" dy="932" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="900" pageHeight="1100" math="0" shadow="0">
+>>>>>>> Stashed changes
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
         <mxCell id="fe-box" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=14;verticalAlign=top;spacingTop=8;" value="前端" vertex="1">
           <mxGeometry height="110" width="740" x="80" y="40" as="geometry" />
         </mxCell>
+<<<<<<< Updated upstream
         <mxCell id="fe-web" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=13;fontStyle=1;" value="React Web&#xa;唯一前端界面" vertex="1">
+=======
+        <mxCell id="fe-web" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=13;" value="WEB" vertex="1">
+>>>>>>> Stashed changes
           <mxGeometry height="60" width="120" x="390" y="80" as="geometry" />
         </mxCell>
         <mxCell id="arrow-fe-srv" edge="1" parent="1" style="shape=flexArrow;endArrow=classic;startArrow=classic;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=2;width=14;endSize=6;startSize=6;">

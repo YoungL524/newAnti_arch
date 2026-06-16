@@ -1,4 +1,4 @@
-﻿#ifndef GENERICPACKETS_H
+#ifndef GENERICPACKETS_H
 #define GENERICPACKETS_H
 
 #include <atomic>
@@ -86,6 +86,7 @@ const uint32_t PAYLOAD_TYPE_LOG_TEXT = 100;
 const uint32_t PAYLOAD_TYPE_ERROR = 101;        ///< 错误/告警数据
 const uint32_t PAYLOAD_TYPE_CONFIG = 102;       ///< 配置数据
 const uint32_t PAYLOAD_TYPE_DPH_PARAMS_CHANGED = 103; ///< 运行时参数变更
+const uint32_t PAYLOAD_TYPE_TRACK_DISPLAY_SNAPSHOT = 104; ///< 航迹显示全量 snapshot（shared payload）
 
 /// @brief 设备 / 服务源类型
 /// @note 编号区间：10-49 雷达设备，50-199 保留，200-299 内部服务，300+ runtime/control target
@@ -95,6 +96,7 @@ const uint16_t SOURCE_CONFIG_MANAGER = 202;     ///< 配置管理器
 const uint16_t SOURCE_COMMUNICATION = 203;      ///< 通信层
 const uint16_t SOURCE_DATA_PROCESSOR = 204;     ///< 数据处理层
 const uint16_t SOURCE_RUNTIME_SETTINGS = 205;   ///< 运行时参数服务
+const uint16_t SOURCE_TRACK_DISPLAY = 206;      ///< 航迹显示管理
 
 /**
  * @brief 数据包大小常量

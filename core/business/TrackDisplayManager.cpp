@@ -1,7 +1,10 @@
 #include "TrackDisplayManager.h"
+#include "bus/BusEnvelope.h"
+#include "bus/SystemBus.h"
 #include <QDateTime>
 #include <QDebug>
 #include <algorithm>
+#include <memory>
 
 static constexpr int kMaxSnapshotPoints = 8000;
 static constexpr int kSnapshotIntervalMs = 500;
@@ -15,7 +18,7 @@ TrackDisplayManager::TrackDisplayManager(QObject* parent)
     connect(m_timer, &QTimer::timeout, this, [this]() {
         const qint64 now = QDateTime::currentMSecsSinceEpoch();
         pruneStaleTracks(now);
-        emit snapshotReady(snapshot(now));
+        deliverSnapshot(snapshot(now));
     });
 }
 
@@ -148,5 +151,12 @@ void TrackDisplayManager::setInteraction(
     auto& interaction = m_interactions[key];
     interaction.selected = selected;
     interaction.trackingEnabled = trackingEnabled;
-    emit snapshotReady(snapshot(QDateTime::currentMSecsSinceEpoch()));
+    deliverSnapshot(snapshot(QDateTime::currentMSecsSinceEpoch()));
+}
+
+void TrackDisplayManager::deliverSnapshot(const TrackDisplaySnapshot& snap)
+{
+    auto shared = std::make_shared<TrackDisplaySnapshot>(snap);
+    SystemBus::getInstance().publish(
+        BusEnvelope::makeTrackDisplaySnapshot(std::move(shared)));
 }

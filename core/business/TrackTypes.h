@@ -73,3 +73,5 @@ struct TrackDisplaySnapshot {
     qint64 timestamp = 0;
     QVector<TrackDisplayPoint> tracks;
 };
+
+Q_DECLARE_METATYPE(TrackDisplaySnapshot)

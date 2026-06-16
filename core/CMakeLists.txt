@@ -2,6 +2,7 @@ set(CORE_HEADERS
     web/HttpParser.h
     web/WebService.h
     web/WebApiController.h
+    web/TrackDisplayWebBridge.h
     comm/CommTypes.h
     comm/Endpoint.h
     comm/UdpEndpoint.h
@@ -11,6 +12,7 @@ set(CORE_HEADERS
     protocol/StructureReceive.h
     bus/ThreadSafeQueue.h
     bus/GenericPackets.h
+    bus/BusEnvelope.h
     bus/ISystemBus.h
     bus/SystemBus.h
     processor/RadarDataProcessor.h
@@ -36,12 +38,14 @@ set(CORE_SOURCES
     web/HttpParser.cpp
     web/WebService.cpp
     web/WebApiController.cpp
+    web/TrackDisplayWebBridge.cpp
     log/Logger.cpp
     comm/Endpoint.cpp
     comm/UdpEndpoint.cpp
     comm/CommunicationManager.cpp
     comm/EndpointConfigLoader.cpp
     bus/SystemBus.cpp
+    bus/BusEnvelope.cpp
     processor/RadarDataProcessor.cpp
     processor/BusToCommRouter.cpp
     processor/DphPublisher.cpp

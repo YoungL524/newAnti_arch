@@ -21,14 +21,11 @@ public:
     void stop();
     void clear();
 
-signals:
-    void snapshotReady(const TrackDisplaySnapshot& snapshot);
-
 private:
     void applyStyle(TrackDisplayPoint& dp, uint32_t pointIndex,
                     const TrackDisplayPoint::Interaction& interaction) const;
-    /// 航迹无新点超过该时长后整条移除（ms）
     void pruneStaleTracks(qint64 nowMs);
+    void deliverSnapshot(const TrackDisplaySnapshot& snap);
 
     struct CachedPoint {
         TrackPoint point;

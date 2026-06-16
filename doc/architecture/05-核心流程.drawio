@@ -18,7 +18,7 @@
 <mxCell id="p3" value="&lt;b&gt;协议适配&lt;/b&gt;&#xa;RadarDataProcessor&#xa;parse → TrackPoint" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1"><mxGeometry x="330" y="50" width="110" height="55" as="geometry"/></mxCell>
 <mxCell id="p4" value="&lt;b&gt;SystemBus&lt;/b&gt;&#xa;Worker Thread&#xa;事件总线" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="485" y="50" width="110" height="55" as="geometry"/></mxCell>
 <mxCell id="p5" value="&lt;b&gt;TrackDisplay&lt;/b&gt;&#xa;&lt;b&gt;Manager&lt;/b&gt;&#xa;显示规则应用" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1"><mxGeometry x="640" y="50" width="110" height="55" as="geometry"/></mxCell>
-<mxCell id="p6" value="&lt;b&gt;WebApi&lt;/b&gt;&#xa;&lt;b&gt;Controller&lt;/b&gt;&#xa;HTTP / WS 出口" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="800" y="50" width="110" height="55" as="geometry"/></mxCell>
+<mxCell id="p6" value="&lt;b&gt;TrackDisplay&lt;/b&gt;&#xa;&lt;b&gt;WebBridge&lt;/b&gt;&#xa;总线→WS DTO" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="800" y="50" width="110" height="55" as="geometry"/></mxCell>
 <mxCell id="p7" value="&lt;b&gt;React Web&lt;/b&gt;&#xa;浏览器前端&#xa;地图 / PPI / 表格" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="960" y="50" width="110" height="55" as="geometry"/></mxCell>
 
 <!-- 生命线 -->
@@ -43,9 +43,9 @@
   </mxGeometry>
 </mxCell>
 
-<!-- 路径A：高频直连 -->
-<mxCell id="labelA" value="路径 A  高频航迹（直连，绕过总线）" style="text;html=1;fontStyle=2;fontSize=10;fillColor=#fff3cd;strokeColor=#d6b656;rounded=1;" vertex="1" parent="1"><mxGeometry x="330" y="258" width="290" height="22" as="geometry"/></mxCell>
-<mxCell id="s4a" value="④a  TrackPoint signal（Qt direct connection）" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#d79b00;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="385" y="290" as="sourcePoint"/><mxPoint x="695" y="290" as="targetPoint"/></mxGeometry></mxCell>
+<!-- 路径A：core 内部 Processor → TrackManager 直连 -->
+<mxCell id="labelA" value="路径 A  core 内部（Processor → TrackManager 可直连，省拷贝）" style="text;html=1;fontStyle=2;fontSize=10;fillColor=#fff3cd;strokeColor=#d6b656;rounded=1;" vertex="1" parent="1"><mxGeometry x="330" y="258" width="380" height="22" as="geometry"/></mxCell>
+<mxCell id="s4a" value="④a  TrackPoint（Qt direct connection）" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#d79b00;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="385" y="290" as="sourcePoint"/><mxPoint x="695" y="290" as="targetPoint"/></mxGeometry></mxCell>
 
 <!-- 自调用：apply display rules -->
 <mxCell id="s5" value="⑤ apply display rules" style="endArrow=block;endFill=1;html=1;fontSize=10;curved=1;strokeColor=#d6b656;strokeWidth=2;" edge="1" parent="1">
@@ -56,8 +56,9 @@
   </mxGeometry>
 </mxCell>
 
-<mxCell id="s6" value="⑥ TrackDisplaySnapshot" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#333;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="695" y="380" as="sourcePoint"/><mxPoint x="855" y="380" as="targetPoint"/></mxGeometry></mxCell>
-<mxCell id="s7" value="⑦ WebSocket push tracks" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#333;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="855" y="415" as="sourcePoint"/><mxPoint x="1015" y="415" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s6" value="⑥ publish TrackDisplaySnapshot（SystemBus）" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#9673a6;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="695" y="380" as="sourcePoint"/><mxPoint x="540" y="380" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s6b" value="dispatch snapshot event" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#9673a6;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="540" y="410" as="sourcePoint"/><mxPoint x="855" y="410" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s7" value="⑦ WebSocket push tracks（固定 DTO）" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#333;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="855" y="445" as="sourcePoint"/><mxPoint x="1015" y="445" as="targetPoint"/></mxGeometry></mxCell>
 
 <!-- 路径B：业务事件 -->
 <mxCell id="labelB" value="路径 B  其他业务事件（经 SystemBus）" style="text;html=1;fontStyle=2;fontSize=10;fillColor=#ede0f5;strokeColor=#9673a6;rounded=1;" vertex="1" parent="1"><mxGeometry x="330" y="448" width="270" height="22" as="geometry"/></mxCell>
@@ -65,7 +66,7 @@
 <mxCell id="s4b2" value="dispatch to subscribers" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#9673a6;strokeWidth=2;dashed=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="540" y="505" as="sourcePoint"/><mxPoint x="855" y="505" as="targetPoint"/></mxGeometry></mxCell>
 
 <!-- 备注 -->
-<mxCell id="note" value="&lt;b&gt;设计说明&lt;/b&gt;&#xa;· Web 不接收厂家协议，UI 只消费 TrackDisplaySnapshot&#xa;· 上位机不做航迹起批 / 消失算法，仅做显示投影&#xa;· 高频 TrackPoint 走 Qt 直连信号，SystemBus 承担低频业务事件" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffde7;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="1"><mxGeometry x="30" y="610" width="1060" height="60" as="geometry"/></mxCell>
+<mxCell id="note" value="&lt;b&gt;设计说明&lt;/b&gt;&#xa;· Web 不接收厂家协议，UI 只消费 TrackDisplaySnapshot 固定 DTO&#xa;· Processor → TrackDisplayManager 可 core 内直连；TrackDisplayManager → Web 必须经 SystemBus + WebBridge&#xa;· WebSocket 推送层不直接监听 TrackDisplayManager 信号" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffde7;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="1"><mxGeometry x="30" y="610" width="1060" height="60" as="geometry"/></mxCell>
 
 </root>
 </mxGraphModel>
