@@ -73,25 +73,25 @@
           </mxGeometry>
         </mxCell>
 
-        <!-- ═══ 数据 ═══ -->
-        <mxCell id="data-box" value="数据" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;fontSize=14;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
+        <!-- ═══ 数据与配置 ═══ -->
+        <mxCell id="data-box" value="数据与配置" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;fontSize=14;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
           <mxGeometry x="80" y="680" width="740" height="130" as="geometry" />
         </mxCell>
-        <mxCell id="data-ini" value=".ini" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#ffffff;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+        <mxCell id="data-ini" value="SQLite / DataStore&#xa;业务台账" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#ffffff;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="160" y="720" width="80" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="data-csv" value=".csv" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#ffffff;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+        <mxCell id="data-csv" value="config/*.json&#xa;端点/处理链" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#ffffff;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="310" y="720" width="80" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="data-json" value=".json" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#ffffff;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+        <mxCell id="data-json" value="log / event&#xa;运行记录" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#ffffff;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="460" y="720" width="80" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="data-log" value=".log" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#ffffff;strokeColor=#666666;fontSize=12;" vertex="1" parent="1">
+        <mxCell id="data-log" value="CSV / replay&#xa;测试回放" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#ffffff;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="610" y="720" width="80" height="70" as="geometry" />
         </mxCell>
 
         <!-- ═══ 说明：当前实现映射（可选参考，不改动原图结构）═══ -->
-        <mxCell id="note-box" value="&lt;b&gt;设计原则（保持简单）&lt;/b&gt;&lt;br&gt;• 前端只连 Server，不碰厂家协议&lt;br&gt;• 业务模块经 SystemBus 解耦，总控负责装配&lt;br&gt;• 通信 → DataProcessor 可直连（省拷贝），之后走总线&lt;br&gt;• 数据访问统一落 .ini / .csv / .json / .log&lt;br&gt;&lt;br&gt;&lt;font color=&quot;#666666&quot;&gt;当前代码映射：WEB=React | 总控=AppController | 通信=CommunicationManager | DataProcessor=RadarDataProcessor | ConfigManager=DataStore+endpoints.json | 日志=Logger+SQLite&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffcc;strokeColor=#d6b656;align=left;spacingLeft=10;spacingTop=6;fontSize=11;verticalAlign=top;" vertex="1" parent="1">
+        <mxCell id="note-box" value="&lt;b&gt;设计原则（保持简单）&lt;/b&gt;&lt;br&gt;• 前端只连 Server，不碰厂家协议&lt;br&gt;• 设备台账以 DeviceRegistry / SQLite 为 source of truth&lt;br&gt;• 高频显示数据可走直连性能通道，业务事件经 SystemBus 解耦&lt;br&gt;• config/*.json 管通信/装配，DataStore 管业务数据&lt;br&gt;&lt;br&gt;&lt;font color=&quot;#666666&quot;&gt;当前代码映射：WEB=React | 总控=AppController | 通信=CommunicationManager | DataProcessor=RadarDataProcessor | 设备台账=DeviceRegistry+SQLite | 航迹显示=TrackDisplayManager | 日志=Logger&lt;/font&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffcc;strokeColor=#d6b656;align=left;spacingLeft=10;spacingTop=6;fontSize=11;verticalAlign=top;" vertex="1" parent="1">
           <mxGeometry x="80" y="840" width="740" height="130" as="geometry" />
         </mxCell>
 

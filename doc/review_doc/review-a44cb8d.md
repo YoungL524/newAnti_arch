@@ -34,11 +34,13 @@ Suggested fix for Claude Code:
 Choose one of these contracts and make both sides match:
 
 1. **Full replace (`PUT`)**
+   
    - Frontend must merge `updates` with the current complete device object and send the full DTO.
    - Backend keeps full-object validation.
    - API docs should say `PUT /api/devices/{id}` requires a full device payload.
 
 2. **Partial update (`PATCH`)**
+   
    - Add `Method::PATCH` and `handlePatchPrefix`.
    - Backend loads existing device, applies only provided fields, validates the merged result, then updates.
    - Frontend keeps sending partial updates.
