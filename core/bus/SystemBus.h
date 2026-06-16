@@ -3,14 +3,13 @@
 #include "ISystemBus.h"
 #include "ThreadSafeQueue.h"
 #include "GenericPackets.h"
+#include "BusEnvelope.h"
 #include <memory>
 #include <unordered_map>
 #include <vector>
 #include <mutex>
 #include <atomic>
 #include <QThread>
-
-struct BusEnvelope;
 
 /**
  * @brief 系统总线实现类
@@ -40,6 +39,8 @@ public:
     bool publish(DataPacket&& dataPacket);
     bool publish(BusEnvelope&& envelope);
     SubscriptionId subscribeBySource(uint16_t sourceType, BusCallback callback) override;
+    SubscriptionId subscribeBySourceEnvelope(uint16_t sourceType,
+                                             BusEnvelopeCallback callback) override;
     SubscriptionId subscribeByTarget(uint16_t target, BusCallback callback) override;
     SubscriptionId subscribe(uint16_t sourceType, uint16_t target, BusCallback callback) override;
     SubscriptionId subscribeAll(BusCallback callback) override;
@@ -100,26 +101,56 @@ private:
         
         uint16_t sourceType;
         uint16_t target;
-        BusCallback callback;
+        BusCallback packetCallback;
+        BusEnvelopeCallback envelopeCallback;
         bool hasSourceType;
         bool hasTarget;
         bool isWildcard;
 
-        // 按数据源类型订阅
+        // 按数据源类型订阅（DataPacket 头）
         SubscriptionInfo(BySource, uint16_t src, BusCallback cb)
-            : sourceType(src), callback(std::move(cb)), hasSourceType(true), hasTarget(false), isWildcard(false) {}
+            : sourceType(src)
+            , packetCallback(std::move(cb))
+            , hasSourceType(true)
+            , hasTarget(false)
+            , isWildcard(false)
+        {}
+
+        // 按数据源类型订阅（完整 BusEnvelope）
+        SubscriptionInfo(BySource, uint16_t src, BusEnvelopeCallback cb)
+            : sourceType(src)
+            , envelopeCallback(std::move(cb))
+            , hasSourceType(true)
+            , hasTarget(false)
+            , isWildcard(false)
+        {}
 
         // 按分发目标订阅
         SubscriptionInfo(ByTarget, uint16_t tgt, BusCallback cb)
-            : target(tgt), callback(std::move(cb)), hasSourceType(false), hasTarget(true), isWildcard(false) {}
+            : target(tgt)
+            , packetCallback(std::move(cb))
+            , hasSourceType(false)
+            , hasTarget(true)
+            , isWildcard(false)
+        {}
 
         // 组合条件订阅
         SubscriptionInfo(uint16_t src, uint16_t tgt, BusCallback cb)
-            : sourceType(src), target(tgt), callback(std::move(cb)), hasSourceType(true), hasTarget(true), isWildcard(false) {}
+            : sourceType(src)
+            , target(tgt)
+            , packetCallback(std::move(cb))
+            , hasSourceType(true)
+            , hasTarget(true)
+            , isWildcard(false)
+        {}
 
         // 通配符订阅
         SubscriptionInfo(BusCallback cb)
-            : callback(std::move(cb)), hasSourceType(false), hasTarget(false), isWildcard(true) {}
+            : packetCallback(std::move(cb))
+            , hasSourceType(false)
+            , hasTarget(false)
+            , isWildcard(true)
+        {}
     };
 
     void dispatchToSubscribers(const BusEnvelope& envelope);
@@ -232,15 +263,17 @@ private:
      * @param matchingSubscriptions 已匹配的订阅 ID 列表
      * @return 回调列表
      */
-    std::vector<BusCallback> collectCallbacks(const std::vector<SubscriptionId>& matchingSubscriptions) const;
+    std::vector<BusCallback> collectPacketCallbacks(
+        const std::vector<SubscriptionId>& matchingSubscriptions) const;
 
-    /**
-     * @brief 顺序执行回调列表
-     * @param callbacksToInvoke 待执行回调列表
-     * @param dataPacket 数据包
-     */
-    void invokeCallbacks(const std::vector<BusCallback>& callbacksToInvoke,
-                         const DataPacket* dataPacket) const;
+    std::vector<BusEnvelopeCallback> collectEnvelopeCallbacks(
+        const std::vector<SubscriptionId>& matchingSubscriptions) const;
+
+    void invokePacketCallbacks(const std::vector<BusCallback>& callbacks,
+                               const DataPacket* dataPacket) const;
+
+    void invokeEnvelopeCallbacks(const std::vector<BusEnvelopeCallback>& callbacks,
+                                 const BusEnvelope& envelope) const;
 
     void startProcessing();
     void stopProcessing();

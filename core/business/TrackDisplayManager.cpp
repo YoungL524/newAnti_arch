@@ -154,9 +154,8 @@ void TrackDisplayManager::setInteraction(
     deliverSnapshot(snapshot(QDateTime::currentMSecsSinceEpoch()));
 }
 
-void TrackDisplayManager::deliverSnapshot(const TrackDisplaySnapshot& snap)
+void TrackDisplayManager::deliverSnapshot(TrackDisplaySnapshot&& snap)
 {
-    auto shared = std::make_shared<TrackDisplaySnapshot>(snap);
-    SystemBus::getInstance().publish(
-        BusEnvelope::makeTrackDisplaySnapshot(std::move(shared)));
+    auto shared = std::make_shared<TrackDisplaySnapshot>(std::move(snap));
+    SystemBus::getInstance().publish(makeTrackDisplaySnapshot(std::move(shared)));
 }

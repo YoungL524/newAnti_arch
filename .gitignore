@@ -66,6 +66,7 @@ ui_*.h
 *.db-wal
 *.db-journal
 output.txt
+build_err.txt
 
 # ============================================================
 #  Node / frontend
@@ -87,6 +88,8 @@ demo/
 # ============================================================
 ide_design.png
 cursor_Design.md
+doc/.$*.bkp
+*.drawio.bkp
 
 # ============================================================
 #  Local environment

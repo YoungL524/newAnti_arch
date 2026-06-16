@@ -25,7 +25,7 @@ private:
     void applyStyle(TrackDisplayPoint& dp, uint32_t pointIndex,
                     const TrackDisplayPoint::Interaction& interaction) const;
     void pruneStaleTracks(qint64 nowMs);
-    void deliverSnapshot(const TrackDisplaySnapshot& snap);
+    void deliverSnapshot(TrackDisplaySnapshot&& snap);
 
     struct CachedPoint {
         TrackPoint point;

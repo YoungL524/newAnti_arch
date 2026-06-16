@@ -18,6 +18,9 @@ using SubscriptionId = uint32_t;
  */
 using BusCallback = std::function<void(const DataPacket*)>;
 
+struct BusEnvelope;
+using BusEnvelopeCallback = std::function<void(const BusEnvelope&)>;
+
 /**
  * @brief 系统总线接口
  * @details 基于DDS发布订阅模式的数据高速公路
@@ -55,6 +58,12 @@ public:
      *       见 BusCallback 文档的线程安全说明。
      */
     virtual SubscriptionId subscribeBySource(uint16_t sourceType, BusCallback callback) = 0;
+
+    /**
+     * @brief 按源类型订阅，回调接收完整 BusEnvelope（含大对象载荷）
+     */
+    virtual SubscriptionId subscribeBySourceEnvelope(uint16_t sourceType,
+                                                     BusEnvelopeCallback callback) = 0;
 
     /**
      * @brief 订阅特定分发目标的数据

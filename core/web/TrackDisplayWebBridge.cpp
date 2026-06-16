@@ -1,6 +1,5 @@
 #include "TrackDisplayWebBridge.h"
 #include "WebService.h"
-#include "bus/BusEnvelope.h"
 #include "bus/SystemBus.h"
 #include "TrackTypes.h"
 #include <QJsonArray>
@@ -8,13 +7,6 @@
 #include <QMetaObject>
 #include <QPointer>
 #include <QDebug>
-
-namespace {
-struct TrackSnapshotMetaRegistrar {
-    TrackSnapshotMetaRegistrar() { qRegisterMetaType<TrackDisplaySnapshot>(); }
-};
-static const TrackSnapshotMetaRegistrar s_registrar;
-} // namespace
 
 TrackDisplayWebBridge::TrackDisplayWebBridge(web::WebService* ws, QObject* parent)
     : QObject(parent)
@@ -34,11 +26,11 @@ void TrackDisplayWebBridge::start()
 
     m_active = true;
     QPointer<TrackDisplayWebBridge> guard(this);
-    m_subId = SystemBus::getInstance().subscribeBySource(
+    m_subId = SystemBus::getInstance().subscribeBySourceEnvelope(
         SOURCE_TRACK_DISPLAY,
-        [guard](const DataPacket* pkt) {
+        [guard](const BusEnvelope& env) {
             if (guard)
-                guard->onBusPacket(pkt);
+                guard->onBusEnvelope(env);
         });
 
     if (m_subId == 0) {
@@ -58,24 +50,20 @@ void TrackDisplayWebBridge::stop()
     m_subId = 0;
 }
 
-void TrackDisplayWebBridge::onBusPacket(const DataPacket* pkt)
+void TrackDisplayWebBridge::onBusEnvelope(const BusEnvelope& env)
 {
-    if (!m_active || !pkt || pkt->payloadType != PAYLOAD_TYPE_TRACK_DISPLAY_SNAPSHOT)
+    if (!m_active || env.payloadKind != BusPayloadKind::TrackDisplaySnapshot)
         return;
 
-    auto snapPtr = BusEnvelope::trackSnapshotFrom(pkt);
+    auto snapPtr = env.payloadAs<TrackDisplaySnapshot>();
     if (!snapPtr)
         return;
 
-    QMetaObject::invokeMethod(this, "deliverSnapshot", Qt::QueuedConnection,
-                              Q_ARG(TrackDisplaySnapshot, *snapPtr));
-}
-
-void TrackDisplayWebBridge::deliverSnapshot(TrackDisplaySnapshot snap)
-{
-    if (!m_active)
-        return;
-    pushSnapshot(snap);
+    QPointer<TrackDisplayWebBridge> guard(this);
+    QMetaObject::invokeMethod(this, [guard, snapPtr]() {
+        if (guard && guard->m_active)
+            guard->pushSnapshot(*snapPtr);
+    }, Qt::QueuedConnection);
 }
 
 void TrackDisplayWebBridge::pushSnapshot(const TrackDisplaySnapshot& snap)

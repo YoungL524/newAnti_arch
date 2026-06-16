@@ -1,9 +1,0 @@
-[  3%] Copy runtime config (endpoints/processor/database) to <build>/bin/config/
-[  3%] Built target copy_runtime_config
-[  7%] Automatic MOC and UIC for target NewAntiDrone_core
-[  7%] Built target NewAntiDrone_core_autogen
-[ 11%] Building CXX object core/CMakeFiles/NewAntiDrone_core.dir/NewAntiDrone_core_autogen/mocs_compilation.cpp.obj
-mingw32-make.exe[3]: *** [core\CMakeFiles\NewAntiDrone_core.dir\build.make:79: core/CMakeFiles/NewAntiDrone_core.dir/NewAntiDrone_core_autogen/mocs_compilation.cpp.obj] Error 1
-mingw32-make.exe[2]: *** [CMakeFiles\Makefile2:202: core/CMakeFiles/NewAntiDrone_core.dir/all] Error 2
-mingw32-make.exe[1]: *** [CMakeFiles\Makefile2:209: core/CMakeFiles/NewAntiDrone_core.dir/rule] Error 2
-mingw32-make.exe: *** [Makefile:146: NewAntiDrone_core] Error 2

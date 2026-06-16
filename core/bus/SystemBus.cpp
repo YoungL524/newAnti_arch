@@ -61,7 +61,7 @@ bool SystemBus::publish(const DataPacket& dataPacket)
     }
 
     auto env = std::make_unique<BusEnvelope>();
-    env->packet = dataPacket;
+    env->header = dataPacket;
     return publish(std::move(*env));
 }
 
@@ -72,7 +72,7 @@ bool SystemBus::publish(DataPacket&& dataPacket)
     }
 
     auto env = std::make_unique<BusEnvelope>();
-    env->packet = std::move(dataPacket);
+    env->header = std::move(dataPacket);
     return publish(std::move(*env));
 }
 
@@ -239,30 +239,52 @@ void SystemBus::collectWildcardMatches(std::vector<SubscriptionId>& matchingSubs
     }
 }
 
-std::vector<BusCallback> SystemBus::collectCallbacks(const std::vector<SubscriptionId>& matchingSubscriptions) const
+std::vector<BusCallback> SystemBus::collectPacketCallbacks(
+    const std::vector<SubscriptionId>& matchingSubscriptions) const
 {
-    std::vector<BusCallback> callbacksToInvoke;
-    callbacksToInvoke.reserve(matchingSubscriptions.size());
-
+    std::vector<BusCallback> out;
+    out.reserve(matchingSubscriptions.size());
     for (SubscriptionId id : matchingSubscriptions) {
         auto it = m_subscriptions.find(id);
-        if (it != m_subscriptions.end()) {
-            callbacksToInvoke.push_back(it->second.callback);
-        }
+        if (it != m_subscriptions.end() && it->second.packetCallback)
+            out.push_back(it->second.packetCallback);
     }
-
-    return callbacksToInvoke;
+    return out;
 }
 
-void SystemBus::invokeCallbacks(const std::vector<BusCallback>& callbacksToInvoke,
-                                const DataPacket* dataPacket) const
+std::vector<BusEnvelopeCallback> SystemBus::collectEnvelopeCallbacks(
+    const std::vector<SubscriptionId>& matchingSubscriptions) const
 {
-    for (const auto& callback : callbacksToInvoke) {
+    std::vector<BusEnvelopeCallback> out;
+    out.reserve(matchingSubscriptions.size());
+    for (SubscriptionId id : matchingSubscriptions) {
+        auto it = m_subscriptions.find(id);
+        if (it != m_subscriptions.end() && it->second.envelopeCallback)
+            out.push_back(it->second.envelopeCallback);
+    }
+    return out;
+}
+
+void SystemBus::invokePacketCallbacks(const std::vector<BusCallback>& callbacks,
+                                      const DataPacket* dataPacket) const
+{
+    for (const auto& callback : callbacks) {
         try {
             callback(dataPacket);
-        }
-        catch (...) {
+        } catch (...) {
             qWarning() << QStringLiteral("[SystemBus] 回调执行异常，已忽略");
+        }
+    }
+}
+
+void SystemBus::invokeEnvelopeCallbacks(const std::vector<BusEnvelopeCallback>& callbacks,
+                                        const BusEnvelope& envelope) const
+{
+    for (const auto& callback : callbacks) {
+        try {
+            callback(envelope);
+        } catch (...) {
+            qWarning() << QStringLiteral("[SystemBus] Envelope 回调执行异常，已忽略");
         }
     }
 }
@@ -273,6 +295,21 @@ SubscriptionId SystemBus::subscribeBySource(uint16_t sourceType, BusCallback cal
         return 0;
     }
     if (!validateCallback(callback, QStringLiteral("按源类型订阅"))) {
+        return 0;
+    }
+
+    std::lock_guard<std::mutex> lock(m_subscriptionsMutex);
+    return registerSubscription(SubscriptionInfo(SubscriptionInfo::BySource{}, sourceType, std::move(callback)));
+}
+
+SubscriptionId SystemBus::subscribeBySourceEnvelope(uint16_t sourceType,
+                                                    BusEnvelopeCallback callback)
+{
+    if (isShutdown()) {
+        return 0;
+    }
+    if (!callback) {
+        qWarning() << QStringLiteral("[SystemBus] 按源类型订阅 Envelope 失败: 回调为空");
         return 0;
     }
 
@@ -409,13 +446,10 @@ void SystemBus::stopProcessing()
 
 void SystemBus::dispatchToSubscribers(const BusEnvelope& envelope)
 {
-    const DataPacket* dataPacket = &envelope.packet;
-    if (!dataPacket) {
-        qWarning() << QStringLiteral("[SystemBus] 分发失败: dataPacket 为空");
-        return;
-    }
+    const DataPacket* dataPacket = &envelope.header;
 
-    std::vector<BusCallback> callbacksToInvoke;
+    std::vector<BusCallback> packetCallbacks;
+    std::vector<BusEnvelopeCallback> envelopeCallbacks;
     {
         std::lock_guard<std::mutex> lock(m_subscriptionsMutex);
         std::vector<SubscriptionId> matchingSubscriptions;
@@ -423,12 +457,12 @@ void SystemBus::dispatchToSubscribers(const BusEnvelope& envelope)
         collectSourceMatches(*dataPacket, matchingSubscriptions);
         collectTargetMatches(*dataPacket, matchingSubscriptions);
         collectWildcardMatches(matchingSubscriptions);
-        callbacksToInvoke = collectCallbacks(matchingSubscriptions);
+        packetCallbacks = collectPacketCallbacks(matchingSubscriptions);
+        envelopeCallbacks = collectEnvelopeCallbacks(matchingSubscriptions);
     }
 
-    BusEnvelope::setDispatchContext(&envelope);
-    invokeCallbacks(callbacksToInvoke, dataPacket);
-    BusEnvelope::clearDispatchContext();
+    invokePacketCallbacks(packetCallbacks, dataPacket);
+    invokeEnvelopeCallbacks(envelopeCallbacks, envelope);
 }
 
 void SystemBus::dispatchToSubscribers(const DataPacket* dataPacket)
@@ -439,7 +473,7 @@ void SystemBus::dispatchToSubscribers(const DataPacket* dataPacket)
     }
 
     BusEnvelope env;
-    env.packet = *dataPacket;
+    env.header = *dataPacket;
     dispatchToSubscribers(env);
 }
 

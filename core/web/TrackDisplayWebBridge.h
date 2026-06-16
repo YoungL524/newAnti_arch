@@ -1,5 +1,6 @@
 #pragma once
 
+#include "bus/BusEnvelope.h"
 #include "bus/ISystemBus.h"
 #include <QObject>
 
@@ -20,11 +21,8 @@ public:
     void start();
     void stop();
 
-private slots:
-    void deliverSnapshot(TrackDisplaySnapshot snap);
-
 private:
-    void onBusPacket(const DataPacket* pkt);
+    void onBusEnvelope(const BusEnvelope& env);
     void pushSnapshot(const TrackDisplaySnapshot& snap);
 
     web::WebService* m_ws = nullptr;

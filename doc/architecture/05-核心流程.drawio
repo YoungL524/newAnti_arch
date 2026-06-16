@@ -56,7 +56,7 @@
   </mxGeometry>
 </mxCell>
 
-<mxCell id="s6" value="⑥ publish TrackDisplaySnapshot（SystemBus）" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#9673a6;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="695" y="380" as="sourcePoint"/><mxPoint x="540" y="380" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s6" value="⑥ publish BusEnvelope: TrackDisplaySnapshot（SystemBus）" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#9673a6;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="695" y="380" as="sourcePoint"/><mxPoint x="540" y="380" as="targetPoint"/></mxGeometry></mxCell>
 <mxCell id="s6b" value="dispatch snapshot event" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#9673a6;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="540" y="410" as="sourcePoint"/><mxPoint x="855" y="410" as="targetPoint"/></mxGeometry></mxCell>
 <mxCell id="s7" value="⑦ WebSocket push tracks（固定 DTO）" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#333;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="855" y="445" as="sourcePoint"/><mxPoint x="1015" y="445" as="targetPoint"/></mxGeometry></mxCell>
 
