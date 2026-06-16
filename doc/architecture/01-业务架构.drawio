@@ -1,91 +1,71 @@
-<mxfile host="app.diagrams.net" agent="Cursor" version="24.7.17">
-  <diagram id="biz-overview" name="业务能力总览">
-    <mxGraphModel dx="1200" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="850" math="0" shadow="0">
+<mxfile host="app.diagrams.net" agent="Codex" version="24.7.17">
+  <diagram id="business-capability" name="业务能力地图">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1300" pageHeight="820" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-        <mxCell id="title" value="01 - 业务架构 · 业务能力总览" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontStyle=1;fontSize=16;" vertex="1" parent="1">
-          <mxGeometry x="300" y="10" width="400" height="30" as="geometry" />
+        <mxCell id="title" value="01 - 业务架构 · 反无人机上位机业务能力地图" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=18;" vertex="1" parent="1">
+          <mxGeometry x="360" y="20" width="560" height="34" as="geometry" />
         </mxCell>
-        <mxCell id="platform" value="反无人机上位机 / 管理系统" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=13;" vertex="1" parent="1">
-          <mxGeometry x="400" y="60" width="260" height="50" as="geometry" />
+
+        <mxCell id="env" value="外部参与方" style="swimlane;startSize=30;rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="50" y="80" width="1180" height="88" as="geometry" />
         </mxCell>
-        <mxCell id="device" value="设备管理&#xa;设备台账 / 端点绑定 / 状态" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="60" y="180" width="150" height="60" as="geometry" />
+        <mxCell id="operator" value="值守人员 / 操作员" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontSize=12;" vertex="1" parent="env">
+          <mxGeometry x="70" y="40" width="180" height="34" as="geometry" />
         </mxCell>
-        <mxCell id="task" value="任务管理&#xa;任务创建 / 激活 / 完成 / 归档" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="240" y="180" width="150" height="60" as="geometry" />
+        <mxCell id="device-ext" value="雷达 / 光电 / GPS / 水平仪" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontSize=12;" vertex="1" parent="env">
+          <mxGeometry x="360" y="40" width="220" height="34" as="geometry" />
         </mxCell>
-        <mxCell id="runtime" value="运行时参数&#xa;DPH 参数 / 阵面参数 / 工作参数" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="420" y="180" width="150" height="60" as="geometry" />
+        <mxCell id="third-party" value="第三方系统 / 数据使用方" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#666666;fontSize=12;" vertex="1" parent="env">
+          <mxGeometry x="720" y="40" width="220" height="34" as="geometry" />
         </mxCell>
-        <mxCell id="workmode" value="工作状态控制&#xa;开始采集 / 停止采集 / 状态反馈" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="600" y="180" width="150" height="60" as="geometry" />
+
+        <mxCell id="core" value="核心业务能力层" style="swimlane;startSize=34;rounded=0;whiteSpace=wrap;html=1;fillColor=#eaf4ea;strokeColor=#82b366;fontStyle=1;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="50" y="205" width="1180" height="275" as="geometry" />
         </mxCell>
-        <mxCell id="track" value="航迹显示数据管理&#xa;显示样式 / 选中 / 追踪使能 / 转发" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="150" y="320" width="170" height="60" as="geometry" />
+        <mxCell id="cap-device" value="设备资源管理&#xa;设备台账 / 端点绑定 / 运行状态" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;fontStyle=1;" vertex="1" parent="core">
+          <mxGeometry x="40" y="60" width="190" height="72" as="geometry" />
         </mxCell>
-        <mxCell id="event" value="日志与告警&#xa;系统事件 / 操作记录 / 异常反馈" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="380" y="320" width="170" height="60" as="geometry" />
+        <mxCell id="cap-task" value="任务控制&#xa;任务创建 / 激活 / 完成 / 归档" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;fontStyle=1;" vertex="1" parent="core">
+          <mxGeometry x="270" y="60" width="190" height="72" as="geometry" />
         </mxCell>
-        <mxCell id="history" value="历史数据&#xa;任务航迹 / 日志 / 操作回放" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="610" y="320" width="170" height="60" as="geometry" />
+        <mxCell id="cap-runtime" value="运行参数管理&#xa;DPH / 阵面 / 工作参数" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;fontStyle=1;" vertex="1" parent="core">
+          <mxGeometry x="500" y="60" width="190" height="72" as="geometry" />
         </mxCell>
-        <mxCell id="e-p-d" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;" edge="1" source="platform" target="device" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-p-t" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;" edge="1" source="platform" target="task" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-p-r" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;" edge="1" source="platform" target="runtime" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-p-w" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;" edge="1" source="platform" target="workmode" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-p-tr" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;" edge="1" source="platform" target="track" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-p-e" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;" edge="1" source="platform" target="event" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-p-h" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;" edge="1" source="platform" target="history" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-t-d" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;dashed=1;" edge="1" source="task" target="device" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-t-r" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;dashed=1;" edge="1" source="task" target="runtime" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-t-tr" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;dashed=1;" edge="1" source="task" target="track" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-t-e" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;dashed=1;" edge="1" source="task" target="event" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-w-d" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;dashed=1;" edge="1" source="workmode" target="device" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-tr-d" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;dashed=1;" edge="1" source="track" target="device" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-h-t" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=classic;dashed=1;" edge="1" source="history" target="task" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="note" value="实线：平台统领能力&#xa;虚线：能力间协作" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffcc;strokeColor=#d6b656;fontSize=11;align=left;spacingLeft=8;" vertex="1" parent="1">
-          <mxGeometry x="60" y="440" width="200" height="50" as="geometry" />
+        <mxCell id="cap-work" value="工作状态控制&#xa;开始采集 / 停止采集 / 状态反馈" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;fontStyle=1;" vertex="1" parent="core">
+          <mxGeometry x="730" y="60" width="190" height="72" as="geometry" />
         </mxCell>
-        <mxCell id="boundary" value="&lt;b&gt;上位机不负责&lt;/b&gt;：航迹起批 / 融合 / 消失判定 / 厂家协议透传 Web" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;align=left;spacingLeft=8;" vertex="1" parent="1">
-          <mxGeometry x="300" y="430" width="480" height="40" as="geometry" />
+        <mxCell id="cap-track" value="航迹显示数据管理&#xa;显示样式 / 选中 / 追踪使能 / 转发策略" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;" vertex="1" parent="core">
+          <mxGeometry x="960" y="60" width="190" height="72" as="geometry" />
         </mxCell>
-      </root>
-    </mxGraphModel>
-  </diagram>
-  <diagram id="biz-task-state" name="任务状态">
-    <mxGraphModel dx="900" dy="600" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="900" pageHeight="600" math="0" shadow="0">
-      <root>
-        <mxCell id="0" />
-        <mxCell id="1" parent="0" />
-        <mxCell id="t-title" value="01 - 业务架构 · 任务状态" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=16;" vertex="1" parent="1">
-          <mxGeometry x="280" y="20" width="340" height="30" as="geometry" />
+        <mxCell id="flow1" value="主业务流：设备准备 → 任务激活 → 参数下发 → 采集控制 → 航迹显示/转发" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffcc;strokeColor=#d6b656;fontSize=12;align=center;fontStyle=1;" vertex="1" parent="core">
+          <mxGeometry x="160" y="175" width="860" height="44" as="geometry" />
         </mxCell>
-        <mxCell id="start" value="" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#000000;strokeColor=none;" vertex="1" parent="1">
-          <mxGeometry x="80" y="200" width="20" height="20" as="geometry" />
+        <mxCell id="e1" style="endArrow=block;html=1;strokeWidth=2;strokeColor=#82b366;" edge="1" source="cap-device" target="cap-task" parent="core"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e2" style="endArrow=block;html=1;strokeWidth=2;strokeColor=#82b366;" edge="1" source="cap-task" target="cap-runtime" parent="core"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e3" style="endArrow=block;html=1;strokeWidth=2;strokeColor=#82b366;" edge="1" source="cap-runtime" target="cap-work" parent="core"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="e4" style="endArrow=block;html=1;strokeWidth=2;strokeColor=#82b366;" edge="1" source="cap-work" target="cap-track" parent="core"><mxGeometry relative="1" as="geometry" /></mxCell>
+
+        <mxCell id="support" value="业务支撑能力层" style="swimlane;startSize=32;rounded=0;whiteSpace=wrap;html=1;fillColor=#e8f1fb;strokeColor=#6c8ebf;fontStyle=1;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="50" y="520" width="1180" height="128" as="geometry" />
         </mxCell>
-        <mxCell id="draft" value="Draft" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;" vertex="1" parent="1">
-          <mxGeometry x="160" y="185" width="100" height="50" as="geometry" />
+        <mxCell id="history" value="历史数据中心&#xa;任务航迹 / 日志 / 操作回放" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="support">
+          <mxGeometry x="80" y="50" width="240" height="52" as="geometry" />
         </mxCell>
-        <mxCell id="active" value="Active" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=13;" vertex="1" parent="1">
-          <mxGeometry x="340" y="185" width="100" height="50" as="geometry" />
+        <mxCell id="event" value="日志与告警&#xa;系统事件 / 用户操作 / 异常反馈" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="support">
+          <mxGeometry x="470" y="50" width="240" height="52" as="geometry" />
         </mxCell>
-        <mxCell id="completed" value="Completed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;" vertex="1" parent="1">
-          <mxGeometry x="520" y="120" width="110" height="50" as="geometry" />
+        <mxCell id="audit" value="运维与审计&#xa;运行健康 / 配置变更 / 问题追踪" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;" vertex="1" parent="support">
+          <mxGeometry x="860" y="50" width="240" height="52" as="geometry" />
         </mxCell>
-        <mxCell id="archived" value="Archived" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;" vertex="1" parent="1">
-          <mxGeometry x="520" y="260" width="110" height="50" as="geometry" />
+
+        <mxCell id="boundary" value="边界：上位机不负责航迹起批 / 融合 / 消失判定 / 厂家协议透传 Web；上位机负责业务设备、任务上下文、运行参数、显示态和对外固定 DTO。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;align=left;spacingLeft=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="180" y="690" width="920" height="58" as="geometry" />
         </mxCell>
-        <mxCell id="end" value="" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffffff;strokeColor=#000000;strokeWidth=3;" vertex="1" parent="1">
-          <mxGeometry x="720" y="275" width="20" height="20" as="geometry" />
+        <mxCell id="legend" value="业务架构只表达能力和边界，不表达代码类依赖。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="50" y="690" width="115" height="58" as="geometry" />
         </mxCell>
-        <mxCell id="s-d" style="endArrow=classic;html=1;" edge="1" source="start" target="draft" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="d-a" value="activate" style="endArrow=classic;html=1;fontSize=11;" edge="1" source="draft" target="active" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="a-c" value="complete" style="endArrow=classic;html=1;fontSize=11;" edge="1" source="active" target="completed" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="a-ar" value="archive" style="endArrow=classic;html=1;fontSize=11;" edge="1" source="active" target="archived" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="c-ar" value="archive" style="endArrow=classic;html=1;fontSize=11;" edge="1" source="completed" target="archived" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="ar-e" style="endArrow=classic;html=1;" edge="1" source="archived" target="end" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
       </root>
     </mxGraphModel>
   </diagram>

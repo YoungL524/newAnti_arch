@@ -1,150 +1,279 @@
-<mxfile host="app.diagrams.net" agent="Cursor" version="24.7.17">
-  <diagram id="flow-track-up" name="1-上行航迹显示">
-    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="650" math="0" shadow="0">
-      <root>
-        <mxCell id="0" /><mxCell id="1" parent="0" />
-        <mxCell id="t" value="05 - 核心流程 · 上行航迹显示" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=15;" vertex="1" parent="1"><mxGeometry x="380" y="10" width="400" height="28" as="geometry" /></mxCell>
-        <mxCell id="p1" value="雷达 /&#xa;test_comm" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="40" y="50" width="80" height="45" as="geometry" /></mxCell>
-        <mxCell id="p2" value="通信接入" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1"><mxGeometry x="160" y="50" width="80" height="45" as="geometry" /></mxCell>
-        <mxCell id="p3" value="协议适配" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1"><mxGeometry x="280" y="50" width="80" height="45" as="geometry" /></mxCell>
-        <mxCell id="p4" value="SystemBus&#xa;其他业务事件" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=10;" vertex="1" parent="1"><mxGeometry x="400" y="50" width="90" height="45" as="geometry" /></mxCell>
-        <mxCell id="p5" value="TrackDisplay&#xa;Manager" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1"><mxGeometry x="520" y="50" width="90" height="45" as="geometry" /></mxCell>
-        <mxCell id="p6" value="WebApi&#xa;Controller" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="650" y="50" width="80" height="45" as="geometry" /></mxCell>
-        <mxCell id="p7" value="React Web" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="770" y="50" width="80" height="45" as="geometry" /></mxCell>
-        <mxCell id="l1" style="endArrow=none;dashed=1;html=1;strokeColor=#999999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="80" y="95" as="sourcePoint" /><mxPoint x="80" y="480" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l2" style="endArrow=none;dashed=1;html=1;strokeColor=#999999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="200" y="95" as="sourcePoint" /><mxPoint x="200" y="480" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l3" style="endArrow=none;dashed=1;html=1;strokeColor=#999999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="320" y="95" as="sourcePoint" /><mxPoint x="320" y="480" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l4" style="endArrow=none;dashed=1;html=1;strokeColor=#999999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="440" y="95" as="sourcePoint" /><mxPoint x="440" y="480" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l5" style="endArrow=none;dashed=1;html=1;strokeColor=#999999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="565" y="95" as="sourcePoint" /><mxPoint x="565" y="480" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l6" style="endArrow=none;dashed=1;html=1;strokeColor=#999999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="690" y="95" as="sourcePoint" /><mxPoint x="690" y="480" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l7" style="endArrow=none;dashed=1;html=1;strokeColor=#999999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="810" y="95" as="sourcePoint" /><mxPoint x="810" y="480" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m1" value="UDP 厂家协议数据" style="endArrow=block;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="80" y="120" as="sourcePoint" /><mxPoint x="200" y="120" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m2" value="raw bytes" style="endArrow=block;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="200" y="145" as="sourcePoint" /><mxPoint x="320" y="145" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m3" value="parse GeneralPackage" style="endArrow=block;html=1;fontSize=10;curved=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="330" y="175" as="sourcePoint" /><mxPoint x="310" y="175" as="targetPoint" /><Array as="points"><mxPoint x="350" y="175" /><mxPoint x="350" y="195" /><mxPoint x="290" y="195" /><mxPoint x="290" y="175" /></Array></mxGeometry></mxCell>
-        <mxCell id="m4" value="publish GeneralPackage / echo events" style="endArrow=block;html=1;fontSize=10;strokeColor=#9673a6;strokeWidth=2;dashed=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="320" y="220" as="sourcePoint" /><mxPoint x="445" y="220" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m5" value="TrackPoint direct signal&#xa;high-frequency display path" style="endArrow=block;html=1;fontSize=10;strokeColor=#d79b00;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="320" y="250" as="sourcePoint" /><mxPoint x="565" y="250" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m6" value="apply display rules" style="endArrow=block;html=1;fontSize=10;curved=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="575" y="285" as="sourcePoint" /><mxPoint x="555" y="285" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m7" value="TrackDisplaySnapshot" style="endArrow=block;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="565" y="320" as="sourcePoint" /><mxPoint x="690" y="320" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m8" value="WebSocket tracks" style="endArrow=block;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="690" y="355" as="sourcePoint" /><mxPoint x="810" y="355" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="note" value="Web 不接收厂家协议 · 上位机不做航迹起批/消失算法 · 高频 TrackPoint 直连 TrackDisplayManager，SystemBus 承担其他业务事件 · UI 接收显示快照" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffcc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1"><mxGeometry x="40" y="500" width="870" height="42" as="geometry" /></mxCell>
-      </root>
-    </mxGraphModel>
-  </diagram>
-  <diagram id="flow-workmode" name="2-工作状态控制">
-    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="620" math="0" shadow="0">
-      <root>
-        <mxCell id="0" /><mxCell id="1" parent="0" />
-        <mxCell id="t" value="05 - 核心流程 · 下行工作状态控制" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=15;" vertex="1" parent="1"><mxGeometry x="300" y="10" width="420" height="28" as="geometry" /></mxCell>
-        <mxCell id="p1" value="React Web" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="40" y="50" width="80" height="40" as="geometry" /></mxCell>
-        <mxCell id="p2" value="WebApi&#xa;Controller" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="160" y="50" width="80" height="40" as="geometry" /></mxCell>
-        <mxCell id="p3" value="RadarWorkMode&#xa;Controller" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1"><mxGeometry x="290" y="50" width="90" height="40" as="geometry" /></mxCell>
-        <mxCell id="p4" value="SystemBus" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=10;" vertex="1" parent="1"><mxGeometry x="430" y="50" width="80" height="40" as="geometry" /></mxCell>
-        <mxCell id="p5" value="BusToComm&#xa;Router" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1"><mxGeometry x="550" y="50" width="80" height="40" as="geometry" /></mxCell>
-        <mxCell id="p6" value="通信接入" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1"><mxGeometry x="670" y="50" width="80" height="40" as="geometry" /></mxCell>
-        <mxCell id="p7" value="雷达 /&#xa;test_comm" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="790" y="50" width="80" height="40" as="geometry" /></mxCell>
-        <mxCell id="l1" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="80" y="90" as="sourcePoint" /><mxPoint x="80" y="450" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l2" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="200" y="90" as="sourcePoint" /><mxPoint x="200" y="450" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l3" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="335" y="90" as="sourcePoint" /><mxPoint x="335" y="450" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l4" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="470" y="90" as="sourcePoint" /><mxPoint x="470" y="450" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l5" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="590" y="90" as="sourcePoint" /><mxPoint x="590" y="450" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l6" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="710" y="90" as="sourcePoint" /><mxPoint x="710" y="450" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l7" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="830" y="90" as="sourcePoint" /><mxPoint x="830" y="450" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m1" value="POST /api/start or /api/stop" style="endArrow=block;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="80" y="115" as="sourcePoint" /><mxPoint x="200" y="115" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m2" value="requestWork / requestStandby" style="endArrow=block;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="200" y="145" as="sourcePoint" /><mxPoint x="335" y="145" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m3" value="publish workStandby command" style="endArrow=block;html=1;fontSize=10;strokeColor=#9673a6;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="335" y="180" as="sourcePoint" /><mxPoint x="470" y="180" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m4" value="dispatch command" style="endArrow=block;html=1;fontSize=10;strokeColor=#9673a6;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="470" y="215" as="sourcePoint" /><mxPoint x="590" y="215" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m5" value="sendTo(endpoint, target)" style="endArrow=block;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="590" y="250" as="sourcePoint" /><mxPoint x="710" y="250" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m6" value="UDP workStandby" style="endArrow=block;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="710" y="285" as="sourcePoint" /><mxPoint x="830" y="285" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m7" value="workStandby echo" style="endArrow=open;dashed=1;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="830" y="320" as="sourcePoint" /><mxPoint x="710" y="320" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m8" value="state echo through processor/bus" style="endArrow=open;dashed=1;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="710" y="355" as="sourcePoint" /><mxPoint x="335" y="355" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="note" value="工作状态由后端状态机管理 · UI 不直接拼 workStandby 协议包" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffcc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1"><mxGeometry x="40" y="470" width="830" height="30" as="geometry" /></mxCell>
-      </root>
-    </mxGraphModel>
-  </diagram>
-  <diagram id="flow-dph" name="3-DPH参数更新">
-    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="680" math="0" shadow="0">
-      <root>
-        <mxCell id="0" /><mxCell id="1" parent="0" />
-        <mxCell id="t" value="05 - 核心流程 · DPH 参数更新与周期发送" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=15;" vertex="1" parent="1"><mxGeometry x="280" y="10" width="480" height="28" as="geometry" /></mxCell>
-        <mxCell id="p1" value="React Web" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="40" y="50" width="80" height="40" as="geometry" /></mxCell>
-        <mxCell id="p2" value="WebApi&#xa;Controller" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="160" y="50" width="80" height="40" as="geometry" /></mxCell>
-        <mxCell id="p3" value="RuntimeSettings&#xa;Service" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1"><mxGeometry x="290" y="50" width="90" height="40" as="geometry" /></mxCell>
-        <mxCell id="p4" value="SystemBus" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=10;" vertex="1" parent="1"><mxGeometry x="430" y="50" width="80" height="40" as="geometry" /></mxCell>
-        <mxCell id="p5" value="DphPublisher" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1"><mxGeometry x="550" y="50" width="80" height="40" as="geometry" /></mxCell>
-        <mxCell id="p6" value="通信接入" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1"><mxGeometry x="670" y="50" width="80" height="40" as="geometry" /></mxCell>
-        <mxCell id="p7" value="雷达 /&#xa;test_comm" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="790" y="50" width="80" height="40" as="geometry" /></mxCell>
-        <mxCell id="l1" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="80" y="90" as="sourcePoint" /><mxPoint x="80" y="520" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l2" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="200" y="90" as="sourcePoint" /><mxPoint x="200" y="520" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l3" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="335" y="90" as="sourcePoint" /><mxPoint x="335" y="520" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l4" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="470" y="90" as="sourcePoint" /><mxPoint x="470" y="520" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l5" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="590" y="90" as="sourcePoint" /><mxPoint x="590" y="520" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l6" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="710" y="90" as="sourcePoint" /><mxPoint x="710" y="520" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l7" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="830" y="90" as="sourcePoint" /><mxPoint x="830" y="520" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m1" value="PUT /api/runtime-settings&#xa;full settings DTO" style="endArrow=block;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="80" y="115" as="sourcePoint" /><mxPoint x="200" y="115" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m2" value="validate full settings" style="endArrow=block;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="200" y="140" as="sourcePoint" /><mxPoint x="335" y="140" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m3" value="commit current snapshot" style="endArrow=block;html=1;fontSize=10;curved=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="345" y="170" as="sourcePoint" /><mxPoint x="325" y="170" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m4" value="publish DphParamsChanged" style="endArrow=block;html=1;fontSize=10;strokeColor=#9673a6;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="335" y="200" as="sourcePoint" /><mxPoint x="470" y="200" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m5" value="dispatch event" style="endArrow=block;html=1;fontSize=10;strokeColor=#9673a6;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="470" y="230" as="sourcePoint" /><mxPoint x="590" y="230" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m6" value="update cached params" style="endArrow=block;html=1;fontSize=10;curved=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="600" y="260" as="sourcePoint" /><mxPoint x="580" y="260" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="loop-box" value="loop every 50ms" style="shape=note;whiteSpace=wrap;html=1;fillColor=#ffffcc;strokeColor=#d6b656;size=14;fontSize=10;align=left;spacingLeft=6;" vertex="1" parent="1"><mxGeometry x="520" y="290" width="120" height="45" as="geometry" /></mxCell>
-        <mxCell id="m7" value="build DPH from cached params" style="endArrow=block;html=1;fontSize=10;curved=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="600" y="310" as="sourcePoint" /><mxPoint x="580" y="310" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m8" value="sendTo dph target" style="endArrow=block;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="590" y="350" as="sourcePoint" /><mxPoint x="710" y="350" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m9" value="UDP DPH" style="endArrow=block;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="710" y="385" as="sourcePoint" /><mxPoint x="830" y="385" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="note" value="当前代码：UI 提交完整 RuntimeSettings DTO · 后端持有当前有效快照 · DPH publisher 不轮询总线 · 50ms 周期按最近参数发送（partial update 属后续扩展）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffcc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1"><mxGeometry x="40" y="540" width="860" height="35" as="geometry" /></mxCell>
-      </root>
-    </mxGraphModel>
-  </diagram>
-  <diagram id="flow-task" name="4-任务切换">
-    <mxGraphModel dx="1000" dy="700" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="950" pageHeight="580" math="0" shadow="0">
-      <root>
-        <mxCell id="0" /><mxCell id="1" parent="0" />
-        <mxCell id="t" value="05 - 核心流程 · 任务切换" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=15;" vertex="1" parent="1"><mxGeometry x="280" y="10" width="360" height="28" as="geometry" /></mxCell>
-        <mxCell id="p1" value="React Web" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="40" y="50" width="80" height="40" as="geometry" /></mxCell>
-        <mxCell id="p2" value="WebApi&#xa;Controller" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="170" y="50" width="80" height="40" as="geometry" /></mxCell>
-        <mxCell id="p3" value="TaskService" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1"><mxGeometry x="300" y="50" width="80" height="40" as="geometry" /></mxCell>
-        <mxCell id="p4" value="DeviceRegistry" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1"><mxGeometry x="430" y="50" width="90" height="40" as="geometry" /></mxCell>
-        <mxCell id="p5" value="DataStore" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1"><mxGeometry x="560" y="50" width="80" height="40" as="geometry" /></mxCell>
-        <mxCell id="p6" value="TrackDisplay&#xa;Manager" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1"><mxGeometry x="680" y="50" width="90" height="40" as="geometry" /></mxCell>
-        <mxCell id="l1" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="80" y="90" as="sourcePoint" /><mxPoint x="80" y="420" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l2" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="210" y="90" as="sourcePoint" /><mxPoint x="210" y="420" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l3" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="340" y="90" as="sourcePoint" /><mxPoint x="340" y="420" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l4" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="475" y="90" as="sourcePoint" /><mxPoint x="475" y="420" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l5" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="600" y="90" as="sourcePoint" /><mxPoint x="600" y="420" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l6" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="725" y="90" as="sourcePoint" /><mxPoint x="725" y="420" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m1" value="activate task" style="endArrow=block;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="80" y="115" as="sourcePoint" /><mxPoint x="210" y="115" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m2" value="activate(taskId)" style="endArrow=block;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="210" y="145" as="sourcePoint" /><mxPoint x="340" y="145" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m3" value="load task devices" style="endArrow=block;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="340" y="180" as="sourcePoint" /><mxPoint x="475" y="180" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m4" value="load task logs/history" style="endArrow=block;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="340" y="215" as="sourcePoint" /><mxPoint x="600" y="215" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m5" value="set task context/filter" style="endArrow=block;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="340" y="250" as="sourcePoint" /><mxPoint x="725" y="250" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m6" value="task context snapshot" style="endArrow=open;dashed=1;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="210" y="300" as="sourcePoint" /><mxPoint x="80" y="300" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="note" value="切换任务：加载关联设备 / 历史航迹 / 日志操作记录 · UI 地图/PPI/表格跟随任务上下文" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffcc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1"><mxGeometry x="40" y="440" width="730" height="35" as="geometry" /></mxCell>
-        <mxCell id="todo" value="TaskService 当前未实现（前端 localStorage 占位）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1"><mxGeometry x="40" y="490" width="350" height="30" as="geometry" /></mxCell>
-      </root>
-    </mxGraphModel>
-  </diagram>
-  <diagram id="flow-device" name="5-设备台账加载">
-    <mxGraphModel dx="900" dy="650" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="900" pageHeight="550" math="0" shadow="0">
-      <root>
-        <mxCell id="0" /><mxCell id="1" parent="0" />
-        <mxCell id="t" value="05 - 核心流程 · 设备台账加载" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=15;" vertex="1" parent="1"><mxGeometry x="250" y="10" width="380" height="28" as="geometry" /></mxCell>
-        <mxCell id="p1" value="React Web" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="40" y="50" width="80" height="40" as="geometry" /></mxCell>
-        <mxCell id="p2" value="WebApi&#xa;Controller" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="180" y="50" width="80" height="40" as="geometry" /></mxCell>
-        <mxCell id="p3" value="DeviceRegistry" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1"><mxGeometry x="320" y="50" width="90" height="40" as="geometry" /></mxCell>
-        <mxCell id="p4" value="DataStore" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#f5f5f5;strokeColor=#666666;fontSize=10;" vertex="1" parent="1"><mxGeometry x="470" y="45" width="80" height="55" as="geometry" /></mxCell>
-        <mxCell id="p5" value="endpoints.json" style="shape=note;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;size=12;fontSize=10;" vertex="1" parent="1"><mxGeometry x="610" y="50" width="100" height="45" as="geometry" /></mxCell>
-        <mxCell id="l1" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="80" y="90" as="sourcePoint" /><mxPoint x="80" y="380" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l2" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="220" y="90" as="sourcePoint" /><mxPoint x="220" y="380" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l3" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="365" y="90" as="sourcePoint" /><mxPoint x="365" y="380" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l4" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="510" y="100" as="sourcePoint" /><mxPoint x="510" y="380" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="l5" style="endArrow=none;dashed=1;html=1;strokeColor=#999;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="660" y="95" as="sourcePoint" /><mxPoint x="660" y="380" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m1" value="GET /api/devices" style="endArrow=block;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="80" y="115" as="sourcePoint" /><mxPoint x="220" y="115" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m2" value="list devices" style="endArrow=block;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="220" y="145" as="sourcePoint" /><mxPoint x="365" y="145" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m3" value="load DeviceInfo" style="endArrow=block;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="365" y="180" as="sourcePoint" /><mxPoint x="510" y="180" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m4" value="resolve endpoint binding" style="endArrow=block;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="365" y="215" as="sourcePoint" /><mxPoint x="660" y="215" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m5" value="DeviceInfo + runtime state" style="endArrow=open;dashed=1;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="365" y="260" as="sourcePoint" /><mxPoint x="220" y="260" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="m6" value="fixed Device DTO" style="endArrow=open;dashed=1;html=1;fontSize=10;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="220" y="300" as="sourcePoint" /><mxPoint x="80" y="300" as="targetPoint" /></mxGeometry></mxCell>
-        <mxCell id="note" value="前端加载后端设备台账 · 通信端点由配置驱动 · 设备与端点通过 binding 关联" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffcc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1"><mxGeometry x="40" y="400" width="670" height="30" as="geometry" /></mxCell>
-      </root>
-    </mxGraphModel>
-  </diagram>
+<mxfile host="app.diagrams.net" version="21.0.0">
+
+<!-- ============================================================
+     PAGE 1 · 上行航迹显示
+     参与者: 雷达/test_comm | 通信接入 | 协议适配 | SystemBus | TrackDisplayManager | WebApiController | React Web
+     ============================================================ -->
+<diagram name="1-上行航迹显示" id="flow-track-up">
+<mxGraphModel dx="1500" dy="820" grid="1" gridSize="10" pageWidth="1300" pageHeight="720">
+<root>
+<mxCell id="0"/><mxCell id="1" parent="0"/>
+
+<!-- 标题 -->
+<mxCell id="t" value="05 - 核心流程 · 上行航迹显示" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=16;" vertex="1" parent="1"><mxGeometry x="380" y="12" width="500" height="28" as="geometry"/></mxCell>
+
+<!-- 参与者 header -->
+<mxCell id="p1" value="&lt;b&gt;雷达设备 /&lt;/b&gt;&#xa;&lt;b&gt;test_comm&lt;/b&gt;&#xa;（数据源）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="30" y="50" width="100" height="55" as="geometry"/></mxCell>
+<mxCell id="p2" value="&lt;b&gt;通信接入&lt;/b&gt;&#xa;CommunicationManager&#xa;UDP 监听" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1"><mxGeometry x="175" y="50" width="110" height="55" as="geometry"/></mxCell>
+<mxCell id="p3" value="&lt;b&gt;协议适配&lt;/b&gt;&#xa;RadarDataProcessor&#xa;parse → TrackPoint" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1"><mxGeometry x="330" y="50" width="110" height="55" as="geometry"/></mxCell>
+<mxCell id="p4" value="&lt;b&gt;SystemBus&lt;/b&gt;&#xa;Worker Thread&#xa;事件总线" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="485" y="50" width="110" height="55" as="geometry"/></mxCell>
+<mxCell id="p5" value="&lt;b&gt;TrackDisplay&lt;/b&gt;&#xa;&lt;b&gt;Manager&lt;/b&gt;&#xa;显示规则应用" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1"><mxGeometry x="640" y="50" width="110" height="55" as="geometry"/></mxCell>
+<mxCell id="p6" value="&lt;b&gt;WebApi&lt;/b&gt;&#xa;&lt;b&gt;Controller&lt;/b&gt;&#xa;HTTP / WS 出口" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="800" y="50" width="110" height="55" as="geometry"/></mxCell>
+<mxCell id="p7" value="&lt;b&gt;React Web&lt;/b&gt;&#xa;浏览器前端&#xa;地图 / PPI / 表格" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="960" y="50" width="110" height="55" as="geometry"/></mxCell>
+
+<!-- 生命线 -->
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="80" y="105" as="sourcePoint"/><mxPoint x="80" y="590" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="230" y="105" as="sourcePoint"/><mxPoint x="230" y="590" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="385" y="105" as="sourcePoint"/><mxPoint x="385" y="590" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="540" y="105" as="sourcePoint"/><mxPoint x="540" y="590" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="695" y="105" as="sourcePoint"/><mxPoint x="695" y="590" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="855" y="105" as="sourcePoint"/><mxPoint x="855" y="590" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="1015" y="105" as="sourcePoint"/><mxPoint x="1015" y="590" as="targetPoint"/></mxGeometry></mxCell>
+
+<!-- 步骤标注 -->
+<mxCell id="s1" value="① UDP 厂家协议数据" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#333;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="80" y="140" as="sourcePoint"/><mxPoint x="230" y="140" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s2" value="② raw bytes 传递" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#333;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="230" y="175" as="sourcePoint"/><mxPoint x="385" y="175" as="targetPoint"/></mxGeometry></mxCell>
+
+<!-- 自调用：parse -->
+<mxCell id="s3" value="③ parse → GeneralPackage" style="endArrow=block;endFill=1;html=1;fontSize=10;curved=1;strokeColor=#82b366;strokeWidth=2;" edge="1" parent="1">
+  <mxGeometry relative="1" as="geometry">
+    <mxPoint x="385" y="210" as="sourcePoint"/>
+    <mxPoint x="385" y="240" as="targetPoint"/>
+    <Array as="points"><mxPoint x="420" y="210"/><mxPoint x="420" y="240"/></Array>
+  </mxGeometry>
+</mxCell>
+
+<!-- 路径A：高频直连 -->
+<mxCell id="labelA" value="路径 A  高频航迹（直连，绕过总线）" style="text;html=1;fontStyle=2;fontSize=10;fillColor=#fff3cd;strokeColor=#d6b656;rounded=1;" vertex="1" parent="1"><mxGeometry x="330" y="258" width="290" height="22" as="geometry"/></mxCell>
+<mxCell id="s4a" value="④a  TrackPoint signal（Qt direct connection）" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#d79b00;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="385" y="290" as="sourcePoint"/><mxPoint x="695" y="290" as="targetPoint"/></mxGeometry></mxCell>
+
+<!-- 自调用：apply display rules -->
+<mxCell id="s5" value="⑤ apply display rules" style="endArrow=block;endFill=1;html=1;fontSize=10;curved=1;strokeColor=#d6b656;strokeWidth=2;" edge="1" parent="1">
+  <mxGeometry relative="1" as="geometry">
+    <mxPoint x="695" y="320" as="sourcePoint"/>
+    <mxPoint x="695" y="350" as="targetPoint"/>
+    <Array as="points"><mxPoint x="740" y="320"/><mxPoint x="740" y="350"/></Array>
+  </mxGeometry>
+</mxCell>
+
+<mxCell id="s6" value="⑥ TrackDisplaySnapshot" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#333;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="695" y="380" as="sourcePoint"/><mxPoint x="855" y="380" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s7" value="⑦ WebSocket push tracks" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#333;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="855" y="415" as="sourcePoint"/><mxPoint x="1015" y="415" as="targetPoint"/></mxGeometry></mxCell>
+
+<!-- 路径B：业务事件 -->
+<mxCell id="labelB" value="路径 B  其他业务事件（经 SystemBus）" style="text;html=1;fontStyle=2;fontSize=10;fillColor=#ede0f5;strokeColor=#9673a6;rounded=1;" vertex="1" parent="1"><mxGeometry x="330" y="448" width="270" height="22" as="geometry"/></mxCell>
+<mxCell id="s4b" value="④b  publish GeneralPackage / echo events" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#9673a6;strokeWidth=2;dashed=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="385" y="475" as="sourcePoint"/><mxPoint x="540" y="475" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s4b2" value="dispatch to subscribers" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#9673a6;strokeWidth=2;dashed=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="540" y="505" as="sourcePoint"/><mxPoint x="855" y="505" as="targetPoint"/></mxGeometry></mxCell>
+
+<!-- 备注 -->
+<mxCell id="note" value="&lt;b&gt;设计说明&lt;/b&gt;&#xa;· Web 不接收厂家协议，UI 只消费 TrackDisplaySnapshot&#xa;· 上位机不做航迹起批 / 消失算法，仅做显示投影&#xa;· 高频 TrackPoint 走 Qt 直连信号，SystemBus 承担低频业务事件" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffde7;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="1"><mxGeometry x="30" y="610" width="1060" height="60" as="geometry"/></mxCell>
+
+</root>
+</mxGraphModel>
+</diagram>
+
+<!-- ============================================================
+     PAGE 2 · 下行工作状态控制
+     ============================================================ -->
+<diagram name="2-工作状态控制" id="flow-workmode">
+<mxGraphModel dx="1400" dy="820" grid="1" gridSize="10" pageWidth="1200" pageHeight="700">
+<root>
+<mxCell id="0"/><mxCell id="1" parent="0"/>
+
+<mxCell id="t" value="05 - 核心流程 · 下行工作状态控制" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=16;" vertex="1" parent="1"><mxGeometry x="330" y="12" width="520" height="28" as="geometry"/></mxCell>
+
+<!-- 参与者 -->
+<mxCell id="p1" value="&lt;b&gt;React Web&lt;/b&gt;&#xa;用户操作" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="30" y="50" width="100" height="50" as="geometry"/></mxCell>
+<mxCell id="p2" value="&lt;b&gt;WebApi&lt;/b&gt;&#xa;&lt;b&gt;Controller&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="175" y="50" width="100" height="50" as="geometry"/></mxCell>
+<mxCell id="p3" value="&lt;b&gt;RadarWorkMode&lt;/b&gt;&#xa;&lt;b&gt;Controller&lt;/b&gt;&#xa;状态机" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1"><mxGeometry x="320" y="50" width="110" height="50" as="geometry"/></mxCell>
+<mxCell id="p4" value="&lt;b&gt;SystemBus&lt;/b&gt;&#xa;Worker Thread" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="475" y="50" width="100" height="50" as="geometry"/></mxCell>
+<mxCell id="p5" value="&lt;b&gt;BusToComm&lt;/b&gt;&#xa;&lt;b&gt;Router&lt;/b&gt;&#xa;命令路由" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1"><mxGeometry x="620" y="50" width="100" height="50" as="geometry"/></mxCell>
+<mxCell id="p6" value="&lt;b&gt;通信接入&lt;/b&gt;&#xa;CommunicationManager" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1"><mxGeometry x="765" y="50" width="110" height="50" as="geometry"/></mxCell>
+<mxCell id="p7" value="&lt;b&gt;雷达设备 /&lt;/b&gt;&#xa;&lt;b&gt;test_comm&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="930" y="50" width="100" height="50" as="geometry"/></mxCell>
+
+<!-- 生命线 -->
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="80" y="100" as="sourcePoint"/><mxPoint x="80" y="560" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="225" y="100" as="sourcePoint"/><mxPoint x="225" y="560" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="375" y="100" as="sourcePoint"/><mxPoint x="375" y="560" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="525" y="100" as="sourcePoint"/><mxPoint x="525" y="560" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="670" y="100" as="sourcePoint"/><mxPoint x="670" y="560" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="820" y="100" as="sourcePoint"/><mxPoint x="820" y="560" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="980" y="100" as="sourcePoint"/><mxPoint x="980" y="560" as="targetPoint"/></mxGeometry></mxCell>
+
+<!-- 下行流程 -->
+<mxCell id="s1" value="① POST /api/radar/start  或  /stop" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#333;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="80" y="140" as="sourcePoint"/><mxPoint x="225" y="140" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s2" value="② requestWork / requestStandby()" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#333;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="225" y="175" as="sourcePoint"/><mxPoint x="375" y="175" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s3" value="③ publish WorkStandbyCmd（SystemBus）" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#9673a6;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="375" y="215" as="sourcePoint"/><mxPoint x="525" y="215" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s4" value="④ dispatch command to router" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#9673a6;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="525" y="255" as="sourcePoint"/><mxPoint x="670" y="255" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s5" value="⑤ sendTo(endpoint, target)" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#333;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="670" y="295" as="sourcePoint"/><mxPoint x="820" y="295" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s6" value="⑥ UDP workStandby 指令包" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#b85450;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="820" y="335" as="sourcePoint"/><mxPoint x="980" y="335" as="targetPoint"/></mxGeometry></mxCell>
+
+<!-- 回传 Echo -->
+<mxCell id="echo_label" value="Echo 回传（雷达确认）" style="text;html=1;fontStyle=2;fontSize=10;fillColor=#fce4e4;strokeColor=#b85450;rounded=1;" vertex="1" parent="1"><mxGeometry x="620" y="368" width="200" height="20" as="geometry"/></mxCell>
+<mxCell id="s7" value="⑦ workStandby echo（UDP 回包）" style="endArrow=open;endFill=0;html=1;fontSize=10;strokeColor=#b85450;strokeWidth=1.5;dashed=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="980" y="395" as="sourcePoint"/><mxPoint x="820" y="395" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s8" value="⑧ state echo → processor → bus → Controller 更新状态" style="endArrow=open;endFill=0;html=1;fontSize=10;strokeColor=#b85450;strokeWidth=1.5;dashed=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="820" y="430" as="sourcePoint"/><mxPoint x="375" y="430" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s9" value="⑨ 200 OK + 当前状态" style="endArrow=open;endFill=0;html=1;fontSize=10;strokeColor=#6c8ebf;strokeWidth=1.5;dashed=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="225" y="470" as="sourcePoint"/><mxPoint x="80" y="470" as="targetPoint"/></mxGeometry></mxCell>
+
+<mxCell id="note" value="&lt;b&gt;设计说明&lt;/b&gt;&#xa;· 工作状态由后端状态机（RadarWorkModeController）管理，UI 不直接拼协议包&#xa;· UI 只发语义指令（start / stop），协议细节封装在后端" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffde7;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="1"><mxGeometry x="30" y="580" width="1020" height="55" as="geometry"/></mxCell>
+
+</root>
+</mxGraphModel>
+</diagram>
+
+<!-- ============================================================
+     PAGE 3 · DPH 参数更新与周期发送
+     ============================================================ -->
+<diagram name="3-DPH参数更新" id="flow-dph">
+<mxGraphModel dx="1400" dy="820" grid="1" gridSize="10" pageWidth="1200" pageHeight="740">
+<root>
+<mxCell id="0"/><mxCell id="1" parent="0"/>
+
+<mxCell id="t" value="05 - 核心流程 · DPH 参数更新与周期发送" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=16;" vertex="1" parent="1"><mxGeometry x="300" y="12" width="560" height="28" as="geometry"/></mxCell>
+
+<!-- 参与者 -->
+<mxCell id="p1" value="&lt;b&gt;React Web&lt;/b&gt;&#xa;用户配置参数" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="30" y="50" width="105" height="50" as="geometry"/></mxCell>
+<mxCell id="p2" value="&lt;b&gt;WebApi&lt;/b&gt;&#xa;&lt;b&gt;Controller&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="180" y="50" width="105" height="50" as="geometry"/></mxCell>
+<mxCell id="p3" value="&lt;b&gt;RuntimeSettings&lt;/b&gt;&#xa;&lt;b&gt;Service&lt;/b&gt;&#xa;参数快照管理" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1"><mxGeometry x="330" y="50" width="110" height="50" as="geometry"/></mxCell>
+<mxCell id="p4" value="&lt;b&gt;SystemBus&lt;/b&gt;&#xa;Worker Thread" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="485" y="50" width="105" height="50" as="geometry"/></mxCell>
+<mxCell id="p5" value="&lt;b&gt;DphPublisher&lt;/b&gt;&#xa;50ms 定时器&#xa;周期发送" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=10;" vertex="1" parent="1"><mxGeometry x="635" y="50" width="105" height="50" as="geometry"/></mxCell>
+<mxCell id="p6" value="&lt;b&gt;通信接入&lt;/b&gt;&#xa;CommunicationManager" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1"><mxGeometry x="785" y="50" width="110" height="50" as="geometry"/></mxCell>
+<mxCell id="p7" value="&lt;b&gt;雷达设备 /&lt;/b&gt;&#xa;&lt;b&gt;test_comm&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="950" y="50" width="100" height="50" as="geometry"/></mxCell>
+
+<!-- 生命线 -->
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="82" y="100" as="sourcePoint"/><mxPoint x="82" y="620" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="232" y="100" as="sourcePoint"/><mxPoint x="232" y="620" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="385" y="100" as="sourcePoint"/><mxPoint x="385" y="620" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="537" y="100" as="sourcePoint"/><mxPoint x="537" y="620" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="687" y="100" as="sourcePoint"/><mxPoint x="687" y="620" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="840" y="100" as="sourcePoint"/><mxPoint x="840" y="620" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="1000" y="100" as="sourcePoint"/><mxPoint x="1000" y="620" as="targetPoint"/></mxGeometry></mxCell>
+
+<!-- 参数提交流程 -->
+<mxCell id="sec1" value="参数提交（用户触发）" style="text;html=1;fontStyle=1;fontSize=10;fillColor=#e8f4fd;strokeColor=#6c8ebf;rounded=1;" vertex="1" parent="1"><mxGeometry x="30" y="118" width="200" height="20" as="geometry"/></mxCell>
+
+<mxCell id="s1" value="① PUT /api/runtime-settings（完整 DTO）" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#333;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="82" y="150" as="sourcePoint"/><mxPoint x="232" y="150" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s2" value="② validate full settings DTO" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#333;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="232" y="185" as="sourcePoint"/><mxPoint x="385" y="185" as="targetPoint"/></mxGeometry></mxCell>
+
+<mxCell id="s3" value="③ commit → update current snapshot" style="endArrow=block;endFill=1;html=1;fontSize=10;curved=1;strokeColor=#82b366;strokeWidth=2;" edge="1" parent="1">
+  <mxGeometry relative="1" as="geometry">
+    <mxPoint x="385" y="220" as="sourcePoint"/>
+    <mxPoint x="385" y="250" as="targetPoint"/>
+    <Array as="points"><mxPoint x="430" y="220"/><mxPoint x="430" y="250"/></Array>
+  </mxGeometry>
+</mxCell>
+
+<mxCell id="s4" value="④ publish DphParamsChanged" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#9673a6;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="385" y="280" as="sourcePoint"/><mxPoint x="537" y="280" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s5" value="⑤ dispatch event to DphPublisher" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#9673a6;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="537" y="315" as="sourcePoint"/><mxPoint x="687" y="315" as="targetPoint"/></mxGeometry></mxCell>
+
+<mxCell id="s6" value="⑥ update cached params" style="endArrow=block;endFill=1;html=1;fontSize=10;curved=1;strokeColor=#d79b00;strokeWidth=2;" edge="1" parent="1">
+  <mxGeometry relative="1" as="geometry">
+    <mxPoint x="687" y="350" as="sourcePoint"/>
+    <mxPoint x="687" y="380" as="targetPoint"/>
+    <Array as="points"><mxPoint x="740" y="350"/><mxPoint x="740" y="380"/></Array>
+  </mxGeometry>
+</mxCell>
+
+<mxCell id="s6b" value="⑥b  200 OK" style="endArrow=open;endFill=0;html=1;fontSize=10;strokeColor=#6c8ebf;dashed=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="232" y="400" as="sourcePoint"/><mxPoint x="82" y="400" as="targetPoint"/></mxGeometry></mxCell>
+
+<!-- 周期发送流程 -->
+<mxCell id="sec2" value="周期发送（独立定时器，50ms）" style="text;html=1;fontStyle=1;fontSize=10;fillColor=#fff3e0;strokeColor=#d79b00;rounded=1;" vertex="1" parent="1"><mxGeometry x="600" y="418" width="240" height="20" as="geometry"/></mxCell>
+
+<mxCell id="loop" value="loop · 每 50ms" style="shape=note;whiteSpace=wrap;html=1;fillColor=#fffde7;strokeColor=#d6b656;size=14;fontSize=10;" vertex="1" parent="1"><mxGeometry x="630" y="445" width="115" height="40" as="geometry"/></mxCell>
+
+<mxCell id="s7" value="⑦ build DPH packet from cached params" style="endArrow=block;endFill=1;html=1;fontSize=10;curved=1;strokeColor=#d79b00;strokeWidth=2;" edge="1" parent="1">
+  <mxGeometry relative="1" as="geometry">
+    <mxPoint x="687" y="460" as="sourcePoint"/>
+    <mxPoint x="687" y="490" as="targetPoint"/>
+    <Array as="points"><mxPoint x="740" y="460"/><mxPoint x="740" y="490"/></Array>
+  </mxGeometry>
+</mxCell>
+
+<mxCell id="s8" value="⑧ sendTo(dph target)" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#333;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="687" y="525" as="sourcePoint"/><mxPoint x="840" y="525" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s9" value="⑨ UDP DPH 包" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#b85450;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="840" y="560" as="sourcePoint"/><mxPoint x="1000" y="560" as="targetPoint"/></mxGeometry></mxCell>
+
+<mxCell id="note" value="&lt;b&gt;设计说明&lt;/b&gt;&#xa;· UI 提交完整 RuntimeSettings DTO，后端持有当前有效快照（非 partial update）&#xa;· DphPublisher 不轮询总线，持有最近参数缓存，按 50ms 定时自行发送&#xa;· partial update 属后续扩展" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffde7;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="1"><mxGeometry x="30" y="640" width="1050" height="65" as="geometry"/></mxCell>
+
+</root>
+</mxGraphModel>
+</diagram>
+
+<!-- ============================================================
+     PAGE 4 · 任务切换
+     ============================================================ -->
+<diagram name="4-任务切换" id="flow-task">
+<mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" pageWidth="1050" pageHeight="680">
+<root>
+<mxCell id="0"/><mxCell id="1" parent="0"/>
+
+<mxCell id="t" value="05 - 核心流程 · 任务切换" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=16;" vertex="1" parent="1"><mxGeometry x="280" y="12" width="440" height="28" as="geometry"/></mxCell>
+
+<!-- 参与者 -->
+<mxCell id="p1" value="&lt;b&gt;React Web&lt;/b&gt;&#xa;用户切换任务" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="30" y="50" width="105" height="50" as="geometry"/></mxCell>
+<mxCell id="p2" value="&lt;b&gt;WebApi&lt;/b&gt;&#xa;&lt;b&gt;Controller&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="180" y="50" width="105" height="50" as="geometry"/></mxCell>
+<mxCell id="p3" value="&lt;b&gt;TaskService&lt;/b&gt;&#xa;⚠ 未实现&#xa;（localStorage 占位）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;" vertex="1" parent="1"><mxGeometry x="330" y="50" width="115" height="50" as="geometry"/></mxCell>
+<mxCell id="p4" value="&lt;b&gt;DeviceRegistry&lt;/b&gt;&#xa;设备台账" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1"><mxGeometry x="495" y="50" width="105" height="50" as="geometry"/></mxCell>
+<mxCell id="p5" value="&lt;b&gt;DataStore&lt;/b&gt;&#xa;SQLite" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#f5f5f5;strokeColor=#666;fontSize=10;" vertex="1" parent="1"><mxGeometry x="645" y="45" width="95" height="60" as="geometry"/></mxCell>
+<mxCell id="p6" value="&lt;b&gt;TrackDisplay&lt;/b&gt;&#xa;&lt;b&gt;Manager&lt;/b&gt;&#xa;过滤器更新" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=10;" vertex="1" parent="1"><mxGeometry x="790" y="50" width="110" height="50" as="geometry"/></mxCell>
+
+<!-- 生命线 -->
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="82" y="100" as="sourcePoint"/><mxPoint x="82" y="510" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="232" y="100" as="sourcePoint"/><mxPoint x="232" y="510" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="387" y="100" as="sourcePoint"/><mxPoint x="387" y="510" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="547" y="100" as="sourcePoint"/><mxPoint x="547" y="510" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="692" y="105" as="sourcePoint"/><mxPoint x="692" y="510" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="845" y="100" as="sourcePoint"/><mxPoint x="845" y="510" as="targetPoint"/></mxGeometry></mxCell>
+
+<mxCell id="s1" value="① POST /api/tasks/{id}/activate" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#333;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="82" y="140" as="sourcePoint"/><mxPoint x="232" y="140" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s2" value="② activate(taskId)" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#333;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="232" y="175" as="sourcePoint"/><mxPoint x="387" y="175" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s3" value="③ load task devices" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#82b366;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="387" y="215" as="sourcePoint"/><mxPoint x="547" y="215" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s4" value="④ load task logs / history" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#666;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="387" y="255" as="sourcePoint"/><mxPoint x="692" y="255" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s5" value="⑤ set task context / display filter" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#d6b656;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="387" y="295" as="sourcePoint"/><mxPoint x="845" y="295" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s6" value="⑥ task context snapshot（含关联设备列表）" style="endArrow=open;endFill=0;html=1;fontSize=10;strokeColor=#6c8ebf;dashed=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="232" y="345" as="sourcePoint"/><mxPoint x="82" y="345" as="targetPoint"/></mxGeometry></mxCell>
+
+<!-- TODO 标注 -->
+<mxCell id="todo" value="⚠  TaskService 当前未实现，前端以 localStorage 暂存任务上下文" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=10;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="30" y="390" width="550" height="36" as="geometry"/></mxCell>
+
+<mxCell id="note" value="&lt;b&gt;设计说明&lt;/b&gt;&#xa;· 切换任务后自动加载关联设备 / 历史航迹 / 操作日志&#xa;· UI 地图 / PPI / 表格跟随任务上下文过滤，不重新拉取全量数据" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffde7;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="1"><mxGeometry x="30" y="450" width="900" height="55" as="geometry"/></mxCell>
+
+</root>
+</mxGraphModel>
+</diagram>
+
+<!-- ============================================================
+     PAGE 5 · 设备台账加载
+     ============================================================ -->
+<diagram name="5-设备台账加载" id="flow-device">
+<mxGraphModel dx="1100" dy="780" grid="1" gridSize="10" pageWidth="1000" pageHeight="640">
+<root>
+<mxCell id="0"/><mxCell id="1" parent="0"/>
+
+<mxCell id="t" value="05 - 核心流程 · 设备台账加载" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=16;" vertex="1" parent="1"><mxGeometry x="240" y="12" width="460" height="28" as="geometry"/></mxCell>
+
+<!-- 参与者 -->
+<mxCell id="p1" value="&lt;b&gt;React Web&lt;/b&gt;&#xa;页面初始化" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="30" y="50" width="105" height="50" as="geometry"/></mxCell>
+<mxCell id="p2" value="&lt;b&gt;WebApi&lt;/b&gt;&#xa;&lt;b&gt;Controller&lt;/b&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=10;" vertex="1" parent="1"><mxGeometry x="185" y="50" width="105" height="50" as="geometry"/></mxCell>
+<mxCell id="p3" value="&lt;b&gt;DeviceRegistry&lt;/b&gt;&#xa;设备 + 端点管理" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;" vertex="1" parent="1"><mxGeometry x="340" y="50" width="115" height="50" as="geometry"/></mxCell>
+<mxCell id="p4" value="&lt;b&gt;DataStore&lt;/b&gt;&#xa;SQLite" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#f5f5f5;strokeColor=#666;fontSize=10;" vertex="1" parent="1"><mxGeometry x="510" y="45" width="95" height="60" as="geometry"/></mxCell>
+<mxCell id="p5" value="&lt;b&gt;endpoints.json&lt;/b&gt;&#xa;配置文件" style="shape=note;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;size=12;fontSize=10;" vertex="1" parent="1"><mxGeometry x="660" y="50" width="110" height="50" as="geometry"/></mxCell>
+
+<!-- 生命线 -->
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="82" y="100" as="sourcePoint"/><mxPoint x="82" y="470" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="237" y="100" as="sourcePoint"/><mxPoint x="237" y="470" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="397" y="100" as="sourcePoint"/><mxPoint x="397" y="470" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="557" y="105" as="sourcePoint"/><mxPoint x="557" y="470" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell style="endArrow=none;dashed=1;strokeColor=#aaa;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="715" y="100" as="sourcePoint"/><mxPoint x="715" y="470" as="targetPoint"/></mxGeometry></mxCell>
+
+<!-- 流程 -->
+<mxCell id="s1" value="① GET /api/devices" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#333;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="82" y="140" as="sourcePoint"/><mxPoint x="237" y="140" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s2" value="② list devices" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#333;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="237" y="175" as="sourcePoint"/><mxPoint x="397" y="175" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s3" value="③ load DeviceInfo（DeviceEndpointBinding）" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#666;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="397" y="215" as="sourcePoint"/><mxPoint x="557" y="215" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s4" value="④ resolve endpoint binding（endpoints.json）" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#d6b656;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="397" y="255" as="sourcePoint"/><mxPoint x="715" y="255" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s5" value="⑤ DeviceInfo + runtime state（聚合）" style="endArrow=open;endFill=0;html=1;fontSize=10;strokeColor=#82b366;dashed=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="397" y="310" as="sourcePoint"/><mxPoint x="237" y="310" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="s6" value="⑥ fixed Device DTO" style="endArrow=open;endFill=0;html=1;fontSize=10;strokeColor=#6c8ebf;dashed=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="237" y="355" as="sourcePoint"/><mxPoint x="82" y="355" as="targetPoint"/></mxGeometry></mxCell>
+
+<mxCell id="note" value="&lt;b&gt;设计说明&lt;/b&gt;&#xa;· 前端加载后端设备台账，不维护本地设备缓存&#xa;· 通信端点由 endpoints.json 配置驱动，DeviceEndpointBinding 为多对多关联&#xa;· 对外暴露 fixed Device DTO，Web 层不感知内部 binding 结构" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffde7;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="1"><mxGeometry x="30" y="490" width="850" height="70" as="geometry"/></mxCell>
+
+</root>
+</mxGraphModel>
+</diagram>
+
 </mxfile>

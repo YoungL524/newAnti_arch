@@ -1,65 +1,178 @@
-<mxfile host="app.diagrams.net" agent="Cursor" version="24.7.17">
-  <diagram id="data-domain" name="数据域总览">
-    <mxGraphModel dx="1200" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="900" math="0" shadow="0">
+<mxfile host="app.diagrams.net" agent="Codex">
+  <diagram id="data-domain-map" name="数据域总览">
+    <mxGraphModel dx="1704" dy="943" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1320" pageHeight="820" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-        <mxCell id="title" value="03 - 数据架构 · 数据域总览" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=16;" vertex="1" parent="1">
-          <mxGeometry x="320" y="15" width="360" height="30" as="geometry" />
+        <mxCell id="title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontStyle=1;fontSize=18;" value="03 - 数据架构 · 数据域与契约总览" vertex="1">
+          <mxGeometry height="34" width="460" x="430" y="20" as="geometry" />
         </mxCell>
-        <mxCell id="device" value="DeviceInfo&#xa;设备台账" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="80" y="80" width="120" height="50" as="geometry" />
+        <mxCell id="legend" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;align=left;spacingLeft=10;verticalAlign=top;spacingTop=8;" value="图例&#xa;黑色：转换/派生主链路&#xa;蓝色虚线：引用/绑定&#xa;绿色：持久化写入&#xa;紫色：对外 DTO 输出&#xa;红色虚线：事件记录" vertex="1">
+          <mxGeometry height="130" width="200" x="40" y="70" as="geometry" />
         </mxCell>
-        <mxCell id="endpoint" value="EndpointConfig&#xa;通信端点" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="80" y="160" width="120" height="50" as="geometry" />
+        <mxCell id="raw-layer" parent="1" style="swimlane;startSize=30;rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=13;" value="Layer 1 · 原始接入层" vertex="1">
+          <mxGeometry height="150" width="300" x="40" y="235" as="geometry" />
         </mxCell>
-        <mxCell id="binding" value="DeviceEndpointBinding&#xa;设备-端点绑定" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="260" y="120" width="150" height="50" as="geometry" />
+        <mxCell id="raw" parent="raw-layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d79b00;fontSize=11;fontStyle=1;" value="Raw Protocol Data&#xa;厂家协议二进制/私有格式" vertex="1">
+          <mxGeometry height="56" width="125" x="25" y="55" as="geometry" />
         </mxCell>
-        <mxCell id="task" value="TaskInfo&#xa;任务" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="480" y="80" width="120" height="50" as="geometry" />
+        <mxCell id="endpoint" parent="raw-layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d79b00;fontSize=11;fontStyle=1;" value="EndpointConfig&#xa;通信端点配置" vertex="1">
+          <mxGeometry height="56" width="110" x="165" y="55" as="geometry" />
         </mxCell>
-        <mxCell id="runtime" value="RuntimeSettingsSnapshot&#xa;运行时参数快照" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="480" y="160" width="160" height="50" as="geometry" />
+        <mxCell id="device-layer" parent="1" style="swimlane;startSize=30;rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=13;" value="Layer 2 · 设备域" vertex="1">
+          <mxGeometry height="170" width="300" x="40" y="430" as="geometry" />
         </mxCell>
-        <mxCell id="trackraw" value="Raw Protocol Data&#xa;厂家协议原始数据" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="80" y="320" width="150" height="50" as="geometry" />
+        <mxCell id="device" parent="device-layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=11;fontStyle=1;" value="DeviceInfo&#xa;业务设备台账" vertex="1">
+          <mxGeometry height="55" width="115" x="25" y="55" as="geometry" />
         </mxCell>
-        <mxCell id="trackpt" value="TrackPoint&#xa;内部标准航迹点" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="280" y="320" width="140" height="50" as="geometry" />
+        <mxCell id="binding" parent="device-layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffcc;strokeColor=#d6b656;fontSize=11;fontStyle=1;" value="DeviceEndpointBinding&#xa;设备-端点绑定" vertex="1">
+          <mxGeometry height="55" width="120" x="160" y="55" as="geometry" />
         </mxCell>
-        <mxCell id="trackview" value="TrackDisplaySnapshot&#xa;Web 显示航迹" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="480" y="320" width="160" height="50" as="geometry" />
+        <mxCell id="runtime" parent="device-layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=11;fontStyle=1;" value="RuntimeSettingsSnapshot&#xa;运行参数当前快照" vertex="1">
+          <mxGeometry height="38" width="255" x="25" y="120" as="geometry" />
         </mxCell>
-        <mxCell id="event" value="SystemEvent / OperationLog&#xa;事件与操作记录" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="700" y="200" width="180" height="50" as="geometry" />
+        <mxCell id="task-layer" parent="1" style="swimlane;startSize=30;rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=13;" value="Layer 3 · 任务域" vertex="1">
+          <mxGeometry height="150" width="300" x="395" y="235" as="geometry" />
         </mxCell>
-        <mxCell id="store" value="DataStore&#xa;SQLite/DB" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="720" y="380" width="100" height="70" as="geometry" />
+        <mxCell id="task" parent="task-layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=11;fontStyle=1;" value="TaskInfo&#xa;任务定义 / 状态 / 关联资源" vertex="1">
+          <mxGeometry height="58" width="210" x="45" y="58" as="geometry" />
         </mxCell>
-        <mxCell id="webdto" value="Core-Web Fixed DTO" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=12;" vertex="1" parent="1">
-          <mxGeometry x="480" y="480" width="180" height="45" as="geometry" />
+        <mxCell id="track-layer" parent="1" style="swimlane;startSize=30;rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;fontSize=13;" value="Layer 4 · 航迹处理域" vertex="1">
+          <mxGeometry height="170" width="520" x="395" y="430" as="geometry" />
         </mxCell>
-        <mxCell id="e-dev-bind" style="endArrow=classic;html=1;" edge="1" source="device" target="binding" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-ep-bind" style="endArrow=classic;html=1;" edge="1" source="endpoint" target="binding" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-task-dev" style="endArrow=classic;html=1;dashed=1;" edge="1" source="task" target="device" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-task-rt" style="endArrow=classic;html=1;dashed=1;" edge="1" source="task" target="runtime" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-task-tv" style="endArrow=classic;html=1;dashed=1;" edge="1" source="task" target="trackview" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-task-ev" style="endArrow=classic;html=1;dashed=1;" edge="1" source="task" target="event" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-raw-pt" style="endArrow=classic;html=1;strokeWidth=2;" edge="1" source="trackraw" target="trackpt" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-pt-tv" style="endArrow=classic;html=1;strokeWidth=2;" edge="1" source="trackpt" target="trackview" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-tv-web" style="endArrow=classic;html=1;strokeWidth=2;" edge="1" source="trackview" target="webdto" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-dev-st" style="endArrow=classic;html=1;" edge="1" source="device" target="store" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-task-st" style="endArrow=classic;html=1;" edge="1" source="task" target="store" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-rt-st" style="endArrow=classic;html=1;" edge="1" source="runtime" target="store" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-pt-st" style="endArrow=classic;html=1;" edge="1" source="trackpt" target="store" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-ev-st" style="endArrow=classic;html=1;" edge="1" source="event" target="store" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="e-ev-web" style="endArrow=classic;html=1;" edge="1" source="event" target="webdto" parent="1"><mxGeometry relative="1" as="geometry" /></mxCell>
-        <mxCell id="dto-list" value="&lt;b&gt;固定 Core-Web DTO&lt;/b&gt;&lt;br&gt;DeviceInfo · DeviceRuntimeState · TaskInfo · RuntimeSettingsSnapshot · TrackDisplaySnapshot · SystemEvent · CommandResult" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffcc;strokeColor=#d6b656;fontSize=11;align=left;spacingLeft=10;verticalAlign=top;spacingTop=6;" vertex="1" parent="1">
-          <mxGeometry x="80" y="560" width="800" height="55" as="geometry" />
+        <mxCell id="trackpoint" parent="track-layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;fontSize=11;fontStyle=1;" value="TrackPoint&#xa;内部标准航迹点" vertex="1">
+          <mxGeometry height="58" width="150" x="40" y="65" as="geometry" />
         </mxCell>
-        <mxCell id="track-pipeline" value="航迹数据链：Raw Protocol Data → TrackPoint → TrackDisplaySnapshot → Web DTO" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=11;" vertex="1" parent="1">
-          <mxGeometry x="200" y="640" width="520" height="35" as="geometry" />
+        <mxCell id="trackdisplay" parent="track-layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;fontSize=11;fontStyle=1;" value="TrackDisplaySnapshot&#xa;Web 显示航迹快照&#xa;聚合 + 样式 + 交互状态" vertex="1">
+          <mxGeometry height="72" width="180" x="300" y="58" as="geometry" />
+        </mxCell>
+        <mxCell id="track-note" parent="track-layer" style="text;html=1;strokeColor=none;fillColor=none;fontSize=11;fontStyle=2;align=center;" value="主链路：Raw → TrackPoint → TrackDisplaySnapshot" vertex="1">
+          <mxGeometry height="24" width="340" x="90" y="135" as="geometry" />
+        </mxCell>
+        <mxCell id="event-layer" parent="1" style="swimlane;startSize=30;rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=13;" value="Layer 5 · 事件与日志域" vertex="1">
+          <mxGeometry height="150" width="300" x="970" y="235" as="geometry" />
+        </mxCell>
+        <mxCell id="system-event" parent="event-layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=11;fontStyle=1;" value="SystemEvent&#xa;设备上下线 / 异常 / 告警" vertex="1">
+          <mxGeometry height="58" width="115" x="30" y="58" as="geometry" />
+        </mxCell>
+        <mxCell id="op-log" parent="event-layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=11;fontStyle=1;" value="OperationLog&#xa;用户操作审计" vertex="1">
+          <mxGeometry height="58" width="110" x="165" y="58" as="geometry" />
+        </mxCell>
+        <mxCell id="storage-layer" parent="1" style="swimlane;startSize=30;rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;fontSize=13;" value="Layer 6 · 存储层" vertex="1">
+          <mxGeometry height="170" width="300" x="970" y="430" as="geometry" />
+        </mxCell>
+        <mxCell id="store" parent="storage-layer" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=14;fillColor=#ffffff;strokeColor=#666666;fontSize=11;fontStyle=1;" value="DataStore&#xa;SQLite / DB&#xa;本地持久化存储" vertex="1">
+          <mxGeometry height="82" width="140" x="80" y="58" as="geometry" />
+        </mxCell>
+        <mxCell id="dto-layer" parent="1" style="swimlane;startSize=30;rounded=0;whiteSpace=wrap;html=1;fillColor=#f4eaff;strokeColor=#9673a6;fontStyle=1;fontSize=13;" value="Layer 7 · 对外接口层（固定 DTO）" vertex="1">
+          <mxGeometry height="125" width="875" x="395" y="650" as="geometry" />
+        </mxCell>
+        <mxCell id="dto1" parent="dto-layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=10;" value="DeviceInfo DTO" vertex="1">
+          <mxGeometry height="42" width="110" x="25" y="55" as="geometry" />
+        </mxCell>
+        <mxCell id="dto2" parent="dto-layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=10;" value="DeviceRuntimeState DTO" vertex="1">
+          <mxGeometry height="42" width="130" x="150" y="55" as="geometry" />
+        </mxCell>
+        <mxCell id="dto3" parent="dto-layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=10;" value="TaskInfo DTO" vertex="1">
+          <mxGeometry height="42" width="110" x="300" y="55" as="geometry" />
+        </mxCell>
+        <mxCell id="dto4" parent="dto-layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=10;" value="RuntimeSettings DTO" vertex="1">
+          <mxGeometry height="42" width="130" x="430" y="55" as="geometry" />
+        </mxCell>
+        <mxCell id="dto5" parent="dto-layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=10;" value="TrackDisplaySnapshot DTO" vertex="1">
+          <mxGeometry height="42" width="145" x="580" y="55" as="geometry" />
+        </mxCell>
+        <mxCell id="dto6" parent="dto-layer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=10;" value="SystemEvent DTO" vertex="1">
+          <mxGeometry height="42" width="110" x="745" y="55" as="geometry" />
+        </mxCell>
+        <mxCell id="dto-note" parent="dto-layer" style="text;html=1;strokeColor=none;fillColor=none;fontSize=11;fontStyle=2;align=left;" value="固定契约：Web 只依赖 DTO，不直接访问内部模型或厂家协议。" vertex="1">
+          <mxGeometry height="20" width="420" x="25" y="32" as="geometry" />
+        </mxCell>
+        <mxCell id="e-end-bind" edge="1" parent="1" source="endpoint" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeColor=#6c8ebf;strokeWidth=1.5;dashed=1;fontSize=10;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" target="binding" value="绑定">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="260" y="405" />
+              <mxPoint x="260" y="430" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-dev-bind" edge="1" parent="1" source="device" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeColor=#6c8ebf;strokeWidth=1.5;dashed=1;fontSize=10;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="binding" value="引用">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-task-device" edge="1" parent="1" source="task" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeColor=#6c8ebf;fontSize=10;dashed=1;exitX=0;exitY=0.5;entryX=1;entryY=0.2;" target="device" value="关联设备">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="365" y="322" />
+              <mxPoint x="365" y="470" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-task-track" edge="1" parent="1" source="task" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeColor=#6c8ebf;fontSize=10;dashed=1;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" target="trackdisplay" value="任务上下文">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="545" y="410" />
+              <mxPoint x="785" y="410" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-raw-track" edge="1" parent="1" source="raw" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=10;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="trackpoint" value="协议解析">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="370" y="318" />
+              <mxPoint x="370" y="524" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-track-display" edge="1" parent="1" source="trackpoint" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeWidth=2;fontSize=10;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="trackdisplay" value="显示聚合">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-task-event" edge="1" parent="1" source="task" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;dashed=1;strokeColor=#b85450;fontSize=10;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" target="system-event" value="触发事件">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="735" y="322" />
+              <mxPoint x="735" y="310" />
+              <mxPoint x="960" y="310" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-track-store" edge="1" parent="1" source="trackdisplay" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeColor=#82b366;strokeWidth=2;fontSize=10;exitX=1;exitY=0.5;entryX=0;entryY=0.55;" target="store" value="持久化">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="935" y="524" />
+              <mxPoint x="935" y="533" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-event-store" edge="1" parent="1" source="system-event" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeColor=#82b366;strokeWidth=2;fontSize=10;exitX=0.5;exitY=1;entryX=0.35;entryY=0;" target="store" value="持久化">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-op-store" edge="1" parent="1" source="op-log" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeColor=#82b366;strokeWidth=2;fontSize=10;exitX=0.5;exitY=1;entryX=0.65;entryY=0;" target="store" value="持久化">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-device-dto" edge="1" parent="1" source="device" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeColor=#9673a6;strokeWidth=2;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" target="dto1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="122" y="625" />
+              <mxPoint x="475" y="625" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-task-dto" edge="1" parent="1" source="task" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeColor=#9673a6;strokeWidth=2;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" target="dto3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-runtime-dto" edge="1" parent="1" source="runtime" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeColor=#9673a6;strokeWidth=2;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" target="dto4">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="168" y="625" />
+              <mxPoint x="890" y="625" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-track-dto" edge="1" parent="1" source="trackdisplay" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeColor=#9673a6;strokeWidth=2;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" target="dto5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-event-dto" edge="1" parent="1" source="system-event" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;endArrow=classic;strokeColor=#9673a6;strokeWidth=2;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" target="dto6">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
