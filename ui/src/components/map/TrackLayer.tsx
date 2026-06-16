@@ -28,11 +28,13 @@ const SELECTED_COLOR = '#ea580c'          // 暖橙，浅底地图上比亮黄�
 const GRAY_COLOR = '#9ca3af'
 const GRAY_LINE = 'rgba(156, 163, 175, 0.55)'
 
-const GRAY_HEAD_COUNT = 3                 // 前 3 点灰色小点
-const HEAD_R = 3.6
-const TAIL_R = 1.25
-const GRAY_R = 1.05
+const GRAY_HEAD_COUNT = 3
+const HEAD_R = 3.2
 const LINE_W = 1
+const TAIL_R = LINE_W / 2              // 最小点半径 = 线宽一半（直径与线等宽）
+const GRAY_R = TAIL_R
+const GRADIENT_SPAN = 10               // 仅最近 N 个绿点参与尺寸渐变，更早点保持最小
+const GRADIENT_POWER = 2.6             // >1 使尾部更快缩小，接近 Qt 比例
 const ARROW_LEN = 5
 
 interface Props { device: RadarDevice; mapInstance: any; mapClass: any }
@@ -53,7 +55,24 @@ function activeColor(interaction?: TrackInteraction): string {
 
 function greenRadius(i: number, greenCount: number, headR: number): number {
   if (greenCount <= 1) return headR
-  return TAIL_R + (headR - TAIL_R) * (i / (greenCount - 1))
+  const tailR = TAIL_R
+  const gradStart = Math.max(0, greenCount - GRADIENT_SPAN)
+  if (i < gradStart) return tailR
+  const localCount = greenCount - gradStart
+  if (localCount <= 1) return headR
+  const t = (i - gradStart) / (localCount - 1)
+  const eased = Math.pow(t, GRADIENT_POWER)
+  return tailR + (headR - tailR) * eased
+}
+
+function greenAlpha(i: number, greenCount: number): number {
+  if (greenCount <= 1) return 1
+  const gradStart = Math.max(0, greenCount - GRADIENT_SPAN)
+  if (i < gradStart) return 0.45
+  const localCount = greenCount - gradStart
+  if (localCount <= 1) return 1
+  const t = (i - gradStart) / (localCount - 1)
+  return 0.45 + 0.55 * Math.pow(t, 1.8)
 }
 
 function movementAngle(sp: { p: ScreenPoint }[], fallbackAzimuth: number): number {
@@ -138,8 +157,7 @@ function drawTrack(ctx: CanvasRenderingContext2D, sp: { p: ScreenPoint; pt: Trai
   }
   for (let i = 0; i < greenPart.length; i++) {
     const r = greenRadius(i, greenPart.length, headR)
-    const t = greenPart.length <= 1 ? 1 : i / (greenPart.length - 1)
-    fillDot(ctx, greenPart[i].p.x, greenPart[i].p.y, r, accent, 0.6 + 0.4 * t)
+    fillDot(ctx, greenPart[i].p.x, greenPart[i].p.y, r, accent, greenAlpha(i, greenPart.length))
   }
 
   if (greenPart.length > 0) {
