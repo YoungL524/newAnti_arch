@@ -5,6 +5,8 @@
 #include <QTimer>
 #include <QVector>
 #include "TrackTypes.h"
+#include "bus/BusEnvelope.h"
+#include "bus/ISystemBus.h"
 
 class TrackDisplayManager : public QObject {
     Q_OBJECT
@@ -15,13 +17,14 @@ public:
     TrackDisplaySnapshot snapshot() const;
     /// 显式传时间戳（timer 内部调用，避免两次 syscall）
     TrackDisplaySnapshot snapshot(qint64 nowMs) const;
-    void setInteraction(const QString& deviceId, uint32_t trackId,
-                        bool selected, bool trackingEnabled);
     void start();
     void stop();
     void clear();
 
 private:
+    void setInteraction(const QString& deviceId, uint32_t trackId,
+                        bool selected, bool trackingEnabled);
+    void onInteractionCommand(const BusEnvelope& env);
     void applyStyle(TrackDisplayPoint& dp, uint32_t pointIndex,
                     const TrackDisplayPoint::Interaction& interaction) const;
     void pruneStaleTracks(qint64 nowMs);
@@ -40,4 +43,5 @@ private:
     QHash<TrackKey, TrackCache> m_caches;
     QHash<TrackKey, TrackDisplayPoint::Interaction> m_interactions;
     QTimer* m_timer = nullptr;
+    SubscriptionId m_cmdSubId = 0;
 };

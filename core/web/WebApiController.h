@@ -35,7 +35,6 @@ public:
                      RuntimeSettingsService* runtimeSettings,
                      RuntimeStatusProvider runtimeStatusProvider,
                      HealthProvider healthProvider,
-                     class TrackDisplayManager* trackDisplayManager,
                      QObject* parent = nullptr);
     ~WebApiController() override;
 
@@ -59,7 +58,6 @@ private:
     RadarWorkModeController*   m_wmc = nullptr;
     DeviceRegistry*            m_deviceReg = nullptr;
     RuntimeSettingsService*    m_runtimeSettings = nullptr;
-    class TrackDisplayManager* m_trackMgr = nullptr;
     RuntimeStatusProvider      m_runtimeStatusProvider;
     HealthProvider             m_health;
     qint64                     m_lastStartMs = 0;   ///< 上次开始采集时间戳（节流）

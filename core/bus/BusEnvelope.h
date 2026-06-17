@@ -10,9 +10,11 @@
 enum class BusPayloadKind : uint8_t {
     RawDataPacket = 0,
     TrackDisplaySnapshot,
+    TrackInteractionCommand,
 };
 
 struct TrackDisplaySnapshot;
+struct TrackInteractionCommand;
 
 /**
  * @brief 总线消息实体：路由头 + 可选共享只读对象载荷
@@ -37,5 +39,7 @@ struct BusEnvelope {
 
     static BusEnvelope makeTrackDisplaySnapshot(
         std::shared_ptr<const TrackDisplaySnapshot> snap);
+
+    static BusEnvelope makeTrackInteractionCommand(
+        std::shared_ptr<const TrackInteractionCommand> cmd);
 };
- 

@@ -1,15 +1,17 @@
 #include "WebApiController.h"
 #include "WebService.h"
+#include "bus/BusEnvelope.h"
 #include "bus/SystemBus.h"
 #include "bus/GenericPackets.h"
 #include "RadarWorkModeController.h"
 #include "business/DeviceRegistry.h"
 #include "business/RuntimeSettingsService.h"
-#include "business/TrackDisplayManager.h"
+#include "business/TrackTypes.h"
 #include "log/Logger.h"
 #include <cmath>
 #include <limits>
 #include <optional>
+#include <memory>
 #include <QDateTime>
 #include <QDebug>
 #include <QJsonArray>
@@ -23,7 +25,6 @@ WebApiController::WebApiController(web::WebService* ws,
                                    RuntimeSettingsService* runtimeSettings,
                                    RuntimeStatusProvider runtimeStatusProvider,
                                    HealthProvider healthProvider,
-                                   TrackDisplayManager* trackDisplayManager,
                                    QObject* parent)
     : QObject(parent)
     , m_ws(ws)
@@ -32,7 +33,6 @@ WebApiController::WebApiController(web::WebService* ws,
     , m_runtimeSettings(runtimeSettings)
     , m_runtimeStatusProvider(std::move(runtimeStatusProvider))
     , m_health(std::move(healthProvider))
-    , m_trackMgr(trackDisplayManager)
 {
 }
 
@@ -102,10 +102,7 @@ void WebApiController::registerRestRoutes()
         m_ws->handlePost(QStringLiteral("/api/stop"),  [this, handleCommand](const QJsonObject& body) { return handleCommand(body, false); });
     }
 
-    auto handleTrackInteraction = [this](const QString& suffix, const QJsonObject& body) -> std::optional<QJsonObject> {
-        if (!m_trackMgr)
-            return std::nullopt;
-
+    auto handleTrackInteraction = [](const QString& suffix, const QJsonObject& body) -> std::optional<QJsonObject> {
         const auto parts = suffix.split(QChar('/'), Qt::SkipEmptyParts);
         if (parts.size() != 4
          || parts[1] != QStringLiteral("tracks")
@@ -126,7 +123,18 @@ void WebApiController::registerRestRoutes()
         const bool selected = body.value(QStringLiteral("selected")).toBool();
         const bool trackingEnabled = body.value(QStringLiteral("trackingEnabled")).toBool();
         const uint32_t trackId = static_cast<uint32_t>(trackId64);
-        m_trackMgr->setInteraction(deviceId, trackId, selected, trackingEnabled);
+
+        auto cmd = std::make_shared<TrackInteractionCommand>();
+        cmd->deviceId = deviceId;
+        cmd->trackId = trackId;
+        cmd->selected = selected;
+        cmd->trackingEnabled = trackingEnabled;
+        cmd->timestamp = QDateTime::currentMSecsSinceEpoch();
+        if (!SystemBus::getInstance().publish(
+                BusEnvelope::makeTrackInteractionCommand(std::move(cmd)))) {
+            return QJsonObject{{QStringLiteral("ok"), false},
+                               {QStringLiteral("error"), QStringLiteral("航迹交互命令发布失败")}};
+        }
 
         QJsonObject interaction;
         interaction[QStringLiteral("deviceId")] = deviceId;
@@ -247,8 +255,8 @@ void WebApiController::registerRestRoutes()
         });
     }
 
-    // ── Track Interaction API ──
-    if (!m_deviceReg && m_trackMgr) {
+    // ── Track Interaction API（无 DeviceRegistry 时单独注册）──
+    if (!m_deviceReg) {
         m_ws->handlePutPrefix(QStringLiteral("/api/devices/"), [this, handleTrackInteraction](const QString& suffix, const QJsonObject& body) {
             if (auto r = handleTrackInteraction(suffix, body))
                 return *r;

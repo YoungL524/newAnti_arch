@@ -73,3 +73,14 @@ struct TrackDisplaySnapshot {
     qint64 timestamp = 0;
     QVector<TrackDisplayPoint> tracks;
 };
+
+/**
+ * @brief UI 航迹交互命令（WebApiController 发布，TrackDisplayManager 订阅）
+ */
+struct TrackInteractionCommand {
+    QString deviceId;
+    uint32_t trackId = 0;
+    bool selected = false;
+    bool trackingEnabled = false;
+    qint64 timestamp = 0;
+};

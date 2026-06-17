@@ -45,7 +45,8 @@ enum UIWidget {
     UI_RADARWIDGET = 12,
     UI_CONFIGWIDGET = 13,
     UI_STATUSWIDGET = 14,
-    UI_TABLEWIDGET = 15
+    UI_TABLEWIDGET = 15,
+    DISPATCH_TRACK_DISPLAY_MANAGER = 16 ///< 航迹显示管理（内部服务目标）
 };
 
 /**
@@ -87,6 +88,7 @@ const uint32_t PAYLOAD_TYPE_ERROR = 101;        ///< 错误/告警数据
 const uint32_t PAYLOAD_TYPE_CONFIG = 102;       ///< 配置数据
 const uint32_t PAYLOAD_TYPE_DPH_PARAMS_CHANGED = 103; ///< 运行时参数变更
 const uint32_t PAYLOAD_TYPE_TRACK_DISPLAY_SNAPSHOT = 104; ///< 航迹显示全量 snapshot（shared payload）
+const uint32_t PAYLOAD_TYPE_TRACK_INTERACTION_COMMAND = 105; ///< 航迹交互命令（shared payload）
 
 /// @brief 设备 / 服务源类型
 /// @note 编号区间：10-49 雷达设备，50-199 保留，200-299 内部服务，300+ runtime/control target
@@ -97,6 +99,7 @@ const uint16_t SOURCE_COMMUNICATION = 203;      ///< 通信层
 const uint16_t SOURCE_DATA_PROCESSOR = 204;     ///< 数据处理层
 const uint16_t SOURCE_RUNTIME_SETTINGS = 205;   ///< 运行时参数服务
 const uint16_t SOURCE_TRACK_DISPLAY = 206;      ///< 航迹显示管理
+const uint16_t SOURCE_WEB_API = 207;            ///< Web API 接入层（UI 命令入口）
 
 /**
  * @brief 数据包大小常量

@@ -3,6 +3,8 @@
 #include "bus/SystemBus.h"
 #include <QDateTime>
 #include <QDebug>
+#include <QMetaObject>
+#include <QPointer>
 #include <algorithm>
 #include <memory>
 
@@ -22,8 +24,31 @@ TrackDisplayManager::TrackDisplayManager(QObject* parent)
     });
 }
 
-void TrackDisplayManager::start() { m_timer->start(kSnapshotIntervalMs); }
-void TrackDisplayManager::stop()  { m_timer->stop(); }
+void TrackDisplayManager::start()
+{
+    if (m_cmdSubId == 0) {
+        QPointer<TrackDisplayManager> guard(this);
+        m_cmdSubId = SystemBus::getInstance().subscribeEnvelope(
+            SOURCE_WEB_API,
+            DISPATCH_TRACK_DISPLAY_MANAGER,
+            [guard](const BusEnvelope& env) {
+                if (guard)
+                    guard->onInteractionCommand(env);
+            });
+        if (m_cmdSubId == 0)
+            qWarning() << "[TrackDisplayManager] 订阅 TrackInteractionCommand 失败";
+    }
+    m_timer->start(kSnapshotIntervalMs);
+}
+
+void TrackDisplayManager::stop()
+{
+    m_timer->stop();
+    if (m_cmdSubId != 0) {
+        SystemBus::getInstance().unsubscribe(m_cmdSubId);
+        m_cmdSubId = 0;
+    }
+}
 
 void TrackDisplayManager::clear()
 {
@@ -152,6 +177,22 @@ void TrackDisplayManager::setInteraction(
     interaction.selected = selected;
     interaction.trackingEnabled = trackingEnabled;
     deliverSnapshot(snapshot(QDateTime::currentMSecsSinceEpoch()));
+}
+
+void TrackDisplayManager::onInteractionCommand(const BusEnvelope& env)
+{
+    auto cmdPtr = env.payloadAs<TrackInteractionCommand>(
+        BusPayloadKind::TrackInteractionCommand);
+    if (!cmdPtr)
+        return;
+
+    QPointer<TrackDisplayManager> guard(this);
+    QMetaObject::invokeMethod(this, [guard, cmdPtr]() {
+        if (!guard)
+            return;
+        guard->setInteraction(cmdPtr->deviceId, cmdPtr->trackId,
+                              cmdPtr->selected, cmdPtr->trackingEnabled);
+    }, Qt::QueuedConnection);
 }
 
 void TrackDisplayManager::deliverSnapshot(TrackDisplaySnapshot&& snap)
