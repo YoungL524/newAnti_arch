@@ -28,7 +28,7 @@
         <mxCell id="lQlkZRBsWHHc1jIHGezp-1" edge="1" parent="core" source="bus" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="store">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="bus" parent="core" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;fontStyle=1;" value="内部事件通道&#xa;SystemBus / DataPacket" vertex="1">
+        <mxCell id="bus" parent="core" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;fontStyle=1;" value="内部事件通道&#xa;SystemBus / DataPacket / BusEnvelope" vertex="1">
           <mxGeometry height="72" width="270" x="335" y="270" as="geometry" />
         </mxCell>
         <mxCell id="io" parent="core" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;fontStyle=1;" value="设备接入 / 输出服务&#xa;CommunicationManager · BusToCommRouter · DphPublisher" vertex="1">

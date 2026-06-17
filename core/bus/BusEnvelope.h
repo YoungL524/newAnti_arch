@@ -38,3 +38,4 @@ struct BusEnvelope {
     static BusEnvelope makeTrackDisplaySnapshot(
         std::shared_ptr<const TrackDisplaySnapshot> snap);
 };
+ 
