@@ -2,7 +2,8 @@
 #include "TrackTypes.h"
 #include <atomic>
 
-BusEnvelope makeTrackDisplaySnapshot(std::shared_ptr<const TrackDisplaySnapshot> snap)
+BusEnvelope BusEnvelope::makeTrackDisplaySnapshot(
+    std::shared_ptr<const TrackDisplaySnapshot> snap)
 {
     static std::atomic<uint32_t> seq{0};
     BusEnvelope env;

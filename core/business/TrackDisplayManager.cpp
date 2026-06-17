@@ -157,5 +157,6 @@ void TrackDisplayManager::setInteraction(
 void TrackDisplayManager::deliverSnapshot(TrackDisplaySnapshot&& snap)
 {
     auto shared = std::make_shared<TrackDisplaySnapshot>(std::move(snap));
-    SystemBus::getInstance().publish(makeTrackDisplaySnapshot(std::move(shared)));
+    SystemBus::getInstance().publish(
+        BusEnvelope::makeTrackDisplaySnapshot(std::move(shared)));
 }

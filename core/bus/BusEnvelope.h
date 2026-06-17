@@ -12,6 +12,8 @@ enum class BusPayloadKind : uint8_t {
     TrackDisplaySnapshot,
 };
 
+struct TrackDisplaySnapshot;
+
 /**
  * @brief 总线消息实体：路由头 + 可选共享只读对象载荷
  */
@@ -25,11 +27,14 @@ struct BusEnvelope {
     DataPacket& packet() { return header; }
 
     template<typename T>
-    std::shared_ptr<const T> payloadAs() const
+    std::shared_ptr<const T> payloadAs(BusPayloadKind expected) const
     {
+        if (payloadKind != expected) {
+            return {};
+        }
         return std::static_pointer_cast<const T>(objectPayload);
     }
-};
 
-struct TrackDisplaySnapshot;
-BusEnvelope makeTrackDisplaySnapshot(std::shared_ptr<const TrackDisplaySnapshot> snap);
+    static BusEnvelope makeTrackDisplaySnapshot(
+        std::shared_ptr<const TrackDisplaySnapshot> snap);
+};

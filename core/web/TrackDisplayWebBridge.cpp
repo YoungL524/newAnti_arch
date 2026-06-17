@@ -52,10 +52,10 @@ void TrackDisplayWebBridge::stop()
 
 void TrackDisplayWebBridge::onBusEnvelope(const BusEnvelope& env)
 {
-    if (!m_active || env.payloadKind != BusPayloadKind::TrackDisplaySnapshot)
+    if (!m_active)
         return;
 
-    auto snapPtr = env.payloadAs<TrackDisplaySnapshot>();
+    auto snapPtr = env.payloadAs<TrackDisplaySnapshot>(BusPayloadKind::TrackDisplaySnapshot);
     if (!snapPtr)
         return;
 

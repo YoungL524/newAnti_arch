@@ -41,6 +41,11 @@ public:
     SubscriptionId subscribeBySource(uint16_t sourceType, BusCallback callback) override;
     SubscriptionId subscribeBySourceEnvelope(uint16_t sourceType,
                                              BusEnvelopeCallback callback) override;
+    SubscriptionId subscribeByTargetEnvelope(uint16_t target,
+                                           BusEnvelopeCallback callback) override;
+    SubscriptionId subscribeEnvelope(uint16_t sourceType, uint16_t target,
+                                     BusEnvelopeCallback callback) override;
+    SubscriptionId subscribeAllEnvelope(BusEnvelopeCallback callback) override;
     SubscriptionId subscribeByTarget(uint16_t target, BusCallback callback) override;
     SubscriptionId subscribe(uint16_t sourceType, uint16_t target, BusCallback callback) override;
     SubscriptionId subscribeAll(BusCallback callback) override;
@@ -98,22 +103,20 @@ private:
         // 标签类型用于区分构造函数
         struct BySource {};
         struct ByTarget {};
-        
-        uint16_t sourceType;
-        uint16_t target;
+
+        uint16_t sourceType = 0;
+        uint16_t target = 0;
         BusCallback packetCallback;
         BusEnvelopeCallback envelopeCallback;
-        bool hasSourceType;
-        bool hasTarget;
-        bool isWildcard;
+        bool hasSourceType = false;
+        bool hasTarget = false;
+        bool isWildcard = false;
 
         // 按数据源类型订阅（DataPacket 头）
         SubscriptionInfo(BySource, uint16_t src, BusCallback cb)
             : sourceType(src)
             , packetCallback(std::move(cb))
             , hasSourceType(true)
-            , hasTarget(false)
-            , isWildcard(false)
         {}
 
         // 按数据源类型订阅（完整 BusEnvelope）
@@ -121,34 +124,49 @@ private:
             : sourceType(src)
             , envelopeCallback(std::move(cb))
             , hasSourceType(true)
-            , hasTarget(false)
-            , isWildcard(false)
         {}
 
-        // 按分发目标订阅
+        // 按分发目标订阅（DataPacket 头）
         SubscriptionInfo(ByTarget, uint16_t tgt, BusCallback cb)
             : target(tgt)
             , packetCallback(std::move(cb))
-            , hasSourceType(false)
             , hasTarget(true)
-            , isWildcard(false)
         {}
 
-        // 组合条件订阅
+        // 按分发目标订阅（完整 BusEnvelope）
+        SubscriptionInfo(ByTarget, uint16_t tgt, BusEnvelopeCallback cb)
+            : target(tgt)
+            , envelopeCallback(std::move(cb))
+            , hasTarget(true)
+        {}
+
+        // 组合条件订阅（DataPacket 头）
         SubscriptionInfo(uint16_t src, uint16_t tgt, BusCallback cb)
             : sourceType(src)
             , target(tgt)
             , packetCallback(std::move(cb))
             , hasSourceType(true)
             , hasTarget(true)
-            , isWildcard(false)
         {}
 
-        // 通配符订阅
+        // 组合条件订阅（完整 BusEnvelope）
+        SubscriptionInfo(uint16_t src, uint16_t tgt, BusEnvelopeCallback cb)
+            : sourceType(src)
+            , target(tgt)
+            , envelopeCallback(std::move(cb))
+            , hasSourceType(true)
+            , hasTarget(true)
+        {}
+
+        // 通配符订阅（DataPacket 头）
         SubscriptionInfo(BusCallback cb)
             : packetCallback(std::move(cb))
-            , hasSourceType(false)
-            , hasTarget(false)
+            , isWildcard(true)
+        {}
+
+        // 通配符订阅（完整 BusEnvelope）
+        SubscriptionInfo(BusEnvelopeCallback cb)
+            : envelopeCallback(std::move(cb))
             , isWildcard(true)
         {}
     };
@@ -171,6 +189,8 @@ private:
      * @return 回调是否可用
      */
     bool validateCallback(const BusCallback& callback, const QString& operation) const;
+    bool validateEnvelopeCallback(const BusEnvelopeCallback& callback,
+                                  const QString& operation) const;
 
     /**
      * @brief 向源类型索引追加订阅 ID

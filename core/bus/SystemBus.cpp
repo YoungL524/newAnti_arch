@@ -103,22 +103,31 @@ bool SystemBus::validateCallback(const BusCallback& callback, const QString& ope
     return false;
 }
 
+bool SystemBus::validateEnvelopeCallback(const BusEnvelopeCallback& callback,
+                                         const QString& operation) const
+{
+    if (callback) {
+        return true;
+    }
+
+    qWarning() << QStringLiteral("[SystemBus] %1 失败: 回调为空").arg(operation);
+    return false;
+}
+
 SubscriptionId SystemBus::registerSubscription(SubscriptionInfo info)
 {
     SubscriptionId id = m_nextSubscriptionId.fetch_add(1);
     const bool hasSourceType = info.hasSourceType;
     const bool hasTarget = info.hasTarget;
     const bool isWildcard = info.isWildcard;
-    const uint16_t sourceType = info.sourceType;
-    const uint16_t target = info.target;
 
     m_subscriptions.emplace(id, std::move(info));
 
     if (hasSourceType) {
-        addSourceIndex(sourceType, id);
+        addSourceIndex(m_subscriptions.at(id).sourceType, id);
     }
     if (hasTarget) {
-        addTargetIndex(target, id);
+        addTargetIndex(m_subscriptions.at(id).target, id);
     }
     if (isWildcard) {
         addWildcardIndex(id);
@@ -308,13 +317,53 @@ SubscriptionId SystemBus::subscribeBySourceEnvelope(uint16_t sourceType,
     if (isShutdown()) {
         return 0;
     }
-    if (!callback) {
-        qWarning() << QStringLiteral("[SystemBus] 按源类型订阅 Envelope 失败: 回调为空");
+    if (!validateEnvelopeCallback(callback, QStringLiteral("按源类型订阅 Envelope"))) {
         return 0;
     }
 
     std::lock_guard<std::mutex> lock(m_subscriptionsMutex);
     return registerSubscription(SubscriptionInfo(SubscriptionInfo::BySource{}, sourceType, std::move(callback)));
+}
+
+SubscriptionId SystemBus::subscribeByTargetEnvelope(uint16_t target,
+                                                    BusEnvelopeCallback callback)
+{
+    if (isShutdown()) {
+        return 0;
+    }
+    if (!validateEnvelopeCallback(callback, QStringLiteral("按目标订阅 Envelope"))) {
+        return 0;
+    }
+
+    std::lock_guard<std::mutex> lock(m_subscriptionsMutex);
+    return registerSubscription(SubscriptionInfo(SubscriptionInfo::ByTarget{}, target, std::move(callback)));
+}
+
+SubscriptionId SystemBus::subscribeEnvelope(uint16_t sourceType, uint16_t target,
+                                            BusEnvelopeCallback callback)
+{
+    if (isShutdown()) {
+        return 0;
+    }
+    if (!validateEnvelopeCallback(callback, QStringLiteral("组合订阅 Envelope"))) {
+        return 0;
+    }
+
+    std::lock_guard<std::mutex> lock(m_subscriptionsMutex);
+    return registerSubscription(SubscriptionInfo(sourceType, target, std::move(callback)));
+}
+
+SubscriptionId SystemBus::subscribeAllEnvelope(BusEnvelopeCallback callback)
+{
+    if (isShutdown()) {
+        return 0;
+    }
+    if (!validateEnvelopeCallback(callback, QStringLiteral("通配符订阅 Envelope"))) {
+        return 0;
+    }
+
+    std::lock_guard<std::mutex> lock(m_subscriptionsMutex);
+    return registerSubscription(SubscriptionInfo(std::move(callback)));
 }
 
 SubscriptionId SystemBus::subscribeByTarget(uint16_t target, BusCallback callback)

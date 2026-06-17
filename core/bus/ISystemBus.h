@@ -19,6 +19,13 @@ using SubscriptionId = uint32_t;
 using BusCallback = std::function<void(const DataPacket*)>;
 
 struct BusEnvelope;
+/**
+ * @brief 系统总线 Envelope 回调函数类型
+ * @warning 回调运行在 SystemBus 内部工作线程，不是主线程。
+ *          不要在回调里直接操作 QObject、UI、SQLite 等线程敏感对象。
+ *          推荐模式：拷贝 shared_ptr 载荷，再用 QMetaObject::invokeMethod
+ *          或 lambda + Qt::QueuedConnection 转回 owner 线程处理。
+ */
 using BusEnvelopeCallback = std::function<void(const BusEnvelope&)>;
 
 /**
@@ -61,9 +68,30 @@ public:
 
     /**
      * @brief 按源类型订阅，回调接收完整 BusEnvelope（含大对象载荷）
+     * @note callback 在 SystemBus 内部工作线程执行，见 BusEnvelopeCallback 文档。
      */
     virtual SubscriptionId subscribeBySourceEnvelope(uint16_t sourceType,
                                                      BusEnvelopeCallback callback) = 0;
+
+    /**
+     * @brief 按分发目标订阅，回调接收完整 BusEnvelope
+     * @note callback 在 SystemBus 内部工作线程执行，见 BusEnvelopeCallback 文档。
+     */
+    virtual SubscriptionId subscribeByTargetEnvelope(uint16_t target,
+                                                     BusEnvelopeCallback callback) = 0;
+
+    /**
+     * @brief 订阅同时匹配源类型和分发目标的 BusEnvelope
+     * @note callback 在 SystemBus 内部工作线程执行，见 BusEnvelopeCallback 文档。
+     */
+    virtual SubscriptionId subscribeEnvelope(uint16_t sourceType, uint16_t target,
+                                             BusEnvelopeCallback callback) = 0;
+
+    /**
+     * @brief 通配符订阅所有 BusEnvelope
+     * @note 此订阅会接收总线上的所有 envelope，请谨慎使用。
+     */
+    virtual SubscriptionId subscribeAllEnvelope(BusEnvelopeCallback callback) = 0;
 
     /**
      * @brief 订阅特定分发目标的数据
