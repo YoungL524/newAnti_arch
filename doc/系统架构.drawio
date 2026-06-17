@@ -1,89 +1,208 @@
-<<<<<<< Updated upstream
-<mxfile host="app.diagrams.net" agent="Codex">
-  <diagram id="system-arch" name="系统架构">
-    <mxGraphModel dx="1704" dy="943" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="900" pageHeight="1100" math="0" shadow="0">
-=======
-<mxfile host="Electron" agent="Cursor">
-  <diagram id="system-arch" name="系统架构">
-    <mxGraphModel dx="1062" dy="932" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="900" pageHeight="1100" math="0" shadow="0">
->>>>>>> Stashed changes
-      <root>
-        <mxCell id="0" />
-        <mxCell id="1" parent="0" />
-        <mxCell id="fe-box" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=14;verticalAlign=top;spacingTop=8;" value="前端" vertex="1">
-          <mxGeometry height="110" width="740" x="80" y="40" as="geometry" />
-        </mxCell>
-<<<<<<< Updated upstream
-        <mxCell id="fe-web" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=13;fontStyle=1;" value="React Web&#xa;唯一前端界面" vertex="1">
-=======
-        <mxCell id="fe-web" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=13;" value="WEB" vertex="1">
->>>>>>> Stashed changes
-          <mxGeometry height="60" width="120" x="390" y="80" as="geometry" />
-        </mxCell>
-        <mxCell id="arrow-fe-srv" edge="1" parent="1" style="shape=flexArrow;endArrow=classic;startArrow=classic;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=2;width=14;endSize=6;startSize=6;">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="450" y="155" as="sourcePoint" />
-            <mxPoint x="450" y="195" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="srv-box" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=14;verticalAlign=top;spacingTop=8;" value="Server" vertex="1">
-          <mxGeometry height="430" width="740" x="80" y="200" as="geometry" />
-        </mxCell>
-        <mxCell id="core-box" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=12;verticalAlign=top;spacingTop=6;" value="核心层" vertex="1">
-          <mxGeometry height="100" width="660" x="120" y="240" as="geometry" />
-        </mxCell>
-        <mxCell id="core-bus" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=12;" value="SystemBus" vertex="1">
-          <mxGeometry height="50" width="160" x="200" y="270" as="geometry" />
-        </mxCell>
-        <mxCell id="core-ctrl" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=12;" value="NewAntiDrone&#xa;总控" vertex="1">
-          <mxGeometry height="50" width="160" x="540" y="270" as="geometry" />
-        </mxCell>
-        <mxCell id="biz-box" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=12;verticalAlign=top;spacingTop=6;" value="业务层" vertex="1">
-          <mxGeometry height="100" width="660" x="120" y="360" as="geometry" />
-        </mxCell>
-        <mxCell id="biz-proc" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=12;" value="DataProcessor" vertex="1">
-          <mxGeometry height="50" width="160" x="200" y="390" as="geometry" />
-        </mxCell>
-        <mxCell id="biz-comm" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#82b366;fontSize=12;" value="通信" vertex="1">
-          <mxGeometry height="50" width="160" x="540" y="390" as="geometry" />
-        </mxCell>
-        <mxCell id="da-box" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;fontSize=12;verticalAlign=top;spacingTop=6;" value="数据访问" vertex="1">
-          <mxGeometry height="120" width="660" x="120" y="480" as="geometry" />
-        </mxCell>
-        <mxCell id="da-cfg" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;fontSize=12;" value="ConfigManager" vertex="1">
-          <mxGeometry height="50" width="140" x="160" y="520" as="geometry" />
-        </mxCell>
-        <mxCell id="da-play" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;fontSize=12;" value="回放" vertex="1">
-          <mxGeometry height="50" width="140" x="380" y="520" as="geometry" />
-        </mxCell>
-        <mxCell id="da-log" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;fontSize=12;" value="日志" vertex="1">
-          <mxGeometry height="50" width="140" x="600" y="520" as="geometry" />
-        </mxCell>
-        <mxCell id="arrow-srv-data" edge="1" parent="1" style="shape=flexArrow;endArrow=classic;startArrow=classic;html=1;fillColor=#f5f5f5;strokeColor=#666666;strokeWidth=2;width=14;endSize=6;startSize=6;">
-          <mxGeometry relative="1" as="geometry">
-            <mxPoint x="450" y="635" as="sourcePoint" />
-            <mxPoint x="450" y="675" as="targetPoint" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="data-box" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;fontSize=14;verticalAlign=top;spacingTop=8;" value="数据与配置" vertex="1">
-          <mxGeometry height="130" width="740" x="80" y="680" as="geometry" />
-        </mxCell>
-        <mxCell id="data-ini" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#ffffff;strokeColor=#666666;fontSize=11;" value="SQLite / DataStore&#xa;业务台账" vertex="1">
-          <mxGeometry height="70" width="80" x="160" y="720" as="geometry" />
-        </mxCell>
-        <mxCell id="data-csv" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#ffffff;strokeColor=#666666;fontSize=11;" value="config/*.json&#xa;端点/处理链" vertex="1">
-          <mxGeometry height="70" width="80" x="310" y="720" as="geometry" />
-        </mxCell>
-        <mxCell id="data-json" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#ffffff;strokeColor=#666666;fontSize=11;" value="log / event&#xa;运行记录" vertex="1">
-          <mxGeometry height="70" width="80" x="460" y="720" as="geometry" />
-        </mxCell>
-        <mxCell id="data-log" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#ffffff;strokeColor=#666666;fontSize=11;" value="CSV / replay&#xa;测试回放" vertex="1">
-          <mxGeometry height="70" width="80" x="610" y="720" as="geometry" />
-        </mxCell>
-        <mxCell id="note-box" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffcc;strokeColor=#d6b656;align=left;spacingLeft=10;spacingTop=6;fontSize=11;verticalAlign=top;" value="&lt;b&gt;设计原则（保持简单）&lt;/b&gt;&lt;br&gt;• 前端只连 Server，不碰厂家协议&lt;br&gt;• 设备台账以 DeviceRegistry / SQLite 为 source of truth&lt;br&gt;• 高频显示数据可走直连性能通道，业务事件经 SystemBus 解耦&lt;br&gt;• config/*.json 管通信/装配，DataStore 管业务数据&lt;br&gt;&lt;br&gt;&lt;font color=&quot;#666666&quot;&gt;当前代码映射：WEB=React | 总控=AppController | 通信=CommunicationManager | DataProcessor=RadarDataProcessor | 设备台账=DeviceRegistry+SQLite | 航迹显示=TrackDisplayManager | 日志=Logger&lt;/font&gt;" vertex="1">
-          <mxGeometry height="130" width="740" x="80" y="840" as="geometry" />
-        </mxCell>
-      </root>
-    </mxGraphModel>
-  </diagram>
+<mxfile host="app.diagrams.net" version="21.0.0">
+<diagram id="system-arch-v3" name="系统架构">
+<mxGraphModel dx="1900" dy="1100" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="980" pageHeight="1180" math="0" shadow="0">
+<root>
+<mxCell id="0"/>
+<mxCell id="1" parent="0"/>
+
+<!-- 标题区 -->
+<mxCell id="title" value="NewAntiDrone 系统架构" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontColor=#1A1A1A;fontFamily=Helvetica;fontStyle=1;fontSize=26;" vertex="1" parent="1">
+  <mxGeometry x="240" y="24" width="500" height="40" as="geometry"/>
+</mxCell>
+<mxCell id="subtitle" value="反无人机探测与指挥系统 · 分层架构总览" style="text;html=1;strokeColor=none;fillColor=none;align=center;fontColor=#8A8A8A;fontFamily=Helvetica;fontSize=12.5;" vertex="1" parent="1">
+  <mxGeometry x="240" y="62" width="500" height="20" as="geometry"/>
+</mxCell>
+
+<!-- 前端层 -->
+<mxCell id="fe-box" value="" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#F7FAFD;strokeColor=#C7D9EC;strokeWidth=1;" vertex="1" parent="1">
+  <mxGeometry x="60" y="100" width="860" height="115" as="geometry"/>
+</mxCell>
+<mxCell id="fe-label" value="前端层" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#3A6FA8;fontFamily=Helvetica;fontStyle=1;fontSize=12;align=left;" vertex="1" parent="1">
+  <mxGeometry x="80" y="110" width="120" height="20" as="geometry"/>
+</mxCell>
+
+<mxCell id="fe-web" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#6C8EBF;strokeWidth=1.5;" vertex="1" parent="1">
+  <mxGeometry x="375" y="142" width="230" height="60" as="geometry"/>
+</mxCell>
+<mxCell id="fe-web-t1" value="React Web" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#1A1A1A;fontFamily=Helvetica;fontStyle=1;fontSize=15;align=center;" vertex="1" parent="1">
+  <mxGeometry x="375" y="150" width="230" height="22" as="geometry"/>
+</mxCell>
+<mxCell id="fe-web-t2" value="唯一前端界面 · TypeScript / Vite" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#7A7A7A;fontFamily=Helvetica;fontSize=10.5;align=center;" vertex="1" parent="1">
+  <mxGeometry x="375" y="173" width="230" height="18" as="geometry"/>
+</mxCell>
+
+<!-- 连接线 前端→Server -->
+<mxCell id="arrow-fe-srv" value="HTTP / WebSocket" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;startArrow=oval;startFill=1;startSize=6;strokeColor=#6C8EBF;strokeWidth=2;fontColor=#3A6FA8;fontFamily=Helvetica;fontSize=10;fontStyle=1;rounded=0;" edge="1" parent="1" source="fe-web" target="srv-box">
+  <mxGeometry relative="1" as="geometry">
+    <mxPoint x="490" y="202" as="sourcePoint"/>
+    <mxPoint x="490" y="225" as="targetPoint"/>
+  </mxGeometry>
+</mxCell>
+
+<!-- Server 大容器 -->
+<mxCell id="srv-box" value="" style="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fillColor=#FAFAFA;strokeColor=#CCCCCC;strokeWidth=1;" vertex="1" parent="1">
+  <mxGeometry x="60" y="225" width="860" height="495" as="geometry"/>
+</mxCell>
+<mxCell id="srv-label" value="SERVER  ·  NewAntiDrone_core.exe" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#A88324;fontFamily=Helvetica;fontStyle=1;fontSize=13;align=left;" vertex="1" parent="1">
+  <mxGeometry x="80" y="237" width="400" height="22" as="geometry"/>
+</mxCell>
+
+<!-- 核心层 -->
+<mxCell id="core-box" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FAF5FC;strokeColor=#D9BEE8;strokeWidth=1;" vertex="1" parent="1">
+  <mxGeometry x="100" y="270" width="780" height="105" as="geometry"/>
+</mxCell>
+<mxCell id="core-label" value="核心层" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#8E5BA8;fontFamily=Helvetica;fontStyle=1;fontSize=11;align=left;" vertex="1" parent="1">
+  <mxGeometry x="116" y="278" width="100" height="18" as="geometry"/>
+</mxCell>
+
+<mxCell id="core-bus" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9673A6;strokeWidth=1.5;" vertex="1" parent="1">
+  <mxGeometry x="160" y="305" width="280" height="55" as="geometry"/>
+</mxCell>
+<mxCell id="core-bus-t1" value="SystemBus" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#1A1A1A;fontFamily=Helvetica;fontStyle=1;fontSize=13;align=center;" vertex="1" parent="1">
+  <mxGeometry x="160" y="312" width="280" height="20" as="geometry"/>
+</mxCell>
+<mxCell id="core-bus-t2" value="事件总线 · 解耦分发" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#8A8A8A;fontFamily=Helvetica;fontSize=10;align=center;" vertex="1" parent="1">
+  <mxGeometry x="160" y="333" width="280" height="16" as="geometry"/>
+</mxCell>
+
+<mxCell id="core-ctrl" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9673A6;strokeWidth=1.5;" vertex="1" parent="1">
+  <mxGeometry x="540" y="305" width="280" height="55" as="geometry"/>
+</mxCell>
+<mxCell id="core-ctrl-t1" value="AppController" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#1A1A1A;fontFamily=Helvetica;fontStyle=1;fontSize=13;align=center;" vertex="1" parent="1">
+  <mxGeometry x="540" y="312" width="280" height="20" as="geometry"/>
+</mxCell>
+<mxCell id="core-ctrl-t2" value="总控 · 组合根 / 生命周期" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#8A8A8A;fontFamily=Helvetica;fontSize=10;align=center;" vertex="1" parent="1">
+  <mxGeometry x="540" y="333" width="280" height="16" as="geometry"/>
+</mxCell>
+
+<!-- 业务层 -->
+<mxCell id="biz-box" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#F2FAF4;strokeColor=#BFE3C6;strokeWidth=1;" vertex="1" parent="1">
+  <mxGeometry x="100" y="390" width="780" height="105" as="geometry"/>
+</mxCell>
+<mxCell id="biz-label" value="业务层" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#4E9460;fontFamily=Helvetica;fontStyle=1;fontSize=11;align=left;" vertex="1" parent="1">
+  <mxGeometry x="116" y="398" width="100" height="18" as="geometry"/>
+</mxCell>
+
+<mxCell id="biz-proc" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;strokeWidth=1.5;" vertex="1" parent="1">
+  <mxGeometry x="160" y="425" width="280" height="55" as="geometry"/>
+</mxCell>
+<mxCell id="biz-proc-t1" value="RadarDataProcessor" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#1A1A1A;fontFamily=Helvetica;fontStyle=1;fontSize=13;align=center;" vertex="1" parent="1">
+  <mxGeometry x="160" y="432" width="280" height="20" as="geometry"/>
+</mxCell>
+<mxCell id="biz-proc-t2" value="协议解析 · 航迹处理" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#8A8A8A;fontFamily=Helvetica;fontSize=10;align=center;" vertex="1" parent="1">
+  <mxGeometry x="160" y="453" width="280" height="16" as="geometry"/>
+</mxCell>
+
+<mxCell id="biz-comm" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;strokeWidth=1.5;" vertex="1" parent="1">
+  <mxGeometry x="540" y="425" width="280" height="55" as="geometry"/>
+</mxCell>
+<mxCell id="biz-comm-t1" value="CommunicationManager" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#1A1A1A;fontFamily=Helvetica;fontStyle=1;fontSize=13;align=center;" vertex="1" parent="1">
+  <mxGeometry x="540" y="432" width="280" height="20" as="geometry"/>
+</mxCell>
+<mxCell id="biz-comm-t2" value="UDP 收发 · 端点管理" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#8A8A8A;fontFamily=Helvetica;fontSize=10;align=center;" vertex="1" parent="1">
+  <mxGeometry x="540" y="453" width="280" height="16" as="geometry"/>
+</mxCell>
+
+<!-- 数据访问层 -->
+<mxCell id="da-box" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FCF3F2;strokeColor=#EAC0BD;strokeWidth=1;" vertex="1" parent="1">
+  <mxGeometry x="100" y="510" width="780" height="125" as="geometry"/>
+</mxCell>
+<mxCell id="da-label" value="数据访问层" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#B05A55;fontFamily=Helvetica;fontStyle=1;fontSize=11;align=left;" vertex="1" parent="1">
+  <mxGeometry x="116" y="518" width="120" height="18" as="geometry"/>
+</mxCell>
+
+<mxCell id="da-cfg" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B85450;strokeWidth=1.5;" vertex="1" parent="1">
+  <mxGeometry x="125" y="545" width="225" height="70" as="geometry"/>
+</mxCell>
+<mxCell id="da-cfg-t1" value="ConfigManager" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#1A1A1A;fontFamily=Helvetica;fontStyle=1;fontSize=12.5;align=center;" vertex="1" parent="1">
+  <mxGeometry x="125" y="555" width="225" height="20" as="geometry"/>
+</mxCell>
+<mxCell id="da-cfg-t2" value="配置装配" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#8A8A8A;fontFamily=Helvetica;fontSize=9.5;align=center;" vertex="1" parent="1">
+  <mxGeometry x="125" y="575" width="225" height="16" as="geometry"/>
+</mxCell>
+
+<mxCell id="da-play" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B85450;strokeWidth=1.5;" vertex="1" parent="1">
+  <mxGeometry x="378" y="545" width="225" height="70" as="geometry"/>
+</mxCell>
+<mxCell id="da-play-t1" value="ReplayService" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#1A1A1A;fontFamily=Helvetica;fontStyle=1;fontSize=12.5;align=center;" vertex="1" parent="1">
+  <mxGeometry x="378" y="555" width="225" height="20" as="geometry"/>
+</mxCell>
+<mxCell id="da-play-t2" value="CSV 回放" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#8A8A8A;fontFamily=Helvetica;fontSize=9.5;align=center;" vertex="1" parent="1">
+  <mxGeometry x="378" y="575" width="225" height="16" as="geometry"/>
+</mxCell>
+
+<mxCell id="da-log" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#B85450;strokeWidth=1.5;" vertex="1" parent="1">
+  <mxGeometry x="631" y="545" width="225" height="70" as="geometry"/>
+</mxCell>
+<mxCell id="da-log-t1" value="Logger" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#1A1A1A;fontFamily=Helvetica;fontStyle=1;fontSize=12.5;align=center;" vertex="1" parent="1">
+  <mxGeometry x="631" y="555" width="225" height="20" as="geometry"/>
+</mxCell>
+<mxCell id="da-log-t2" value="运行日志记录" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#8A8A8A;fontFamily=Helvetica;fontSize=9.5;align=center;" vertex="1" parent="1">
+  <mxGeometry x="631" y="575" width="225" height="16" as="geometry"/>
+</mxCell>
+
+<!-- 连接线 Server → 数据与配置 -->
+<mxCell id="arrow-srv-data" value="读写 / 持久化" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;endFill=1;startArrow=oval;startFill=1;startSize=6;strokeColor=#A88324;strokeWidth=2;fontColor=#A88324;fontFamily=Helvetica;fontSize=10;fontStyle=1;rounded=0;" edge="1" parent="1" source="srv-box" target="data-box">
+  <mxGeometry relative="1" as="geometry">
+    <mxPoint x="490" y="720" as="sourcePoint"/>
+    <mxPoint x="490" y="745" as="targetPoint"/>
+  </mxGeometry>
+</mxCell>
+
+<!-- 数据与配置层 -->
+<mxCell id="data-box" value="" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#F7F7F7;strokeColor=#D0D0D0;strokeWidth=1;" vertex="1" parent="1">
+  <mxGeometry x="60" y="745" width="860" height="180" as="geometry"/>
+</mxCell>
+<mxCell id="data-label" value="数据与配置" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#666666;fontFamily=Helvetica;fontStyle=1;fontSize=12;align=left;" vertex="1" parent="1">
+  <mxGeometry x="80" y="757" width="160" height="20" as="geometry"/>
+</mxCell>
+
+<mxCell id="data-sqlite" value="" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#FFFFFF;strokeColor=#6C8EBF;strokeWidth=1.5;fontColor=#1A1A1A;fontFamily=Helvetica;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+  <mxGeometry x="100" y="800" width="155" height="95" as="geometry"/>
+</mxCell>
+<mxCell id="data-sqlite-t" value="SQLite / DataStore&#xa;业务台账" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#1A1A1A;fontFamily=Helvetica;fontSize=11;fontStyle=1;align=center;" vertex="1" parent="1">
+  <mxGeometry x="100" y="852" width="155" height="38" as="geometry"/>
+</mxCell>
+
+<mxCell id="data-config" value="" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#FFFFFF;strokeColor=#9673A6;strokeWidth=1.5;fontColor=#1A1A1A;fontFamily=Helvetica;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+  <mxGeometry x="290" y="800" width="155" height="95" as="geometry"/>
+</mxCell>
+<mxCell id="data-config-t" value="config/*.json&#xa;端点 / 处理链" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#1A1A1A;fontFamily=Helvetica;fontSize=11;fontStyle=1;align=center;" vertex="1" parent="1">
+  <mxGeometry x="290" y="852" width="155" height="38" as="geometry"/>
+</mxCell>
+
+<mxCell id="data-event" value="" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#FFFFFF;strokeColor=#82B366;strokeWidth=1.5;fontColor=#1A1A1A;fontFamily=Helvetica;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+  <mxGeometry x="480" y="800" width="155" height="95" as="geometry"/>
+</mxCell>
+<mxCell id="data-event-t" value="log / event&#xa;运行记录" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#1A1A1A;fontFamily=Helvetica;fontSize=11;fontStyle=1;align=center;" vertex="1" parent="1">
+  <mxGeometry x="480" y="852" width="155" height="38" as="geometry"/>
+</mxCell>
+
+<mxCell id="data-csv" value="" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=10;fillColor=#FFFFFF;strokeColor=#B85450;strokeWidth=1.5;fontColor=#1A1A1A;fontFamily=Helvetica;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+  <mxGeometry x="670" y="800" width="155" height="95" as="geometry"/>
+</mxCell>
+<mxCell id="data-csv-t" value="CSV / replay&#xa;测试回放" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#1A1A1A;fontFamily=Helvetica;fontSize=11;fontStyle=1;align=center;" vertex="1" parent="1">
+  <mxGeometry x="670" y="852" width="155" height="38" as="geometry"/>
+</mxCell>
+
+<!-- 设计原则说明卡片 -->
+<mxCell id="note-box" value="" style="rounded=1;arcSize=4;whiteSpace=wrap;html=1;fillColor=#FFFDF5;strokeColor=#D6B656;strokeWidth=1.5;" vertex="1" parent="1">
+  <mxGeometry x="60" y="955" width="860" height="190" as="geometry"/>
+</mxCell>
+<mxCell id="note-title" value="设计原则" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#A88324;fontFamily=Helvetica;fontStyle=1;fontSize=14;align=left;" vertex="1" parent="1">
+  <mxGeometry x="84" y="967" width="200" height="24" as="geometry"/>
+</mxCell>
+<mxCell id="note-body" value="• 前端只连 Server，不碰厂家协议&#xa;• 设备台账以 DeviceRegistry / SQLite 为唯一数据源（source of truth）&#xa;• 高频显示数据走直连性能通道，业务事件经 SystemBus 解耦&#xa;• config/*.json 管通信与装配，DataStore 管业务数据" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#444444;fontFamily=Helvetica;fontSize=12;align=left;spacing=4;" vertex="1" parent="1">
+  <mxGeometry x="84" y="999" width="780" height="86" as="geometry"/>
+</mxCell>
+<mxCell id="note-divider" value="" style="line;strokeColor=#E5E5E5;strokeWidth=1;" vertex="1" parent="1">
+  <mxGeometry x="84" y="1093" width="780" height="10" as="geometry"/>
+</mxCell>
+<mxCell id="note-mapping" value="代码映射：Web=React  |  总控=AppController  |  通信=CommunicationManager  |  DataProcessor=RadarDataProcessor  |  设备台账=DeviceRegistry+SQLite  |  航迹显示=TrackDisplayManager  |  日志=Logger" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#999999;fontFamily=Helvetica;fontSize=10;align=left;fontStyle=2;" vertex="1" parent="1">
+  <mxGeometry x="84" y="1107" width="780" height="36" as="geometry"/>
+</mxCell>
+
+</root>
+</mxGraphModel>
+</diagram>
 </mxfile>

@@ -102,6 +102,9 @@ void WebApiController::registerRestRoutes()
         m_ws->handlePost(QStringLiteral("/api/stop"),  [this, handleCommand](const QJsonObject& body) { return handleCommand(body, false); });
     }
 
+    // 航迹交互命令：校验 REST 请求后发布 TrackInteractionCommand 到总线。
+    // 成功响应 ok/accepted/mode=queued 仅表示命令已入队，不代表 Manager 已应用；
+    // 最终 interaction 状态以 WebSocket tracks snapshot 为准（见 05-核心流程 §2）。
     auto handleTrackInteraction = [](const QString& suffix, const QJsonObject& body) -> std::optional<QJsonObject> {
         const auto parts = suffix.split(QChar('/'), Qt::SkipEmptyParts);
         if (parts.size() != 4
@@ -155,7 +158,7 @@ void WebApiController::registerRestRoutes()
             j[QStringLiteral("id")] = dev.id;
             j[QStringLiteral("name")] = dev.name;
             j[QStringLiteral("brand")] = dev.brand;
-            j[QStringLiteral("kind")] = static_cast<int>(dev.kind);
+            j[QStringLiteral("kind")] = static_cast<int>(dev.kind);`
             j[QStringLiteral("lng")] = dev.lng;
             j[QStringLiteral("lat")] = dev.lat;
             j[QStringLiteral("altitude")] = dev.altitude;

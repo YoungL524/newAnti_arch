@@ -121,6 +121,8 @@ export function CoreProvider({ children }: { children: ReactNode }) {
     setState(prev => ({ ...prev, interactionError: '' }))
   }, [])
 
+  // REST 成功（mode=queued）仅表示命令已发布到总线；权威 interaction 状态以 WS snapshot 为准。
+  // pendingInteractionRef 做乐观覆盖，待 snapshot 回推一致后清除。
   const setTrackInteraction = useCallback(async (deviceId: string, trackId: number, selected: boolean, trackingEnabled: boolean): Promise<boolean> => {
     const key = `${deviceId}:${trackId}`
     const interaction = { selected, trackingEnabled }

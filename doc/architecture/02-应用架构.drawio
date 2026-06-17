@@ -1,6 +1,6 @@
-<mxfile host="app.diagrams.net" agent="Codex">
+<mxfile host="Electron" agent="Codex">
   <diagram id="application-architecture" name="应用协作视图">
-    <mxGraphModel dx="1704" dy="943" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1250" pageHeight="820" math="0" shadow="0">
+    <mxGraphModel dx="1542" dy="914" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1250" pageHeight="820" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -11,10 +11,10 @@
           <mxGeometry height="70" width="40" x="85" y="70" as="geometry" />
         </mxCell>
         <mxCell id="web" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;fontStyle=1;" value="React Web&#xa;地图 / PPI / 表格 / 控制面板" vertex="1">
-          <mxGeometry height="70" width="150" x="40" y="190" as="geometry" />
+          <mxGeometry height="70" width="150" x="30" y="190" as="geometry" />
         </mxCell>
         <mxCell id="core" parent="1" style="swimlane;startSize=34;rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=14;" value="C++ Core 单体应用" vertex="1">
-          <mxGeometry height="580" width="650" x="260" y="90" as="geometry" />
+          <mxGeometry height="580" width="650" x="285" y="90" as="geometry" />
         </mxCell>
         <mxCell id="api" parent="core" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;fontStyle=1;" value="Web 接入 Adapter&#xa;REST / WebSocket / 固定 DTO" vertex="1">
           <mxGeometry height="58" width="560" x="45" y="65" as="geometry" />
@@ -30,6 +30,9 @@
         </mxCell>
         <mxCell id="bus" parent="core" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;fontStyle=1;" value="内部事件通道&#xa;SystemBus / DataPacket / BusEnvelope" vertex="1">
           <mxGeometry height="72" width="270" x="335" y="270" as="geometry" />
+        </mxCell>
+        <mxCell id="yKkyB1V3eH8ZGPDeafdD-1" edge="1" parent="core" source="io" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="processor">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="io" parent="core" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;fontStyle=1;" value="设备接入 / 输出服务&#xa;CommunicationManager · BusToCommRouter · DphPublisher" vertex="1">
           <mxGeometry height="72" width="270" x="45" y="380" as="geometry" />
