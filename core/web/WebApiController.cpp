@@ -141,7 +141,11 @@ void WebApiController::registerRestRoutes()
         interaction[QStringLiteral("trackId")] = static_cast<qint64>(trackId);
         interaction[QStringLiteral("selected")] = selected;
         interaction[QStringLiteral("trackingEnabled")] = trackingEnabled;
-        return QJsonObject{{QStringLiteral("ok"), true}, {QStringLiteral("interaction"), interaction}};
+        return QJsonObject{
+            {QStringLiteral("ok"), true},
+            {QStringLiteral("accepted"), true},
+            {QStringLiteral("mode"), QStringLiteral("queued")},
+            {QStringLiteral("interaction"), interaction}};
     };
 
     // ── Device Registry API ──

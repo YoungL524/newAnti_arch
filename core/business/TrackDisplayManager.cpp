@@ -26,6 +26,7 @@ TrackDisplayManager::TrackDisplayManager(QObject* parent)
 
 void TrackDisplayManager::start()
 {
+    m_acceptCommands.store(true, std::memory_order_release);
     if (m_cmdSubId == 0) {
         QPointer<TrackDisplayManager> guard(this);
         m_cmdSubId = SystemBus::getInstance().subscribeEnvelope(
@@ -43,6 +44,7 @@ void TrackDisplayManager::start()
 
 void TrackDisplayManager::stop()
 {
+    m_acceptCommands.store(false, std::memory_order_release);
     m_timer->stop();
     if (m_cmdSubId != 0) {
         SystemBus::getInstance().unsubscribe(m_cmdSubId);
@@ -181,6 +183,9 @@ void TrackDisplayManager::setInteraction(
 
 void TrackDisplayManager::onInteractionCommand(const BusEnvelope& env)
 {
+    if (!m_acceptCommands.load(std::memory_order_acquire))
+        return;
+
     auto cmdPtr = env.payloadAs<TrackInteractionCommand>(
         BusPayloadKind::TrackInteractionCommand);
     if (!cmdPtr)
@@ -188,7 +193,7 @@ void TrackDisplayManager::onInteractionCommand(const BusEnvelope& env)
 
     QPointer<TrackDisplayManager> guard(this);
     QMetaObject::invokeMethod(this, [guard, cmdPtr]() {
-        if (!guard)
+        if (!guard || !guard->m_acceptCommands.load(std::memory_order_acquire))
             return;
         guard->setInteraction(cmdPtr->deviceId, cmdPtr->trackId,
                               cmdPtr->selected, cmdPtr->trackingEnabled);

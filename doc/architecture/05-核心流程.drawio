@@ -103,7 +103,7 @@
 <mxCell id="s6" value="⑥ dispatch TrackDisplaySnapshot envelope" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#9673a6;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="385" y="360" as="sourcePoint"/><mxPoint x="705" y="360" as="targetPoint"/></mxGeometry></mxCell>
 <mxCell id="s7" value="⑦ WebSocket push tracks fixed DTO" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#333;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="705" y="400" as="sourcePoint"/><mxPoint x="80" y="400" as="targetPoint"/></mxGeometry></mxCell>
 
-<mxCell id="note" value="&lt;b&gt;设计说明&lt;/b&gt;&#xa;· WebApiController 只校验并发布 TrackInteractionCommand，不直连 TrackDisplayManager&#xa;· 交互状态由 TrackDisplayManager 持有，经 snapshot 回推 UI&#xa;· UI 读/写航迹显示均经 SystemBus 治理" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffde7;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="1"><mxGeometry x="30" y="450" width="730" height="60" as="geometry"/></mxCell>
+<mxCell id="note" value="&lt;b&gt;设计说明&lt;/b&gt;&#xa;· WebApiController 只校验并发布 TrackInteractionCommand，不直连 TrackDisplayManager&#xa;· REST 返回 accepted/mode=queued 表示命令已入队，最终状态以 WebSocket snapshot 为准&#xa;· 交互状态由 TrackDisplayManager 持有，经 snapshot 回推 UI" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffde7;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="1"><mxGeometry x="30" y="450" width="730" height="60" as="geometry"/></mxCell>
 
 </root>
 </mxGraphModel>

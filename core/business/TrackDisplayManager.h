@@ -4,9 +4,11 @@
 #include <QHash>
 #include <QTimer>
 #include <QVector>
+#include <atomic>
+#include <cstdint>
 #include "TrackTypes.h"
-#include "bus/BusEnvelope.h"
-#include "bus/ISystemBus.h"
+
+struct BusEnvelope;
 
 class TrackDisplayManager : public QObject {
     Q_OBJECT
@@ -43,5 +45,6 @@ private:
     QHash<TrackKey, TrackCache> m_caches;
     QHash<TrackKey, TrackDisplayPoint::Interaction> m_interactions;
     QTimer* m_timer = nullptr;
-    SubscriptionId m_cmdSubId = 0;
+    uint32_t m_cmdSubId = 0;
+    std::atomic_bool m_acceptCommands{false};
 };
