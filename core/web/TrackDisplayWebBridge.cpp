@@ -24,7 +24,7 @@ void TrackDisplayWebBridge::start()
     if (m_subId != 0 || !m_ws)
         return;
 
-    m_active = true;
+    m_active.store(true, std::memory_order_release);
     QPointer<TrackDisplayWebBridge> guard(this);
     m_subId = SystemBus::getInstance().subscribeBySourceEnvelope(
         SOURCE_TRACK_DISPLAY,
@@ -34,7 +34,7 @@ void TrackDisplayWebBridge::start()
         });
 
     if (m_subId == 0) {
-        m_active = false;
+        m_active.store(false, std::memory_order_release);
         qWarning() << "[TrackDisplayWebBridge] 订阅 SystemBus 失败";
     } else {
         qDebug() << "[TrackDisplayWebBridge] 已订阅 SOURCE_TRACK_DISPLAY";
@@ -43,7 +43,7 @@ void TrackDisplayWebBridge::start()
 
 void TrackDisplayWebBridge::stop()
 {
-    m_active = false;
+    m_active.store(false, std::memory_order_release);
     if (m_subId == 0)
         return;
     SystemBus::getInstance().unsubscribe(m_subId);
@@ -52,7 +52,7 @@ void TrackDisplayWebBridge::stop()
 
 void TrackDisplayWebBridge::onBusEnvelope(const BusEnvelope& env)
 {
-    if (!m_active)
+    if (!m_active.load(std::memory_order_acquire))
         return;
 
     auto snapPtr = env.payloadAs<TrackDisplaySnapshot>(BusPayloadKind::TrackDisplaySnapshot);
@@ -61,7 +61,7 @@ void TrackDisplayWebBridge::onBusEnvelope(const BusEnvelope& env)
 
     QPointer<TrackDisplayWebBridge> guard(this);
     QMetaObject::invokeMethod(this, [guard, snapPtr]() {
-        if (guard && guard->m_active)
+        if (guard && guard->m_active.load(std::memory_order_acquire))
             guard->pushSnapshot(*snapPtr);
     }, Qt::QueuedConnection);
 }

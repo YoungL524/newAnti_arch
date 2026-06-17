@@ -39,6 +39,12 @@ using BusEnvelopeCallback = std::function<void(const BusEnvelope&)>;
  * - 采用纯粹的发布订阅模式，支持多对多通信
  * - 提供基于数据源类型和分发目标的灵活订阅机制
  * - 保证数据传输的可靠性和实时性
+ *
+ * 载荷使用约定（详见 doc/architecture/04-技术架构.md §7）：
+ * - 小型控制包、固定协议包、通信下行：BusCallback（DataPacket*）
+ * - 大对象、显示 DTO、任务状态、告警批量：BusEnvelope + BusEnvelopeCallback
+ * - 新增面向 Web/UI 输出的数据：默认 BusEnvelopeCallback
+ * - DataPacket* 回调为兼容层，不再承载复杂业务对象
  */
 class ISystemBus
 {

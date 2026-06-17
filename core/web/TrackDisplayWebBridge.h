@@ -3,6 +3,7 @@
 #include "bus/BusEnvelope.h"
 #include "bus/ISystemBus.h"
 #include <QObject>
+#include <atomic>
 
 namespace web { class WebService; }
 struct TrackDisplaySnapshot;
@@ -27,5 +28,5 @@ private:
 
     web::WebService* m_ws = nullptr;
     SubscriptionId m_subId = 0;
-    bool m_active = false;
+    std::atomic_bool m_active{false};
 };
