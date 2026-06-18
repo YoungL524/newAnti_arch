@@ -259,19 +259,27 @@ export function CoreProvider({ children }: { children: ReactNode }) {
       .catch(() => {})
   }, [])
 
-  // ── WebSocket ──
+  // ── WebSocket（实时推送；connected 状态由 HTTP/WS status 消息维护，不在 onclose 里误标断开）──
   useEffect(() => {
+    let cancelled = false
     let ws: WebSocket | null = null
     let reconnectTimer: ReturnType<typeof setTimeout>
 
     const connect = () => {
-      const url = import.meta.env.DEV
-        ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
-        : 'ws://localhost:8089'
+      if (cancelled) return
+
+      // 开发模式直连 core WS 端口，避免经 Vite 代理刷新时 ECONNRESET 刷屏
+      const url = 'ws://localhost:8089'
 
       ws = new WebSocket(url)
-      ws.onopen = () => console.debug('[WS] connected')
+
+      ws.onopen = () => {
+        if (cancelled) return
+        console.debug('[WS] connected')
+      }
+
       ws.onmessage = (e) => {
+        if (cancelled) return
         try {
           const msg: WsMessage = JSON.parse(e.data)
           if (msg.type === 'status') {
@@ -323,15 +331,29 @@ export function CoreProvider({ children }: { children: ReactNode }) {
           }
         } catch { /* ignore */ }
       }
+
       ws.onclose = () => {
-        setState(prev => ({ ...prev, connected: false }))
-        reconnectTimer = setTimeout(connect, 3000)
+        if (cancelled) return
+        // 刷新/StrictMode 卸载会主动 close，此处只负责重连，不把 connected 置 false
+        // （connected 表示后端通信健康，由 /api/status 与 WS status 推送维护）
+        reconnectTimer = setTimeout(connect, 1000)
       }
-      ws.onerror = () => ws?.close()
     }
 
     connect()
-    return () => { ws?.close(); clearTimeout(reconnectTimer) }
+
+    return () => {
+      cancelled = true
+      clearTimeout(reconnectTimer)
+      if (ws) {
+        ws.onopen = null
+        ws.onmessage = null
+        ws.onclose = null
+        ws.onerror = null
+        ws.close()
+        ws = null
+      }
+    }
   }, [flushTracksToState])
 
   // ── 1s 节流：仅刷新 trackRate，航迹数据已在 WS 到达时即时更新 ──

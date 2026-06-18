@@ -158,7 +158,7 @@ void WebApiController::registerRestRoutes()
             j[QStringLiteral("id")] = dev.id;
             j[QStringLiteral("name")] = dev.name;
             j[QStringLiteral("brand")] = dev.brand;
-            j[QStringLiteral("kind")] = static_cast<int>(dev.kind);`
+            j[QStringLiteral("kind")] = static_cast<int>(dev.kind);
             j[QStringLiteral("lng")] = dev.lng;
             j[QStringLiteral("lat")] = dev.lat;
             j[QStringLiteral("altitude")] = dev.altitude;

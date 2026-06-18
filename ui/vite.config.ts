@@ -6,12 +6,9 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // WS 由前端直连 core:8089，不经 Vite 代理（刷新时代理层 ECONNRESET 无法抑制）
     proxy: {
       '/api': 'http://localhost:8088',
-      '/ws': {
-        target: 'ws://localhost:8089',
-        ws: true,
-      },
     },
   },
   build: {

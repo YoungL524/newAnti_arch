@@ -12,6 +12,7 @@
 #include <QJsonDocument>
 #include <QCoreApplication>
 #include <QDebug>
+#include <QAbstractSocket>
 #include <QUrl>
 
 namespace {
@@ -149,6 +150,11 @@ void WebService::broadcast(const QJsonObject& msg) {
 
     for (int i = m_wsClients.size() - 1; i >= 0; --i) {
         auto* ws = m_wsClients[i];
+        if (!ws || ws->state() != QAbstractSocket::ConnectedState) {
+            if (ws) ws->deleteLater();
+            m_wsClients.removeAt(i);
+            continue;
+        }
 
         // 慢客户端检测：写缓冲区积压超过阈值时断开
         if (ws->bytesToWrite() > kCongestionThreshold) {
@@ -177,6 +183,8 @@ void WebService::onWsDisconnected() {
     auto* ws = qobject_cast<QWebSocket*>(sender());
     if (ws) {
         m_wsClients.removeOne(ws);
+        emit serverLog(QStringLiteral("info"),
+            QStringLiteral("WS 客户端已断开 (%1)").arg(ws->peerAddress().toString()));
         ws->deleteLater();
     }
 }
