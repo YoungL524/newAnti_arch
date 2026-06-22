@@ -78,11 +78,10 @@ void WebApiController::registerRestRoutes()
             qint64& lastMs = work ? m_lastStartMs : m_lastStopMs;
             if (now - lastMs < 500)
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("throttled"), true}};
-            lastMs = now;
 
-            const auto resolution = resolveSingleControllerDeviceIds(
-                body[QStringLiteral("deviceIds")].toArray());
-            if (!body[QStringLiteral("deviceIds")].toArray().isEmpty() && !resolution.hasExecutableTarget)
+            const QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
+            const auto resolution = resolveSingleControllerDeviceIds(ids);
+            if (!ids.isEmpty() && !resolution.hasExecutableTarget)
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("不支持的设备 id")}};
 
             const bool cmdAccepted = work ? m_wmc->requestWork() : m_wmc->requestStandby();
@@ -90,6 +89,7 @@ void WebApiController::registerRestRoutes()
                 return QJsonObject{{QStringLiteral("ok"), false},
                                    {QStringLiteral("error"), QStringLiteral("命令被拒绝：状态转换中")}};
 
+            lastMs = now;
             return buildSingleControllerCommandResponse(
                 resolution.executedId, resolution.rejectedDeviceIds, true);
         };
@@ -100,11 +100,10 @@ void WebApiController::registerRestRoutes()
             qint64 now = QDateTime::currentMSecsSinceEpoch();
             if (now - m_lastResetMs < 500)
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("throttled"), true}};
-            m_lastResetMs = now;
 
-            const auto resolution = resolveSingleControllerDeviceIds(
-                body[QStringLiteral("deviceIds")].toArray());
-            if (!body[QStringLiteral("deviceIds")].toArray().isEmpty() && !resolution.hasExecutableTarget)
+            const QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
+            const auto resolution = resolveSingleControllerDeviceIds(ids);
+            if (!ids.isEmpty() && !resolution.hasExecutableTarget)
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("不支持的设备 id")}};
 
             const bool cmdAccepted = m_wmc && m_wmc->reset();
@@ -112,6 +111,7 @@ void WebApiController::registerRestRoutes()
                 return QJsonObject{{QStringLiteral("ok"), false},
                                    {QStringLiteral("error"), QStringLiteral("复位被拒绝：当前非 Fault 状态")}};
 
+            m_lastResetMs = now;
             QJsonObject r = buildSingleControllerCommandResponse(
                 resolution.executedId, resolution.rejectedDeviceIds, true);
             if (m_wmc)
