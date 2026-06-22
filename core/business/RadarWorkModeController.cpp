@@ -53,52 +53,62 @@ void RadarWorkModeController::setTransitionTimeoutMs(int ms)
     m_transitionTimer.setInterval(ms);
 }
 
-void RadarWorkModeController::requestWork()
+bool RadarWorkModeController::requestWork()
 {
     switch (m_state) {
     case State::Standby:
         if (issueCommand(1)) {
             transitionTo(State::Starting);
             m_transitionTimer.start();
-        } else {
-            transitionTo(State::Fault);
+            return true;
         }
-        return;
+        transitionTo(State::Fault);
+        return false;
     case State::Working:
         emit requestRejected(RejectReason::DuplicateRequest, m_state);
-        return;
+        return false;
     case State::Starting:
     case State::Stopping:
         emit requestRejected(RejectReason::TransitionInProgress, m_state);
-        return;
+        return false;
     case State::Fault:
         emit requestRejected(RejectReason::FaultRequiresReset, m_state);
-        return;
+        return false;
     }
+    return false;
 }
 
-void RadarWorkModeController::requestStandby()
+bool RadarWorkModeController::requestStandby()
 {
     switch (m_state) {
     case State::Working:
         if (issueCommand(0)) {
             transitionTo(State::Stopping);
             m_transitionTimer.start();
-        } else {
-            transitionTo(State::Fault);
+            return true;
         }
-        return;
+        transitionTo(State::Fault);
+        return false;
+    case State::Starting:
+        m_transitionTimer.stop();
+        if (issueCommand(0)) {
+            transitionTo(State::Stopping);
+            m_transitionTimer.start();
+            return true;
+        }
+        transitionTo(State::Fault);
+        return false;
     case State::Standby:
         emit requestRejected(RejectReason::DuplicateRequest, m_state);
-        return;
-    case State::Starting:
+        return false;
     case State::Stopping:
         emit requestRejected(RejectReason::TransitionInProgress, m_state);
-        return;
+        return false;
     case State::Fault:
         emit requestRejected(RejectReason::FaultRequiresReset, m_state);
-        return;
+        return false;
     }
+    return false;
 }
 
 void RadarWorkModeController::reset()

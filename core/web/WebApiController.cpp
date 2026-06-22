@@ -93,8 +93,18 @@ void WebApiController::registerRestRoutes()
             if (!ids.isEmpty() && accepted.isEmpty())
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("不支持的设备 id")}};
 
-            for (const auto& v : accepted)
-                if (mappedIds.contains(v.toString())) { if (work) m_wmc->requestWork(); else m_wmc->requestStandby(); break; }
+            bool dispatched = false;
+            bool cmdAccepted = false;
+            for (const auto& v : accepted) {
+                if (mappedIds.contains(v.toString())) {
+                    dispatched = true;
+                    cmdAccepted = work ? m_wmc->requestWork() : m_wmc->requestStandby();
+                    break;
+                }
+            }
+            if (dispatched && !cmdAccepted)
+                return QJsonObject{{QStringLiteral("ok"), false},
+                                   {QStringLiteral("error"), QStringLiteral("命令被拒绝：状态转换中")}};
 
             return QJsonObject{{QStringLiteral("ok"), true}, {QStringLiteral("acceptedDeviceIds"), accepted}, {QStringLiteral("rejectedDeviceIds"), rejected}};
         };

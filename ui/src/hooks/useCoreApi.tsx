@@ -30,6 +30,7 @@ interface CoreState {
   connected: boolean
   acquisition: boolean
   state: string
+  commandPending: boolean
   devices: DeviceState[]
   checkedDeviceIds: string[]
   noSelectionHint: boolean
@@ -47,7 +48,7 @@ interface CoreState {
 }
 
 const defaultState: CoreState = {
-  connected: false, acquisition: false, state: 'Unknown',
+  connected: false, acquisition: false, state: 'Unknown', commandPending: false,
   devices: [], checkedDeviceIds: [], noSelectionHint: false, commandError: '', interactionError: '',
   tracks: [], trackRate: 0, logEntries: [],
   setCheckedDevices: () => {}, dismissNoSelectionHint: () => {}, dismissCommandError: () => {}, dismissInteractionError: () => {}, toggleAcquisition: () => {},
@@ -80,6 +81,7 @@ export function CoreProvider({ children }: { children: ReactNode }) {
   const checkedRef = useRef<string[]>([])
   const pendingRef = useRef(false)
   const workingRef = useRef(false)
+  const stateRef = useRef('Unknown')
   const pendingInteractionRef = useRef<Map<string, { selected: boolean; trackingEnabled: boolean }>>(new Map())
 
   const applyPendingInteractions = useCallback((list: RadarTrack[]): RadarTrack[] => {
@@ -155,8 +157,9 @@ export function CoreProvider({ children }: { children: ReactNode }) {
     }
   }, [flushTracksToState])
 
-  // 同步 workingRef 与 state.acquisition
+  // 同步 workingRef / stateRef 与 state
   useEffect(() => { workingRef.current = state.acquisition }, [state.acquisition])
+  useEffect(() => { stateRef.current = state.state }, [state.state])
 
   const toggleAcquisition = useCallback(async () => {
     const cids = checkedRef.current
@@ -173,6 +176,9 @@ export function CoreProvider({ children }: { children: ReactNode }) {
     pendingRef.current = true
     setTimeout(() => { pendingRef.current = false }, 1500)
 
+    const savedAcquisition = isWorking
+    const savedState = stateRef.current
+
     // 保存快照以备回滚
     const savedTracks = tracksRef.current
     const savedTrackCount = trackCountRef.current
@@ -183,9 +189,12 @@ export function CoreProvider({ children }: { children: ReactNode }) {
       pendingInteractionRef.current.clear()
     }
 
+    const nextTransient = !isWorking ? 'Starting' : 'Stopping'
     setState(prev => ({
       ...prev,
       acquisition: !isWorking,
+      state: nextTransient,
+      commandPending: true,
       tracks: !isWorking ? [] : prev.tracks,
       trackRate: 0,
     }))
@@ -194,7 +203,15 @@ export function CoreProvider({ children }: { children: ReactNode }) {
       console.warn('[acquisition]', msg)
       tracksRef.current = savedTracks
       trackCountRef.current = savedTrackCount
-      setState(prev => ({ ...prev, acquisition: isWorking, tracks: savedTracks, trackRate: savedTrackCount, commandError: msg }))
+      setState(prev => ({
+        ...prev,
+        acquisition: savedAcquisition,
+        state: savedState,
+        commandPending: false,
+        tracks: savedTracks,
+        trackRate: savedTrackCount,
+        commandError: msg,
+      }))
     }
 
     try {
@@ -217,6 +234,7 @@ export function CoreProvider({ children }: { children: ReactNode }) {
       if (rejected > 0) {
         setState(prev => ({ ...prev, commandError: '部分设备未执行: ' + JSON.stringify(data.rejectedDeviceIds) }))
       }
+      setState(prev => ({ ...prev, commandPending: false }))
     } catch {
       rollback('网络错误')
     }

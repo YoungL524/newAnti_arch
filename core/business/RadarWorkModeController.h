@@ -102,13 +102,15 @@ public:
 public slots:
     /**
      * @brief 请求进入工作状态
+     * @return 命令是否被接受（拒绝时发出 requestRejected）
      */
-    void requestWork();
+    bool requestWork();
 
     /**
      * @brief 请求进入待机状态
+     * @return 命令是否被接受（拒绝时发出 requestRejected）
      */
-    void requestStandby();
+    bool requestStandby();
 
     /**
      * @brief 复位（仅 Fault 状态有效）

@@ -48,6 +48,8 @@ public:
     std::optional<task::TaskInfo> create(task::TaskInfo task);
     bool update(const task::TaskInfo& task);
     bool updateDevices(const QString& id, const QStringList& deviceIds);
+    /// Draft -> Active only. Tasks are one-shot: Completed/Archived cannot re-activate;
+    /// use create + activate or a future clone/reopen for re-execution.
     bool activate(const QString& id);
     bool complete(const QString& id);
     bool archive(const QString& id);

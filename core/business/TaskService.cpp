@@ -183,8 +183,7 @@ std::optional<task::TaskInfo> TaskService::create(task::TaskInfo task)
         return std::nullopt;
 
     task.createdAt = QDateTime::currentMSecsSinceEpoch();
-    if (task.status.isEmpty())
-        task.status = QString::fromUtf8(task::kStatusDraft);
+    task.status = QString::fromUtf8(task::kStatusDraft);
 
     if (!m_store->beginTransaction()) {
         setError(QStringLiteral("无法开始事务"));

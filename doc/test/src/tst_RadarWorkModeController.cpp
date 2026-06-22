@@ -322,13 +322,16 @@ void TestRadarWorkModeController::requests_during_starting_are_rejected()
     sender.calls.clear();
 
     QSignalSpy rejectSpy(c.get(), &RadarWorkModeController::requestRejected);
+    QSignalSpy stateSpy(c.get(), &RadarWorkModeController::stateChanged);
 
-    c->requestWork();
-    c->requestStandby();
+    QVERIFY(!c->requestWork());
+    QVERIFY(c->requestStandby());
 
-    QCOMPARE(c->state(), RadarWorkModeController::State::Starting);
-    QCOMPARE(rejectSpy.count(), 2);
-    QVERIFY(sender.calls.isEmpty());
+    QCOMPARE(c->state(), RadarWorkModeController::State::Stopping);
+    QCOMPARE(rejectSpy.count(), 1);
+    QCOMPARE(sender.calls.size(), 1);
+    QCOMPARE(sender.calls.last().second, 0u);
+    QCOMPARE(stateSpy.count(), 1);
 }
 
 void TestRadarWorkModeController::requests_during_stopping_are_rejected()

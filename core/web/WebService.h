@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QJsonObject>
+#include <QAbstractSocket>
 #include <functional>
 #include <QHash>
 #include <QList>
@@ -67,12 +68,14 @@ private slots:
     void onHttpConnection();
     void onHttpReadyRead();
     void onHttpDisconnected();
+    void onHttpSocketError(QAbstractSocket::SocketError error);
     void onWsConnection();
     void onWsDisconnected();
 
 private:
     bool dispatchRequest(QTcpSocket* sock, QByteArray& raw);
-    void scheduleHttpClose(QTcpSocket* sock);
+    void closeHttpSocket(QTcpSocket* sock);
+    void cleanupHttpSocket(QTcpSocket* sock);
     bool isSocketWritable(QTcpSocket* sock) const;
     bool writeToSocket(QTcpSocket* sock, const QByteArray& data);
     void serveIndex(QTcpSocket* sock, bool keepAlive = false);

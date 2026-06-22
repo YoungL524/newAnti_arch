@@ -9,7 +9,7 @@ export default function TitleBar({ activeTask, backendStatus }: {
   activeTask: Task | null
   backendStatus: 'loading' | 'online' | 'offline'
 }) {
-  const { connected, acquisition, state, checkedDeviceIds, devices, noSelectionHint, commandError, interactionError, dismissNoSelectionHint, dismissCommandError, dismissInteractionError, toggleAcquisition } = useCore()
+  const { connected, acquisition, state, commandPending, checkedDeviceIds, devices, noSelectionHint, commandError, interactionError, dismissNoSelectionHint, dismissCommandError, dismissInteractionError, toggleAcquisition } = useCore()
 
   const isTransient = state === 'Starting' || state === 'Stopping'
   const isFault = state === 'Fault'
@@ -82,7 +82,7 @@ export default function TitleBar({ activeTask, backendStatus }: {
                    precision-shadow active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
         style={{ background: btnBg }}
         onClick={toggleAcquisition}
-        disabled={isTransient}
+        disabled={isTransient || commandPending}
       >
         {btnLabel}
       </button>
