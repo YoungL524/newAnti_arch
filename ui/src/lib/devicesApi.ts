@@ -1,6 +1,6 @@
 export type DeviceRegistryStatus = 'loading' | 'available' | 'unavailable'
 
-import type { RadarDevice, SubDevice } from '../components/map/types'
+import type { RadarDevice, SubDevice, RadarBrand } from '../components/map/types'
 
 const BASE = '/api/devices'
 
@@ -15,6 +15,23 @@ export interface ApiDevice {
   lng: number; lat: number; altitude: number; maxRange: number
   facesJson: string; endpointId: string; linkedRadarId: string
   mountOffsetAzimuth: number; coordinateSystem: string; status: number
+}
+
+export interface CreateDeviceResponse {
+  ok: boolean
+  device: ApiDevice
+}
+
+const LEGACY_BRANDS: Record<string, RadarBrand> = {
+  cetc38: 'YHF',
+  cetc14: 'YF',
+  leiying: 'BW',
+}
+
+function normalizeBrand(raw: string): RadarBrand {
+  if (raw in LEGACY_BRANDS) return LEGACY_BRANDS[raw]
+  if (raw === 'YHF' || raw === 'YF' || raw === 'BW') return raw
+  return 'YHF'
 }
 
 async function apiCall(url: string, options?: RequestInit): Promise<ApiResult<any>> {
@@ -36,7 +53,7 @@ export function apiDeviceToRadar(item: ApiDevice): RadarDevice | null {
   return {
     id: item.id,
     name: item.name,
-    brand: (item.brand || 'cetc38') as any,
+    brand: normalizeBrand(item.brand || 'YHF'),
     lng: item.lng,
     lat: item.lat,
     altitude: item.altitude,
@@ -54,10 +71,10 @@ export function apiDeviceToSub(item: ApiDevice): SubDevice | null {
     id: item.id,
     name: item.name,
     kind: kinds[item.kind - 1] ?? 'opto',
-    brand: (item.brand || 'cetc38') as any,
+    brand: normalizeBrand(item.brand || 'YHF'),
     linkedRadarId: item.linkedRadarId || undefined,
     mountOffsetAzimuth: item.mountOffsetAzimuth,
-    coordinateSystem: item.coordinateSystem || 'WGS-84',
+    coordinateSystem: item.coordinateSystem || 'WGS-84',  
   }
 }
 
@@ -94,7 +111,7 @@ export function subToApiPayload(id: string, d: SubDevice): any {
   }
 }
 
-export async function createDevice(payload: any): Promise<ApiResult> {
+export async function createDevice(payload: any): Promise<ApiResult<CreateDeviceResponse>> {
   return apiCall(BASE, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

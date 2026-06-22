@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { SubDevice, RadarDevice, RadarBrand } from '../map/types'
-import { BRAND_LABELS } from '../map/types'
+import { BRAND_LABELS, BRAND_OPTIONS } from '../map/types'
 
 interface Props {
   device: SubDevice
@@ -36,8 +36,6 @@ const labelStyle: React.CSSProperties = {
 
 export default function SubDeviceEditForm({ device, radarDevices, onSave, onCancel }: Props) {
   const meta = DEVICE_META[device.kind]
-
-  const BRAND_OPTIONS: RadarBrand[] = ['cetc38', 'cetc14', 'leiying']
 
   const [form, setForm] = useState({
     name: device.name,

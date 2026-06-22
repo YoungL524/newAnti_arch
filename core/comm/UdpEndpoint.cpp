@@ -89,7 +89,6 @@ void UdpEndpoint::onReadyRead()
 {
     while (m_socket->hasPendingDatagrams()) {
         const qint64 pending = m_socket->pendingDatagramSize();
-
         // 空/无效数据报：常见于 Windows loopback 发到无监听端口后
         // 内核回 ICMP Port Unreachable (WSAECONNRESET)，触发虚假 readyRead。
         // 必须读空队列才能复位，但不对外传播。

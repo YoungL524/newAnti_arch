@@ -5,13 +5,15 @@ export interface RadarFace {
   active: boolean             // 是否开启扫描
 }
 
-export type RadarBrand = 'cetc38' | 'cetc14' | 'leiying'
+export type RadarBrand = 'YHF' | 'YF' | 'BW'
 
 export const BRAND_LABELS: Record<RadarBrand, string> = {
-  cetc38: '中电38所',
-  cetc14: '中电14所',
-  leiying: '雷鹰',
+  YHF: '云禾峰',
+  YF: '耀峰',
+  BW: '宝威',
 }
+
+export const BRAND_OPTIONS: RadarBrand[] = ['YHF', 'YF', 'BW']
 
 export interface RadarDevice {
   id: string
@@ -42,7 +44,7 @@ export const RADAR_CENTER: [number, number] = [118.653090, 31.935020]
 
 export const DEFAULT_DEVICE: Omit<RadarDevice, 'id'> = {
   name: 'NODE_ALPHA_01',
-  brand: 'cetc38',
+  brand: 'YHF',
   lng: 118.653090,
   lat: 31.935020,
   altitude: 0,

@@ -105,7 +105,7 @@ bool DeviceRegistry::ensureDefaultControllableRadar() {
     DeviceInfo dev;
     dev.id = QStringLiteral("radar_001");
     dev.name = QStringLiteral("NODE_ALPHA_01");
-    dev.brand = QStringLiteral("cetc38");
+    dev.brand = QStringLiteral("YHF");
     dev.kind = DeviceKind::Radar;
     dev.lng = 118.65309;
     dev.lat = 31.93502;

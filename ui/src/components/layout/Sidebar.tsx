@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { RadarDevice, SubDevice, AppDevice, RadarFace, RadarBrand } from '../map/types'
-import { BRAND_LABELS } from '../map/types'
+import { BRAND_LABELS, BRAND_OPTIONS } from '../map/types'
 import type { Task } from '../../lib/taskTypes'
 import type { DeviceRegistryStatus } from '../../lib/devicesApi'
 import { useCore } from '../../hooks/useCoreApi'
@@ -39,12 +39,10 @@ interface SidebarProps {
 type FormKind = 'radar' | 'opto' | 'level' | 'gps'
 
 const RADAR_DEFAULTS: Omit<RadarDevice, 'id'> = {
-  name: '', brand: 'cetc38', lng: 118.6, lat: 31.9, altitude: 0,
+  name: '', brand: 'YHF', lng: 118.6, lat: 31.9, altitude: 0,
   maxRange: 5,
   faces: [{ label: 'A', boresightAzimuth: 0, scanAngle: 45, active: true }],
 }
-
-const BRAND_OPTIONS: RadarBrand[] = ['cetc38', 'cetc14', 'leiying']
 
 const FACE_PRESETS: { label: string; faces: Omit<RadarFace, 'active'>[] }[] = [
   { label: '单面阵', faces: [{ label: 'A', boresightAzimuth: 0, scanAngle: 45 }] },
@@ -94,7 +92,7 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
   const [formExpanded, setFormExpanded] = useState(false)
   const [formKind, setFormKind] = useState<FormKind>('radar')
   const [radarForm, setRadarForm] = useState(RADAR_DEFAULTS)
-  const [subForm, setSubForm] = useState<Omit<SubDevice, 'id'>>({ name: '', kind: 'opto', brand: 'cetc38', linkedRadarId: '' })
+  const [subForm, setSubForm] = useState<Omit<SubDevice, 'id'>>({ name: '', kind: 'opto', brand: 'YHF', linkedRadarId: '' })
 
   const radarDevices = useMemo(() => allDevices.filter(isRadar), [allDevices])
   const { devices: deviceStates, checkedDeviceIds, noSelectionHint, acquisition, state: globalState, setCheckedDevices } = useCore()
@@ -114,7 +112,7 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
 
   const resetForm = () => {
     setRadarForm(RADAR_DEFAULTS)
-    setSubForm({ name: '', kind: 'opto', brand: 'cetc38', linkedRadarId: '' })
+    setSubForm({ name: '', kind: 'opto', brand: 'YHF', linkedRadarId: '' })
     setFormKind('radar')
     setFormExpanded(false)
   }

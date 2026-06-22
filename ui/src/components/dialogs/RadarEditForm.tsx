@@ -1,14 +1,12 @@
 import { useState } from 'react'
 import type { RadarDevice, RadarBrand, RadarFace } from '../map/types'
-import { BRAND_LABELS } from '../map/types'
+import { BRAND_LABELS, BRAND_OPTIONS } from '../map/types'
 
 interface Props {
   device: RadarDevice
   onSave: (updates: Partial<RadarDevice>) => void
   onCancel: () => void
 }
-
-const BRAND_OPTIONS: RadarBrand[] = ['cetc38', 'cetc14', 'leiying']
 
 const inputStyle: React.CSSProperties = {
   width: '100%',
