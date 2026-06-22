@@ -161,6 +161,27 @@ export function CoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => { workingRef.current = state.acquisition }, [state.acquisition])
   useEffect(() => { stateRef.current = state.state }, [state.state])
 
+  const applyStatusResponse = useCallback((data: StatusResponse) => {
+    if (!data.ok) return
+    const devices: DeviceState[] = (data.devices || []).map((d: DeviceStatus) => ({
+      id: d.id, state: d.state, acquisition: d.acquisition,
+    }))
+    const agg = computeAggregate(devices)
+    setState(prev => ({
+      ...prev, connected: data.connected, devices, ...agg,
+    }))
+  }, [])
+
+  const refreshStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/status')
+      const data: StatusResponse = await res.json()
+      applyStatusResponse(data)
+    } catch {
+      setState(prev => ({ ...prev, connected: false }))
+    }
+  }, [applyStatusResponse])
+
   const toggleAcquisition = useCallback(async () => {
     const cids = checkedRef.current
     const isWorking = workingRef.current
@@ -230,6 +251,7 @@ export function CoreProvider({ children }: { children: ReactNode }) {
           commandPending: false,
           commandError: '',
         }))
+        await refreshStatus()
       } catch {
         rollbackFault('网络错误')
       }
@@ -291,31 +313,14 @@ export function CoreProvider({ children }: { children: ReactNode }) {
     } catch {
       rollback('网络错误')
     }
-  }, [])
+  }, [refreshStatus])
 
   // ── HTTP 轮询 ──
   useEffect(() => {
-    const fetchStatus = async () => {
-      try {
-        const res = await fetch('/api/status')
-        const data: StatusResponse = await res.json()
-        if (data.ok) {
-          const devices: DeviceState[] = (data.devices || []).map((d: DeviceStatus) => ({
-            id: d.id, state: d.state, acquisition: d.acquisition,
-          }))
-          const agg = computeAggregate(devices)
-          setState(prev => ({
-            ...prev, connected: data.connected, devices, ...agg,
-          }))
-        }
-      } catch {
-        setState(prev => ({ ...prev, connected: false }))
-      }
-    }
-    fetchStatus()
-    const id = setInterval(fetchStatus, 5000)
+    refreshStatus()
+    const id = setInterval(refreshStatus, 5000)
     return () => clearInterval(id)
-  }, [])
+  }, [refreshStatus])
 
   // ── 初始加载：拉取最近日志 backlog ──
   useEffect(() => {
