@@ -80,33 +80,18 @@ void WebApiController::registerRestRoutes()
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("throttled"), true}};
             lastMs = now;
 
-            QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
-            // Cache mapping result once per request
-            auto mappedIds = radarCpuDeviceIds();
-
-            QJsonArray accepted;
-            if (ids.isEmpty()) { accepted.append(QStringLiteral("radar_cpu")); }
-            else { for (const auto& v : ids) if (mappedIds.contains(v.toString())) accepted.append(v.toString()); }
-
-            QJsonArray rejected;
-            for (const auto& v : ids) if (!accepted.contains(v)) rejected.append(v);
-            if (!ids.isEmpty() && accepted.isEmpty())
+            const auto resolution = resolveSingleControllerDeviceIds(
+                body[QStringLiteral("deviceIds")].toArray());
+            if (!body[QStringLiteral("deviceIds")].toArray().isEmpty() && !resolution.hasExecutableTarget)
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("不支持的设备 id")}};
 
-            bool dispatched = false;
-            bool cmdAccepted = false;
-            for (const auto& v : accepted) {
-                if (mappedIds.contains(v.toString())) {
-                    dispatched = true;
-                    cmdAccepted = work ? m_wmc->requestWork() : m_wmc->requestStandby();
-                    break;
-                }
-            }
-            if (dispatched && !cmdAccepted)
+            const bool cmdAccepted = work ? m_wmc->requestWork() : m_wmc->requestStandby();
+            if (!cmdAccepted)
                 return QJsonObject{{QStringLiteral("ok"), false},
                                    {QStringLiteral("error"), QStringLiteral("命令被拒绝：状态转换中")}};
 
-            return QJsonObject{{QStringLiteral("ok"), true}, {QStringLiteral("acceptedDeviceIds"), accepted}, {QStringLiteral("rejectedDeviceIds"), rejected}};
+            return buildSingleControllerCommandResponse(
+                resolution.executedId, resolution.rejectedDeviceIds, true);
         };
         m_ws->handlePost(QStringLiteral("/api/start"), [this, handleCommand](const QJsonObject& body) { return handleCommand(body, true); });
         m_ws->handlePost(QStringLiteral("/api/stop"),  [this, handleCommand](const QJsonObject& body) { return handleCommand(body, false); });
@@ -117,46 +102,18 @@ void WebApiController::registerRestRoutes()
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("throttled"), true}};
             m_lastResetMs = now;
 
-            QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
-            auto mappedIds = radarCpuDeviceIds();
-
-            QJsonArray rejected;
-            QString executedId;
-            if (ids.isEmpty()) {
-                executedId = QStringLiteral("radar_cpu");
-            } else {
-                for (const auto& v : ids) {
-                    const QString id = v.toString();
-                    if (!mappedIds.contains(id)) {
-                        rejected.append(id);
-                        continue;
-                    }
-                    if (executedId.isEmpty())
-                        executedId = id;
-                    else
-                        rejected.append(id);
-                }
-            }
-            if (!ids.isEmpty() && executedId.isEmpty())
+            const auto resolution = resolveSingleControllerDeviceIds(
+                body[QStringLiteral("deviceIds")].toArray());
+            if (!body[QStringLiteral("deviceIds")].toArray().isEmpty() && !resolution.hasExecutableTarget)
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("不支持的设备 id")}};
 
-            bool dispatched = !executedId.isEmpty();
-            bool cmdAccepted = dispatched && m_wmc && m_wmc->reset();
-            if (dispatched && !cmdAccepted)
+            const bool cmdAccepted = m_wmc && m_wmc->reset();
+            if (!cmdAccepted)
                 return QJsonObject{{QStringLiteral("ok"), false},
                                    {QStringLiteral("error"), QStringLiteral("复位被拒绝：当前非 Fault 状态")}};
 
-            QJsonArray accepted;
-            if (dispatched && cmdAccepted)
-                accepted.append(executedId);
-
-            QJsonObject r{
-                {QStringLiteral("ok"), true},
-                {QStringLiteral("mode"), QStringLiteral("single-controller")},
-                {QStringLiteral("controllerId"), QStringLiteral("radar_cpu")},
-                {QStringLiteral("acceptedDeviceIds"), accepted},
-                {QStringLiteral("rejectedDeviceIds"), rejected},
-            };
+            QJsonObject r = buildSingleControllerCommandResponse(
+                resolution.executedId, resolution.rejectedDeviceIds, true);
             if (m_wmc)
                 r[QStringLiteral("state")] = RadarWorkModeController::stateName(m_wmc->state());
             return r;
@@ -506,4 +463,49 @@ QSet<QString> WebApiController::radarCpuDeviceIds() const
         }
     }
     return ids;
+}
+
+WebApiController::SingleControllerDeviceResolution
+WebApiController::resolveSingleControllerDeviceIds(const QJsonArray& deviceIds) const
+{
+    SingleControllerDeviceResolution resolution;
+    const auto mappedIds = radarCpuDeviceIds();
+
+    if (deviceIds.isEmpty()) {
+        resolution.executedId = QStringLiteral("radar_cpu");
+        resolution.hasExecutableTarget = true;
+        return resolution;
+    }
+
+    for (const auto& v : deviceIds) {
+        const QString id = v.toString();
+        if (!mappedIds.contains(id)) {
+            resolution.rejectedDeviceIds.append(id);
+            continue;
+        }
+        if (resolution.executedId.isEmpty())
+            resolution.executedId = id;
+        else
+            resolution.rejectedDeviceIds.append(id);
+    }
+    resolution.hasExecutableTarget = !resolution.executedId.isEmpty();
+    return resolution;
+}
+
+QJsonObject WebApiController::buildSingleControllerCommandResponse(
+    const QString& executedId,
+    const QJsonArray& rejectedDeviceIds,
+    bool cmdAccepted) const
+{
+    QJsonArray accepted;
+    if (cmdAccepted && !executedId.isEmpty())
+        accepted.append(executedId);
+
+    return QJsonObject{
+        {QStringLiteral("ok"), true},
+        {QStringLiteral("mode"), QStringLiteral("single-controller")},
+        {QStringLiteral("controllerId"), QStringLiteral("radar_cpu")},
+        {QStringLiteral("acceptedDeviceIds"), accepted},
+        {QStringLiteral("rejectedDeviceIds"), rejectedDeviceIds},
+    };
 }

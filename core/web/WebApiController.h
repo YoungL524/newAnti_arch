@@ -48,7 +48,17 @@ public:
     void shutdown();
 
 private:
+    struct SingleControllerDeviceResolution {
+        QString executedId;
+        QJsonArray rejectedDeviceIds;
+        bool hasExecutableTarget = false;
+    };
+
     QJsonArray buildDeviceStatusArray() const;
+    SingleControllerDeviceResolution resolveSingleControllerDeviceIds(const QJsonArray& deviceIds) const;
+    QJsonObject buildSingleControllerCommandResponse(const QString& executedId,
+                                                     const QJsonArray& rejectedDeviceIds,
+                                                     bool cmdAccepted) const;
 
     /// Device id → radar_cpu controller mapping helpers
     bool mapsToRadarCpu(const QString& deviceId, const QString& endpointId) const;

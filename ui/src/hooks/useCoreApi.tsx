@@ -5,6 +5,8 @@ interface CommandResponse {
   ok: boolean
   error?: string
   throttled?: boolean
+  mode?: 'single-controller' | 'multi-controller'
+  controllerId?: string
   acceptedDeviceIds?: string[]
   rejectedDeviceIds?: string[]
 }
