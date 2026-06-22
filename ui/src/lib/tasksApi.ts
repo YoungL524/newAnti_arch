@@ -43,7 +43,8 @@ function mapStatus(status: string): TaskStatus {
     case 'Active': return 'active'
     case 'Completed': return 'completed'
     case 'Archived': return 'archived'
-    default: return 'active'
+    case 'Draft': return 'draft'
+    default: return 'draft'
   }
 }
 
@@ -84,7 +85,7 @@ export async function fetchTasksFromBackend(): Promise<{ tasks: Task[]; activeTa
   const activeResult = await apiCall<ActiveTaskData>(`${BASE}/active`)
   const activeTaskId = activeResult.ok && activeResult.data?.activeTaskId
     ? activeResult.data.activeTaskId
-    : tasks.find(t => t.status === 'active')?.id ?? null
+    : null
 
   return { ok: true, tasks, activeTaskId }
 }

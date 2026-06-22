@@ -36,6 +36,12 @@ QString validateCreate(const task::TaskInfo& t)
     return {};
 }
 
+QString taskError(TaskService* svc, const QString& fallback)
+{
+    const QString err = svc->lastError();
+    return err.isEmpty() ? fallback : err;
+}
+
 } // namespace
 
 void TaskApiRoutes::registerRoutes(web::WebService* ws, TaskService* taskService)
@@ -71,7 +77,7 @@ void TaskApiRoutes::registerRoutes(web::WebService* ws, TaskService* taskService
         if (!err.isEmpty()) return fail(err);
         auto created = taskService->create(t);
         if (!created.has_value())
-            return fail(QStringLiteral("创建任务失败"));
+            return fail(taskError(taskService, QStringLiteral("创建任务失败")));
         return okTask(created.value());
     });
 
@@ -91,24 +97,22 @@ void TaskApiRoutes::registerRoutes(web::WebService* ws, TaskService* taskService
         auto existing = taskService->get(suffix);
         if (!existing.has_value())
             return fail(QStringLiteral("任务不存在"));
+        if (existing->status == QString::fromUtf8(task::kStatusArchived))
+            return fail(QStringLiteral("invalid task status transition"));
 
-        auto t = taskFromBody(body);
+        task::TaskInfo t = existing.value();
         t.id = suffix;
-        if (t.name.isEmpty()) t.name = existing->name;
-        if (t.description.isEmpty()) t.description = existing->description;
-        if (t.operatorName.isEmpty()) t.operatorName = existing->operatorName;
-        if (t.status.isEmpty()) t.status = existing->status;
-        t.createdAt = existing->createdAt;
-        t.activatedAt = existing->activatedAt;
-        t.completedAt = existing->completedAt;
-        t.archivedAt = existing->archivedAt;
+        if (body.contains(QStringLiteral("name")))
+            t.name = body[QStringLiteral("name")].toString();
+        if (body.contains(QStringLiteral("description")))
+            t.description = body[QStringLiteral("description")].toString();
+        if (body.contains(QStringLiteral("operatorName")))
+            t.operatorName = body[QStringLiteral("operatorName")].toString();
         if (body.contains(QStringLiteral("deviceIds")))
             t.deviceIds = taskFromBody(body).deviceIds;
-        else
-            t.deviceIds = existing->deviceIds;
 
         if (!taskService->update(t))
-            return fail(QStringLiteral("更新任务失败"));
+            return fail(taskError(taskService, QStringLiteral("更新任务失败")));
         auto updated = taskService->get(suffix);
         if (!updated.has_value())
             return fail(QStringLiteral("更新后读取失败"));
@@ -136,7 +140,7 @@ void TaskApiRoutes::registerRoutes(web::WebService* ws, TaskService* taskService
             return fail(QStringLiteral("未知操作"));
 
         if (!ok)
-            return fail(QStringLiteral("操作失败"));
+            return fail(taskError(taskService, QStringLiteral("操作失败")));
         auto t = taskService->get(id);
         if (!t.has_value())
             return fail(QStringLiteral("操作后读取失败"));
@@ -147,7 +151,7 @@ void TaskApiRoutes::registerRoutes(web::WebService* ws, TaskService* taskService
         if (suffix.isEmpty() || suffix.contains(QChar('/')))
             return fail(QStringLiteral("无效路径"));
         if (!taskService->remove(suffix))
-            return fail(QStringLiteral("删除任务失败"));
+            return fail(taskError(taskService, QStringLiteral("删除任务失败")));
         return QJsonObject{{QStringLiteral("ok"), true}};
     });
 }

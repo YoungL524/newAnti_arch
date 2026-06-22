@@ -7,6 +7,7 @@
 #include <optional>
 
 class DataStore;
+class DeviceRegistry;
 
 namespace task {
 
@@ -35,10 +36,11 @@ struct TaskInfo {
 
 class TaskService {
 public:
-    explicit TaskService(DataStore* store);
+    explicit TaskService(DataStore* store, DeviceRegistry* deviceRegistry = nullptr);
 
     bool ensureSchema();
     static QString generateId();
+    QString lastError() const { return m_lastError; }
 
     QVector<task::TaskInfo> list() const;
     std::optional<task::TaskInfo> get(const QString& id) const;
@@ -54,5 +56,12 @@ public:
 private:
     task::TaskInfo rowToTask(const QVariantMap& row) const;
     bool saveDeviceIds(const QString& taskId, const QStringList& deviceIds);
+    bool validateDeviceIds(const QStringList& deviceIds);
+    bool isTerminalStatus(const QString& status) const;
+    void clearError();
+    void setError(const QString& msg);
+
     DataStore* m_store = nullptr;
+    DeviceRegistry* m_deviceReg = nullptr;
+    QString m_lastError;
 };

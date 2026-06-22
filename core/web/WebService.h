@@ -72,6 +72,9 @@ private slots:
 
 private:
     bool dispatchRequest(QTcpSocket* sock, QByteArray& raw);
+    void scheduleHttpClose(QTcpSocket* sock);
+    bool isSocketWritable(QTcpSocket* sock) const;
+    bool writeToSocket(QTcpSocket* sock, const QByteArray& data);
     void serveIndex(QTcpSocket* sock, bool keepAlive = false);
     void serveStaticFile(QTcpSocket* sock, const QString& path, bool keepAlive = false);
     void sendJson(QTcpSocket* sock, int status, const QJsonObject& obj, bool keepAlive = false);

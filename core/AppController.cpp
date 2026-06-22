@@ -81,7 +81,7 @@ bool AppController::initialize()
     }
 
     if (m_dataStore && m_dataStore->isConnected()) {
-        m_taskService = std::make_unique<TaskService>(m_dataStore.get());
+        m_taskService = std::make_unique<TaskService>(m_dataStore.get(), m_deviceRegistry.get());
         if (!m_taskService->ensureSchema()) {
             qWarning() << "[AppController] 任务表创建失败，TaskService 不可用";
             m_taskService.reset();

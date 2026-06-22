@@ -1,4 +1,4 @@
-export type TaskStatus = 'active' | 'completed' | 'archived'
+export type TaskStatus = 'draft' | 'active' | 'completed' | 'archived'
 
 export interface Task {
   id: string

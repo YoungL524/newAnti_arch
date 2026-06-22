@@ -43,7 +43,14 @@ export default function App() {
   useEffect(() => { tasksRef.current = tasks }, [tasks])
   useEffect(() => { activeTaskIdRef.current = activeTaskId }, [activeTaskId])
 
-  useEffect(() => {
+  const backendStatus = useMemo<'loading' | 'online' | 'offline'>(() => {
+    if (deviceRegistryStatus === 'loading') return 'loading'
+    if (deviceRegistryStatus === 'unavailable' && !tasksBackend) return 'offline'
+    if (deviceRegistryStatus === 'available' || tasksBackend) return 'online'
+    return 'offline'
+  }, [deviceRegistryStatus, tasksBackend])
+
+  const reloadBackendData = useCallback(() => {
     fetchDevices()
       .then(({ ok, radars, subs }) => {
         if (!ok) {
@@ -61,9 +68,7 @@ export default function App() {
         setSubDevices([])
         setDeviceRegistryStatus('unavailable')
       })
-  }, [])
 
-  useEffect(() => {
     fetchTasksFromBackend()
       .then(({ ok, tasks: loaded, activeTaskId: activeId }) => {
         setTasks(loaded)
@@ -72,6 +77,15 @@ export default function App() {
       })
       .catch(() => setTasksBackend(false))
   }, [])
+
+  useEffect(() => {
+    reloadBackendData()
+    const id = setInterval(() => {
+      if (deviceRegistryStatus === 'unavailable' || !tasksBackend)
+        reloadBackendData()
+    }, 5000)
+    return () => clearInterval(id)
+  }, [reloadBackendData, deviceRegistryStatus, tasksBackend])
 
   const activeTask = useMemo(() => tasks.find(t => t.id === activeTaskId) ?? null, [tasks, activeTaskId])
 
@@ -268,7 +282,7 @@ export default function App() {
           )}
 
           <main className="flex-1 flex flex-col relative overflow-hidden" style={{ background: 'var(--surfaceDim)' }}>
-            <TitleBar activeTask={activeTask} />
+            <TitleBar activeTask={activeTask} backendStatus={backendStatus} />
             <div className="flex-1 relative overflow-hidden">
               <MapRadarView devices={activeTask ? taskDevices : devices} />
 

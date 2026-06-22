@@ -82,6 +82,7 @@ const inputStyle: React.CSSProperties = {
 }
 
 const STATUS_META: Record<string, { icon: string; label: string }> = {
+  draft: { icon: 'edit_note', label: '草稿' },
   active: { icon: 'radio_button_checked', label: '进行中' },
   completed: { icon: 'check_circle', label: '已完成' },
   archived: { icon: 'archive', label: '已归档' },

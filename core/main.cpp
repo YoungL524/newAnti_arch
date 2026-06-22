@@ -1,7 +1,5 @@
 #include <QCoreApplication>
 #include <QDebug>
-#include <QDesktopServices>
-#include <QUrl>
 #include <csignal>
 
 #ifdef Q_OS_WIN
@@ -91,8 +89,10 @@ int main(int argc, char *argv[])
 
 
     auto ws = controller.startWebService();
-    if (ws.ok)
-        QDesktopServices::openUrl(QUrl(QStringLiteral("http://localhost:8088")));
+    if (ws.ok) {
+        qDebug() << QStringLiteral("Web UI 开发模式: http://localhost:5173");
+        qDebug() << QStringLiteral("Web API: http://localhost:%1").arg(ws.httpPort);
+    }
 
     // 命令行 stdin 输入
     StdinReader reader;

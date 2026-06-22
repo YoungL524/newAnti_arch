@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <QObject>
 #include <QSqlDatabase>
@@ -144,6 +144,10 @@ public:
      */
     bool execute(const QString& sql,
                  const QVariantList& bindValues = QVariantList());
+
+    bool beginTransaction();
+    bool commitTransaction();
+    void rollbackTransaction();
 
     /**
      * @brief 获取底层 QSqlDatabase（高级用法）

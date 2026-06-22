@@ -1,4 +1,4 @@
-﻿#include "DataStore.h"
+#include "DataStore.h"
 #include <QSqlError>
 #include <QSqlRecord>
 #include <QFileInfo>
@@ -311,6 +311,30 @@ bool DataStore::execute(const QString& sql, const QVariantList& bindValues)
     }
 
     return true;
+}
+
+bool DataStore::beginTransaction()
+{
+    if (!m_connected)
+        return false;
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    return beginTransaction(db, QStringLiteral("事务")); 
+}
+
+bool DataStore::commitTransaction()
+{
+    if (!m_connected)
+        return false;
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    return commitTransaction(db, QStringLiteral("事务"));
+}
+
+void DataStore::rollbackTransaction()
+{
+    if (!m_connected)
+        return;
+    QSqlDatabase db = QSqlDatabase::database(m_connectionName);
+    rollbackTransaction(db, QStringLiteral("事务"));
 }
 
 QSqlDatabase DataStore::database() const

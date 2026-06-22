@@ -16,10 +16,10 @@
 #include <QUrl>
 
 namespace {
-    constexpr int kMaxHeaderBytes  = 16 * 1024;       // 16 KiB
-    constexpr int kMaxBodyBytes    = 1024 * 1024;      // 1 MiB
-    constexpr int kMaxBufferedBytes = 2 * 1024 * 1024; // 2 MiB
-    constexpr int kIdleTimeoutMs   = 30 * 1000;        // 30 s
+    constexpr int kMaxHeaderBytes  = 16 * 1024;
+    constexpr int kMaxBodyBytes    = 1024 * 1024;
+    constexpr int kMaxBufferedBytes = 2 * 1024 * 1024;
+    constexpr int kIdleTimeoutMs   = 30 * 1000;
 }
 
 namespace web {
@@ -100,14 +100,14 @@ void WebService::stop() {
         m_httpServer = nullptr;
     }
 
-    for (auto it = m_buffers.begin(); it != m_buffers.end(); ++it) {
-        it.key()->disconnect();
-        it.key()->deleteLater();
-    }
-    m_buffers.clear();
-
-    for (auto it = m_idleTimers.begin(); it != m_idleTimers.end(); ++it) {
-        if (it.value()) it.value()->stop();
+    const auto socks = m_buffers.keys();
+    for (auto* sock : socks) {
+        sock->disconnect(this);
+        if (auto* t = m_idleTimers.take(sock))
+            t->stop();
+        m_buffers.remove(sock);
+        sock->abort();
+        sock->deleteLater();
     }
     m_idleTimers.clear();
 }
@@ -178,7 +178,9 @@ void WebService::onWsConnection() {
         m_wsClients.append(ws);
         connect(ws, &QWebSocket::disconnected, this, &WebService::onWsDisconnected);
         emit serverLog(QStringLiteral("info"),
-            QStringLiteral("WS 客户端已连接 (%1)").arg(ws->peerAddress().toString()));
+            QStringLiteral("WS 客户端已连接 (%1:%2)")
+                .arg(ws->peerAddress().toString())
+                .arg(ws->peerPort()));
     }
 }
 
@@ -187,7 +189,9 @@ void WebService::onWsDisconnected() {
     if (ws) {
         m_wsClients.removeOne(ws);
         emit serverLog(QStringLiteral("info"),
-            QStringLiteral("WS 客户端已断开 (%1)").arg(ws->peerAddress().toString()));
+            QStringLiteral("WS 客户端已断开 (%1:%2)")
+                .arg(ws->peerAddress().toString())
+                .arg(ws->peerPort()));
         ws->deleteLater();
     }
 }
@@ -195,18 +199,41 @@ void WebService::onWsDisconnected() {
 // ============================================================
 // HTTP — Connection Handling
 // ============================================================
+bool WebService::isSocketWritable(QTcpSocket* sock) const
+{
+    return sock && sock->state() == QAbstractSocket::ConnectedState;
+}
+
+bool WebService::writeToSocket(QTcpSocket* sock, const QByteArray& data)
+{
+    if (!isSocketWritable(sock))
+        return false;
+    return sock->write(data) >= 0;
+}
+
+void WebService::scheduleHttpClose(QTcpSocket* sock)
+{
+    if (!sock) return;
+    m_buffers.remove(sock);
+    if (auto* t = m_idleTimers.value(sock))
+        t->stop();
+    if (sock->state() == QAbstractSocket::ConnectedState) {
+        sock->flush();
+        sock->disconnectFromHost();
+    }
+}
+
 void WebService::onHttpConnection() {
     while (auto* sock = m_httpServer->nextPendingConnection()) {
         connect(sock, &QTcpSocket::readyRead, this, &WebService::onHttpReadyRead);
         connect(sock, &QTcpSocket::disconnected, this, &WebService::onHttpDisconnected);
         m_buffers[sock] = QByteArray();
 
-        // Per-socket idle timer
         auto* timer = new QTimer(sock);
         timer->setSingleShot(true);
-        QObject::connect(timer, &QTimer::timeout, sock, [sock, this]() {
+        QObject::connect(timer, &QTimer::timeout, this, [this, sock]() {
             qDebug() << "[WebService] HTTP 空闲超时" << sock->peerAddress().toString();
-            sock->disconnectFromHost();
+            scheduleHttpClose(sock);
         });
         timer->start(kIdleTimeoutMs);
         m_idleTimers[sock] = timer;
@@ -215,42 +242,42 @@ void WebService::onHttpConnection() {
 
 void WebService::onHttpDisconnected() {
     auto* sock = qobject_cast<QTcpSocket*>(sender());
-    if (sock) {
-        if (auto* t = m_idleTimers.take(sock)) t->stop();
-        m_buffers.remove(sock);
-        sock->deleteLater();
-    }
+    if (!sock) return;
+    if (auto* t = m_idleTimers.take(sock))
+        t->stop();
+    m_buffers.remove(sock);
+    sock->deleteLater();
 }
 
 void WebService::onHttpReadyRead() {
     auto* sock = qobject_cast<QTcpSocket*>(sender());
     if (!sock) return;
 
-    // Reset idle timer
-    if (auto* t = m_idleTimers.value(sock)) t->start(kIdleTimeoutMs);
+    if (!m_buffers.contains(sock))
+        return;
 
+    if (auto* t = m_idleTimers.value(sock))
+        t->start(kIdleTimeoutMs);
+
+    m_buffers[sock].append(sock->readAll());
     QByteArray& buf = m_buffers[sock];
-    buf.append(sock->readAll());
 
-    // Oversized total buffer guard
     if (buf.size() > kMaxBufferedBytes) {
         qWarning() << "[WebService] 缓冲区超限，断开客户端" << sock->peerAddress().toString();
-        m_buffers.remove(sock);
-        sock->disconnectFromHost();
+        sendError(sock, 413, QStringLiteral("Payload Too Large"));
+        scheduleHttpClose(sock);
         return;
     }
 
-    // Oversized header guard: if no \r\n\r\n found and buffer exceeds max header size
     if (!buf.contains("\r\n\r\n") && buf.size() > kMaxHeaderBytes) {
         qWarning() << "[WebService] 请求头部超限，断开客户端" << sock->peerAddress().toString();
-        m_buffers.remove(sock);
-        sock->disconnectFromHost();
+        sendError(sock, 400, QStringLiteral("Request Header Too Large"));
+        scheduleHttpClose(sock);
         return;
     }
 
-    // Process all complete requests in the buffer (handle pipelining)
-    while (true) {
-        bool processed = dispatchRequest(sock, buf);
+    while (m_buffers.contains(sock)) {
+        bool processed = dispatchRequest(sock, m_buffers[sock]);
         if (!processed) break;
     }
 }
@@ -260,8 +287,7 @@ bool WebService::dispatchRequest(QTcpSocket* sock, QByteArray& raw) {
     auto result = tryParseRequest(raw);
     if (!result) {
         sendError(sock, 400, QStringLiteral("Bad Request"));
-        m_buffers.remove(sock);
-        sock->disconnectFromHost();
+        scheduleHttpClose(sock);
         return false;
     }
     if (result->consumed == 0) {
@@ -274,8 +300,8 @@ bool WebService::dispatchRequest(QTcpSocket* sock, QByteArray& raw) {
     // Body size limit
     if (req.body.size() > kMaxBodyBytes) {
         sendError(sock, 413, QStringLiteral("Payload Too Large"), keepAlive);
-        m_buffers.remove(sock);
-        sock->disconnectFromHost();
+        if (!keepAlive)
+            scheduleHttpClose(sock);
         return false;
     }
 
@@ -335,14 +361,13 @@ bool WebService::dispatchRequest(QTcpSocket* sock, QByteArray& raw) {
         sendError(sock, 404, QStringLiteral("Not Found"), keepAlive);
     }
 
+    if (!m_buffers.contains(sock))
+        return false;
+
     if (keepAlive) {
-        // Trim consumed bytes but keep socket open for next request
-        raw.remove(0, static_cast<int>(result->consumed));
-        if (raw.isEmpty())
-            m_buffers.remove(sock);
+        m_buffers[sock].remove(0, static_cast<int>(result->consumed));
     } else {
-        m_buffers.remove(sock);
-        sock->disconnectFromHost();
+        scheduleHttpClose(sock);
     }
     return true;
 }
@@ -359,7 +384,7 @@ void WebService::serveIndex(QTcpSocket* sock, bool keepAlive) {
             HttpResponse resp;
             resp.setContent(content, QStringLiteral("text/html; charset=utf-8"));
             if (keepAlive) resp.applyKeepAlive();
-            sock->write(serializeResponse(resp));
+            writeToSocket(sock, serializeResponse(resp));
             return;
         }
     }
@@ -389,19 +414,21 @@ void WebService::serveStaticFile(QTcpSocket* sock, const QString& path, bool kee
     HttpResponse resp;
     resp.setContent(content, web::mimeType(filePath));
     if (keepAlive) resp.applyKeepAlive();
-    sock->write(serializeResponse(resp));
+    writeToSocket(sock, serializeResponse(resp));
 }
 
 // ============================================================
 // Response Helpers
 // ============================================================
 void WebService::sendJson(QTcpSocket* sock, int status, const QJsonObject& obj, bool keepAlive) {
+    if (!isSocketWritable(sock))
+        return;
     QByteArray body = QJsonDocument(obj).toJson(QJsonDocument::Compact);
     HttpResponse resp;
     resp.statusCode = status;
     resp.setJson(body);
     if (keepAlive) resp.applyKeepAlive();
-    sock->write(serializeResponse(resp));
+    writeToSocket(sock, serializeResponse(resp));
 }
 
 void WebService::sendError(QTcpSocket* sock, int status, const QString& text, bool keepAlive) {

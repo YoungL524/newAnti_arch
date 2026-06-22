@@ -2,10 +2,13 @@ import type { Task } from '../../lib/taskTypes'
 import { useCore } from '../../hooks/useCoreApi'
 
 const STATUS_LABEL: Record<string, string> = {
-  active: '进行中', completed: '已完成', archived: '已归档',
+  draft: '草稿', active: '进行中', completed: '已完成', archived: '已归档',
 }
 
-export default function TitleBar({ activeTask }: { activeTask: Task | null }) {
+export default function TitleBar({ activeTask, backendStatus }: {
+  activeTask: Task | null
+  backendStatus: 'loading' | 'online' | 'offline'
+}) {
   const { connected, acquisition, state, checkedDeviceIds, devices, noSelectionHint, commandError, interactionError, dismissNoSelectionHint, dismissCommandError, dismissInteractionError, toggleAcquisition } = useCore()
 
   const isTransient = state === 'Starting' || state === 'Stopping'
@@ -39,12 +42,16 @@ export default function TitleBar({ activeTask }: { activeTask: Task | null }) {
           }}>
           <span className="w-1.5 h-1.5 rounded-full animate-pulse"
             style={{
-              background: connected ? 'var(--primaryContainer)' : 'var(--error)',
-              boxShadow: connected ? '0 0 8px rgba(6,78,59,0.5)' : 'none',
+              background: backendStatus === 'online'
+                ? (connected ? 'var(--primaryContainer)' : '#f59e0b')
+                : backendStatus === 'loading' ? '#94a3b8' : 'var(--error)',
+              boxShadow: backendStatus === 'online' && connected ? '0 0 8px rgba(6,78,59,0.5)' : 'none',
             }} />
           <span className="text-[10px] font-bold tracking-wider"
             style={{ color: 'var(--primaryContainer)', fontFamily: "'Inter', sans-serif" }}>
-            {connected ? '已连接' : '已断开'}
+            {backendStatus === 'loading' ? '正在连接后端...'
+              : backendStatus === 'offline' ? '后端未连接'
+              : connected ? '已连接' : '通信端点未就绪'}
           </span>
         </div>
 
