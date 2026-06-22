@@ -50,6 +50,7 @@ public:
 
     /// Register prefix-matched handlers (path starts with prefix, handler receives suffix + body).
     void handleGetPrefix(const QString& prefix, PrefixHandler handler);
+    void handlePostPrefix(const QString& prefix, PrefixHandler handler);
     void handlePutPrefix(const QString& prefix, PrefixHandler handler);
     void handleDeletePrefix(const QString& prefix, PrefixHandler handler);
 
@@ -86,6 +87,7 @@ private:
     QHash<QString, JsonHandler>    m_putHandlers;
     QHash<QString, JsonHandler>    m_deleteHandlers;
     QHash<QString, PrefixHandler>  m_getPrefixHandlers;
+    QHash<QString, PrefixHandler>  m_postPrefixHandlers;
     QHash<QString, PrefixHandler>  m_putPrefixHandlers;
     QHash<QString, PrefixHandler>  m_deletePrefixHandlers;
     QString      m_staticDir;

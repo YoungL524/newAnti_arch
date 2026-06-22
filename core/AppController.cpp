@@ -2,7 +2,9 @@
 #include "web/WebService.h"
 #include "web/WebApiController.h"
 #include "web/TrackDisplayWebBridge.h"
+#include "web/TaskApiRoutes.h"
 #include "business/DeviceRegistry.h"
+#include "business/TaskService.h"
 #include "business/RuntimeSettingsService.h"
 #include "business/TrackDisplayManager.h"
 #include "EndpointConfigLoader.h"
@@ -76,6 +78,19 @@ bool AppController::initialize()
         }
     } else {
         qWarning() << "[AppController] 数据库不可用，设备台账跳过";
+    }
+
+    if (m_dataStore && m_dataStore->isConnected()) {
+        m_taskService = std::make_unique<TaskService>(m_dataStore.get());
+        if (!m_taskService->ensureSchema()) {
+            qWarning() << "[AppController] 任务表创建失败，TaskService 不可用";
+            m_taskService.reset();
+        } else {
+            qDebug() << "[AppController] TaskService 已就绪，共"
+                     << m_taskService->list().size() << "个任务";
+        }
+    } else {
+        qWarning() << "[AppController] 数据库不可用，TaskService 跳过";
     }
 
     m_runtimeSettings = std::make_unique<RuntimeSettingsService>();
@@ -668,6 +683,9 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
         [this]() { return healthReport(); }, this);
     m_webApi->registerRestRoutes();
     m_webApi->connectWebPush();
+
+    if (m_taskService)
+        TaskApiRoutes::registerRoutes(m_webService.get(), m_taskService.get());
 
     // SystemBus → DphPublisher bridge (RuntimeSettings 事件，防止重复订阅)
     if (m_runtimeSettingsSubId == 0 && m_runtimeSettings && m_dphPublisher) {

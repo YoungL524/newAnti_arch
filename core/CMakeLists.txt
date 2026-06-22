@@ -3,6 +3,7 @@ set(CORE_HEADERS
     web/WebService.h
     web/WebApiController.h
     web/TrackDisplayWebBridge.h
+    web/TaskApiRoutes.h
     comm/CommTypes.h
     comm/Endpoint.h
     comm/UdpEndpoint.h
@@ -25,6 +26,7 @@ set(CORE_HEADERS
     business/RadarWorkModeController.h
     business/BusWorkModeSender.h
     business/DeviceRegistry.h
+    business/TaskService.h
     business/RuntimeSettingsTypes.h
     business/RuntimeSettingsService.h
     business/TrackTypes.h
@@ -39,6 +41,7 @@ set(CORE_SOURCES
     web/WebService.cpp
     web/WebApiController.cpp
     web/TrackDisplayWebBridge.cpp
+    web/TaskApiRoutes.cpp
     log/Logger.cpp
     comm/Endpoint.cpp
     comm/UdpEndpoint.cpp
@@ -54,6 +57,7 @@ set(CORE_SOURCES
     business/RadarWorkModeController.cpp
     business/BusWorkModeSender.cpp
     business/DeviceRegistry.cpp
+    business/TaskService.cpp
     business/TrackDisplayManager.cpp
     business/RuntimeSettingsService.cpp
     AppController.cpp

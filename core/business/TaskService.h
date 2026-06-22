@@ -1,0 +1,58 @@
+#pragma once
+
+#include <QJsonObject>
+#include <QString>
+#include <QStringList>
+#include <QVector>
+#include <optional>
+
+class DataStore;
+
+namespace task {
+
+inline constexpr char kStatusDraft[]     = "Draft";
+inline constexpr char kStatusActive[]    = "Active";
+inline constexpr char kStatusCompleted[] = "Completed";
+inline constexpr char kStatusArchived[]  = "Archived";
+
+struct TaskInfo {
+    QString id;
+    QString name;
+    QString description;
+    QString operatorName;
+    QString status = QString::fromUtf8(kStatusDraft);
+    QStringList deviceIds;
+    qint64 createdAt = 0;
+    qint64 activatedAt = 0;
+    qint64 completedAt = 0;
+    qint64 archivedAt = 0;
+
+    QJsonObject toJson() const;
+    static TaskInfo fromJson(const QJsonObject& body);
+};
+
+} // namespace task
+
+class TaskService {
+public:
+    explicit TaskService(DataStore* store);
+
+    bool ensureSchema();
+    static QString generateId();
+
+    QVector<task::TaskInfo> list() const;
+    std::optional<task::TaskInfo> get(const QString& id) const;
+    std::optional<task::TaskInfo> activeTask() const;
+    std::optional<task::TaskInfo> create(task::TaskInfo task);
+    bool update(const task::TaskInfo& task);
+    bool updateDevices(const QString& id, const QStringList& deviceIds);
+    bool activate(const QString& id);
+    bool complete(const QString& id);
+    bool archive(const QString& id);
+    bool remove(const QString& id);
+
+private:
+    task::TaskInfo rowToTask(const QVariantMap& row) const;
+    bool saveDeviceIds(const QString& taskId, const QStringList& deviceIds);
+    DataStore* m_store = nullptr;
+};

@@ -74,7 +74,7 @@ export function apiDeviceToSub(item: ApiDevice): SubDevice | null {
     brand: normalizeBrand(item.brand || 'YHF'),
     linkedRadarId: item.linkedRadarId || undefined,
     mountOffsetAzimuth: item.mountOffsetAzimuth,
-    coordinateSystem: item.coordinateSystem || 'WGS-84',  
+    coordinateSystem: item.coordinateSystem || 'WGS-84',
   }
 }
 

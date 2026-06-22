@@ -16,6 +16,7 @@
 class RadarWorkModeController;
 class IWorkModeCommandSender;
 class DeviceRegistry;
+class TaskService;
 class RuntimeSettingsService;
 class TrackDisplayManager;
 class TrackDisplayWebBridge;
@@ -257,6 +258,7 @@ private:
     std::unique_ptr<IWorkModeCommandSender> m_workModeSender;    ///< 工作模式命令发送器
     std::unique_ptr<RadarWorkModeController> m_workModeController; ///< 工作模式状态机
     std::unique_ptr<DeviceRegistry> m_deviceRegistry;              ///< 设备台账
+    std::unique_ptr<TaskService> m_taskService;                  ///< 任务台账
     std::unique_ptr<RuntimeSettingsService> m_runtimeSettings;      ///< 运行时参数
     std::unique_ptr<TrackDisplayManager> m_trackDisplayManager;      ///< 航迹显示管理
     std::unique_ptr<TrackDisplayWebBridge> m_trackDisplayWebBridge;  ///< 航迹 snapshot 总线→WS

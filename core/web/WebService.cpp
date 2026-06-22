@@ -130,6 +130,9 @@ void WebService::handleDelete(const QString& path, JsonHandler handler) {
 void WebService::handleGetPrefix(const QString& prefix, PrefixHandler handler) {
     m_getPrefixHandlers[prefix] = std::move(handler);
 }
+void WebService::handlePostPrefix(const QString& prefix, PrefixHandler handler) {
+    m_postPrefixHandlers[prefix] = std::move(handler);
+}
 void WebService::handlePutPrefix(const QString& prefix, PrefixHandler handler) {
     m_putPrefixHandlers[prefix] = std::move(handler);
 }
@@ -313,6 +316,9 @@ bool WebService::dispatchRequest(QTcpSocket* sock, QByteArray& raw) {
     } else if (req.method == Method::POST && m_postHandlers.contains(cleanPath)) {
         auto res = m_postHandlers[cleanPath](body);
         sendJson(sock, res.value(QStringLiteral("ok")).toBool() ? 200 : 400, res, keepAlive);
+    } else if (req.method == Method::POST) {
+        if (!prefixMatch(m_postPrefixHandlers, "POST"))
+            sendError(sock, 404, QStringLiteral("Not Found"), keepAlive);
     } else if (req.method == Method::PUT && m_putHandlers.contains(cleanPath)) {
         auto res = m_putHandlers[cleanPath](body);
         sendJson(sock, res.value(QStringLiteral("ok")).toBool() ? 200 : 400, res, keepAlive);

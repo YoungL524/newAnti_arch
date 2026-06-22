@@ -16,6 +16,7 @@ export interface Task {
 export const TASK_STORAGE_KEY = 'dcmp_tasks'
 export const ACTIVE_TASK_KEY = 'dcmp_activeTaskId'
 
+/** localStorage fallback（后端不可用时） */
 export function loadTasks(): Task[] {
   try {
     const raw = localStorage.getItem(TASK_STORAGE_KEY)

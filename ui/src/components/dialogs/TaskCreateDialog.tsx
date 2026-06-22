@@ -4,7 +4,7 @@ import type { Task } from '../../lib/taskTypes'
 
 interface Props {
   tasks: Task[]
-  onCreate: (data: Omit<Task, 'id' | 'createdAt' | 'status'>) => void
+  onCreate: (data: Omit<Task, 'id' | 'createdAt' | 'status'>) => void | Promise<void>
   onCancel: () => void
 }
 
