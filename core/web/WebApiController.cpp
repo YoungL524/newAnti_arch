@@ -110,6 +110,47 @@ void WebApiController::registerRestRoutes()
         };
         m_ws->handlePost(QStringLiteral("/api/start"), [this, handleCommand](const QJsonObject& body) { return handleCommand(body, true); });
         m_ws->handlePost(QStringLiteral("/api/stop"),  [this, handleCommand](const QJsonObject& body) { return handleCommand(body, false); });
+
+        m_ws->handlePost(QStringLiteral("/api/reset"), [this](const QJsonObject& body) -> QJsonObject {
+            qint64 now = QDateTime::currentMSecsSinceEpoch();
+            if (now - m_lastResetMs < 500)
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("throttled"), true}};
+            m_lastResetMs = now;
+
+            QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
+            auto mappedIds = radarCpuDeviceIds();
+
+            QJsonArray accepted;
+            if (ids.isEmpty()) { accepted.append(QStringLiteral("radar_cpu")); }
+            else { for (const auto& v : ids) if (mappedIds.contains(v.toString())) accepted.append(v.toString()); }
+
+            QJsonArray rejected;
+            for (const auto& v : ids) if (!accepted.contains(v)) rejected.append(v);
+            if (!ids.isEmpty() && accepted.isEmpty())
+                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("不支持的设备 id")}};
+
+            bool dispatched = false;
+            bool cmdAccepted = false;
+            for (const auto& v : accepted) {
+                if (mappedIds.contains(v.toString())) {
+                    dispatched = true;
+                    cmdAccepted = m_wmc->reset();
+                    break;
+                }
+            }
+            if (dispatched && !cmdAccepted)
+                return QJsonObject{{QStringLiteral("ok"), false},
+                                   {QStringLiteral("error"), QStringLiteral("复位被拒绝：当前非 Fault 状态")}};
+
+            QJsonObject r{
+                {QStringLiteral("ok"), true},
+                {QStringLiteral("acceptedDeviceIds"), accepted},
+                {QStringLiteral("rejectedDeviceIds"), rejected},
+            };
+            if (m_wmc)
+                r[QStringLiteral("state")] = RadarWorkModeController::stateName(m_wmc->state());
+            return r;
+        });
     }
 
     // 航迹交互命令：校验 REST 请求后发布 TrackInteractionCommand 到总线。

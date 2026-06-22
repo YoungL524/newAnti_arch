@@ -111,14 +111,15 @@ bool RadarWorkModeController::requestStandby()
     return false;
 }
 
-void RadarWorkModeController::reset()
+bool RadarWorkModeController::reset()
 {
     if (m_state == State::Fault) {
         m_transitionTimer.stop();
         transitionTo(State::Standby);
-        return;
+        return true;
     }
     emit requestRejected(RejectReason::ResetIgnoredOutsideFault, m_state);
+    return false;
 }
 
 void RadarWorkModeController::onWorkModeEcho(uint32_t mode)

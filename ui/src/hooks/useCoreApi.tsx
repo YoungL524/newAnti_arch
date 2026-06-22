@@ -164,10 +164,11 @@ export function CoreProvider({ children }: { children: ReactNode }) {
   const toggleAcquisition = useCallback(async () => {
     const cids = checkedRef.current
     const isWorking = workingRef.current
+    const isFault = stateRef.current === 'Fault'
 
     setState(prev => ({ ...prev, commandError: '' }))
 
-    if (!isWorking && cids.length === 0) {
+    if (!isFault && !isWorking && cids.length === 0) {
       setState(prev => ({ ...prev, noSelectionHint: true, commandError: '' }))
       return
     }
@@ -182,6 +183,58 @@ export function CoreProvider({ children }: { children: ReactNode }) {
     // 保存快照以备回滚
     const savedTracks = tracksRef.current
     const savedTrackCount = trackCountRef.current
+
+    if (isFault) {
+      setState(prev => ({
+        ...prev,
+        acquisition: false,
+        state: 'Standby',
+        commandPending: true,
+        commandError: '',
+      }))
+
+      const rollbackFault = (msg: string) => {
+        console.warn('[reset]', msg)
+        setState(prev => ({
+          ...prev,
+          acquisition: savedAcquisition,
+          state: savedState,
+          commandPending: false,
+          commandError: msg,
+        }))
+      }
+
+      try {
+        const res = await fetch('/api/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ deviceIds: cids }),
+        })
+        const data = await safeJsonParse(res)
+        if (!data) { rollbackFault('后端返回异常'); return }
+        if (!data.ok) { rollbackFault(data.error || '复位被拒绝'); return }
+
+        const accepted = data.acceptedDeviceIds?.length ?? 0
+        const rejected = data.rejectedDeviceIds?.length ?? 0
+        if (accepted === 0 && rejected > 0) {
+          rollbackFault('设备均不被支持: ' + JSON.stringify(data.rejectedDeviceIds))
+          return
+        }
+        if (rejected > 0) {
+          setState(prev => ({ ...prev, commandError: '部分设备未复位: ' + JSON.stringify(data.rejectedDeviceIds) }))
+        }
+        setState(prev => ({
+          ...prev,
+          acquisition: false,
+          state: 'Standby',
+          commandPending: false,
+          commandError: '',
+        }))
+      } catch {
+        rollbackFault('网络错误')
+      }
+      return
+    }
 
     if (!isWorking) {
       tracksRef.current = []

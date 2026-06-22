@@ -114,8 +114,9 @@ public slots:
 
     /**
      * @brief 复位（仅 Fault 状态有效）
+     * @return 是否成功复位到 Standby
      */
-    void reset();
+    bool reset();
 
     /**
      * @brief 处理雷达回显的 workStandby 模式（ACK 替代超时）

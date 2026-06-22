@@ -38,7 +38,7 @@ public:
                      QObject* parent = nullptr);
     ~WebApiController() override;
 
-    /// 注册 REST 路由（/api/status, /api/logs, /api/start, /api/stop）
+    /// 注册 REST 路由（/api/status, /api/logs, /api/start, /api/stop, /api/reset）
     void registerRestRoutes();
 
     /// 连接 WS 推送（Logger 日志、1s 状态定时器）
@@ -62,4 +62,5 @@ private:
     HealthProvider             m_health;
     qint64                     m_lastStartMs = 0;   ///< 上次开始采集时间戳（节流）
     qint64                     m_lastStopMs = 0;    ///< 上次停止采集时间戳（节流）
+    qint64                     m_lastResetMs = 0;   ///< 上次复位时间戳（节流）
 };

@@ -237,9 +237,19 @@ bool DeviceRegistry::update(const DeviceInfo& dev) {
 bool DeviceRegistry::remove(const QString& id) {
     if (!m_store) return false;
     if (!get(id).has_value()) return false;  // device not found
-    if (!m_store->execute(
-            QStringLiteral("DELETE FROM task_devices WHERE device_id = ?"), {id}))
+    if (!m_store->beginTransaction())
         return false;
-    return m_store->execute(
-        QStringLiteral("DELETE FROM devices WHERE id = ?"), {id});
+    bool ok = m_store->execute(
+                  QStringLiteral("DELETE FROM task_devices WHERE device_id = ?"), {id})
+              && m_store->execute(
+                  QStringLiteral("DELETE FROM devices WHERE id = ?"), {id});
+    if (ok) {
+        if (!m_store->commitTransaction()) {
+            m_store->rollbackTransaction();
+            return false;
+        }
+        return true;
+    }
+    m_store->rollbackTransaction();
+    return false;
 }
