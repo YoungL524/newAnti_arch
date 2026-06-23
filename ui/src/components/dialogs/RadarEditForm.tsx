@@ -1,10 +1,15 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { RadarDevice, RadarBrand, RadarFace } from '../map/types'
 import { BRAND_LABELS, BRAND_OPTIONS } from '../map/types'
+import {
+  type CommEndpoint,
+  defaultEndpoint,
+  fetchEndpoints,
+} from '../../lib/endpointsApi'
 
 interface Props {
   device: RadarDevice
-  onSave: (updates: Partial<RadarDevice>) => void
+  onSave: (updates: Partial<RadarDevice>, endpoint: CommEndpoint) => void
   onCancel: () => void
 }
 
@@ -18,6 +23,12 @@ const inputStyle: React.CSSProperties = {
   fontSize: 11,
   fontFamily: "'Inter', 'Microsoft YaHei', sans-serif",
   outline: 'none',
+}
+
+const monoInputStyle: React.CSSProperties = {
+  ...inputStyle,
+  fontFamily: "'JetBrains Mono', monospace",
+  fontSize: 10,
 }
 
 const labelStyle: React.CSSProperties = {
@@ -36,6 +47,41 @@ function nextFaceLabel(faces: RadarFace[]) {
   return `F${faces.length + 1}`
 }
 
+function resolveEndpointForDevice(
+  endpoints: CommEndpoint[],
+  device: RadarDevice,
+): CommEndpoint {
+  const preferredId = device.endpointId || 'radar_cpu'
+  const bound = endpoints.find(e => e.id === preferredId)
+  if (bound) return { ...bound }
+  if (endpoints.length === 1) return { ...endpoints[0] }
+  const ep = defaultEndpoint(preferredId)
+  if (!ep.description && device.name) ep.description = device.name
+  return ep
+}
+
+function TargetFields({ label, target, onChange }: {
+  label: string
+  target: { address: string; port: number }
+  onChange: (t: { address: string; port: number }) => void
+}) {
+  return (
+    <div className="grid grid-cols-[56px_1fr_72px] gap-1.5 items-end">
+      <span className="text-[9px] font-medium" style={{ color: 'var(--secondary)' }}>{label}</span>
+      <div>
+        <div style={labelStyle}>地址</div>
+        <input style={monoInputStyle} value={target.address}
+          onChange={e => onChange({ ...target, address: e.target.value })} />
+      </div>
+      <div>
+        <div style={labelStyle}>端口</div>
+        <input style={monoInputStyle} type="number" value={target.port}
+          onChange={e => onChange({ ...target, port: Number(e.target.value) || 0 })} />
+      </div>
+    </div>
+  )
+}
+
 export default function RadarEditForm({ device, onSave, onCancel }: Props) {
   const [form, setForm] = useState({
     name: device.name,
@@ -46,6 +92,33 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
     maxRange: device.maxRange,
     faces: device.faces.map(f => ({ ...f })),
   })
+  const [endpoint, setEndpoint] = useState<CommEndpoint | null>(null)
+  const [endpointLoading, setEndpointLoading] = useState(true)
+  const [endpointError, setEndpointError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    setEndpointLoading(true)
+    setEndpointError('')
+    fetchEndpoints()
+      .then(r => {
+        if (cancelled) return
+        if (!r.ok) {
+          setEndpointError(r.error || '加载端点配置失败')
+          setEndpoint(resolveEndpointForDevice([], device))
+          return
+        }
+        setEndpoint(resolveEndpointForDevice(r.endpoints, device))
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setEndpointError('加载端点配置失败')
+          setEndpoint(resolveEndpointForDevice([], device))
+        }
+      })
+      .finally(() => { if (!cancelled) setEndpointLoading(false) })
+    return () => { cancelled = true }
+  }, [device.id, device.endpointId, device.name])
 
   const update = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => {
     setForm(prev => ({ ...prev, [key]: value }))
@@ -70,11 +143,15 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
     setForm(prev => ({ ...prev, faces: prev.faces.filter((_, i) => i !== idx) }))
   }
 
-  const valid = form.name.trim().length > 0
+  const setTarget = (key: string, val: { address: string; port: number }) => {
+    setEndpoint(prev => prev ? { ...prev, targets: { ...prev.targets, [key]: val } } : prev)
+  }
+
+  const valid = form.name.trim().length > 0 && !!endpoint && endpoint.localPort > 0
 
   const handleSave = () => {
-    if (!valid) return
-    onSave(form)
+    if (!valid || !endpoint) return
+    onSave(form, endpoint)
   }
 
   return (
@@ -110,23 +187,79 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
           </span>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 mb-3">
-          <div>
-            <div style={labelStyle}>后端设备 ID</div>
-            <div className="text-[11px] px-2 py-1.5 rounded" style={{ background: 'var(--surfaceLow)', color: 'var(--secondary)', fontFamily: "'JetBrains Mono', monospace" }}>
-              {device.id}
-            </div>
-          </div>
-          <div>
-            <div style={labelStyle}>通信端点</div>
-            <div className="text-[11px] px-2 py-1.5 rounded" style={{ background: 'var(--surfaceLow)', color: device.endpointId ? 'var(--ink)' : '#991b1b', fontFamily: "'JetBrains Mono', monospace" }}>
-              {device.endpointId || '未绑定'}
-            </div>
+        <div className="mb-3">
+          <div style={labelStyle}>后端设备 ID</div>
+          <div className="text-[11px] px-2 py-1.5 rounded" style={{ background: 'var(--surfaceLow)', color: 'var(--secondary)', fontFamily: "'JetBrains Mono', monospace" }}>
+            {device.id}
           </div>
         </div>
         {device.backendManaged && (
           <div className="text-[9px] mb-3" style={{ color: 'var(--secondary)' }}>数据来源: 后端台账</div>
         )}
+
+        {/* ═══ Communication Endpoint ═══ */}
+        <div className="flex items-center gap-1.5 mb-3 mt-4">
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--primaryContainer)' }} />
+          <span className="text-[10px] font-semibold tracking-wide" style={{ color: 'var(--primaryContainer)' }}>
+            通信端点
+          </span>
+        </div>
+
+        {endpointLoading ? (
+          <p className="text-[10px] mb-3" style={{ color: 'var(--secondary)' }}>加载端点配置...</p>
+        ) : endpoint ? (
+          <div className="rounded-lg p-3 mb-3 space-y-2"
+            style={{ border: '1px solid var(--hairline)', background: 'rgba(255,255,255,0.6)' }}>
+            {endpointError && (
+              <p className="text-[9px]" style={{ color: '#991b1b' }}>{endpointError}（已使用默认模板）</p>
+            )}
+            <p className="text-[9px] leading-relaxed" style={{ color: 'var(--secondary)' }}>
+              单设备模式：保存后写入 endpoints.json 并热重载，同时绑定到本设备。
+            </p>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <div style={labelStyle}>端点 ID</div>
+                <input style={monoInputStyle} value={endpoint.id} readOnly />
+              </div>
+              <div>
+                <div style={labelStyle}>协议</div>
+                <select style={{ ...monoInputStyle, appearance: 'auto' }} value={endpoint.protocol}
+                  onChange={e => setEndpoint({ ...endpoint, protocol: e.target.value as 'udp' | 'tcp' })}>
+                  <option value="udp">UDP</option>
+                  <option value="tcp">TCP（暂未实现）</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <div style={labelStyle}>说明</div>
+              <input style={inputStyle} value={endpoint.description}
+                onChange={e => setEndpoint({ ...endpoint, description: e.target.value })} />
+            </div>
+
+            <div className="grid grid-cols-[1fr_72px] gap-2">
+              <div>
+                <div style={labelStyle}>本机监听地址</div>
+                <input style={monoInputStyle} value={endpoint.localAddress}
+                  onChange={e => setEndpoint({ ...endpoint, localAddress: e.target.value })} />
+              </div>
+              <div>
+                <div style={labelStyle}>本机端口</div>
+                <input style={monoInputStyle} type="number" value={endpoint.localPort}
+                  onChange={e => setEndpoint({ ...endpoint, localPort: Number(e.target.value) || 0 })} />
+              </div>
+            </div>
+
+            <div className="space-y-1.5 pt-1" style={{ borderTop: '1px dashed var(--hairline)' }}>
+              <div className="text-[9px] font-semibold" style={{ color: 'var(--primaryContainer)' }}>对端目标</div>
+              <TargetFields label="DPH" target={endpoint.targets.dph ?? { address: '127.0.0.1', port: 0 }}
+                onChange={t => setTarget('dph', t)} />
+              <TargetFields label="workmode" target={endpoint.targets.workmode ?? { address: '127.0.0.1', port: 0 }}
+                onChange={t => setTarget('workmode', t)} />
+            </div>
+          </div>
+        ) : null}
 
         {/* ═══ Brand ═══ */}
         <div className="flex items-center gap-1.5 mb-3">
@@ -310,7 +443,7 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
             color: '#fff',
             opacity: valid ? 1 : 0.5,
           }}
-          disabled={!valid}
+          disabled={!valid || endpointLoading}
           onClick={handleSave}
         >
           保存修改

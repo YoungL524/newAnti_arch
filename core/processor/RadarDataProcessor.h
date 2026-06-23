@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <QObject>
 #include <QMap>
@@ -14,6 +14,7 @@
 class CommunicationManager;
 class DataStore;
 class DeviceRegistry;
+class TaskService;
 
 /**
  * @file RadarDataProcessor.h
@@ -48,6 +49,8 @@ public:
      * @brief 关联 DeviceRegistry（用于 endpointId → 业务 deviceId 映射）
      */
     void setDeviceRegistry(DeviceRegistry* reg);
+
+    void setTaskService(TaskService* taskService);
 
     /**
      * @brief 注册端点到设备源类型的映射
@@ -121,6 +124,8 @@ private:
      */
     void bufferTrack(qint64 tsMs,
                      const QString& endpointId,
+                     const QString& deviceId,
+                     const QString& taskId,
                      const TargetType& tgt,
                      uint32_t sceneNum);
 
@@ -133,8 +138,11 @@ private:
     CommunicationManager* m_commManager = nullptr;   ///< 通信管理器（非持有）
     DataStore* m_dataStore = nullptr;                ///< 数据存储（非持有）
     DeviceRegistry* m_deviceReg = nullptr;            ///< 设备台账（非持有，用于 endpoint→deviceId 映射）
+    TaskService* m_taskService = nullptr;              ///< 任务服务（非持有，用于航迹归属）
 
     QMap<QString, uint16_t> m_endpointSourceMap;     ///< 端点ID → DeviceType 映射
+    uint64_t m_trackArchiveSkipCount = 0;            ///< 未归属当前任务而跳过归档的计数
+    uint64_t m_trackArchiveCount = 0;                ///< 已缓冲待写入的任务归属航迹计数
     uint32_t m_sequence = 0;                         ///< DataPacket 发布序列号
     uint64_t m_generalPackageCount = 0;              ///< 已处理的 GeneralPackage 计数
     uint64_t m_trackInsertCount = 0;                 ///< 已写入 tracks 表的记录数

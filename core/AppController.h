@@ -105,6 +105,9 @@ public:
      */
     WebServiceResult startWebService(quint16 httpPort = 8088, quint16 wsPort = 8089);
 
+    QJsonObject endpointsConfigJson();
+    bool updateEndpointsConfig(const QJsonObject& root, QString* errorOut = nullptr);
+
 private slots:
     /**
      * @brief 处理通信层错误

@@ -22,7 +22,6 @@ import {
   apiTaskToTask,
   taskToApiPayload,
 } from './lib/tasksApi'
-
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [deviceRegistryStatus, setDeviceRegistryStatus] = useState<DeviceRegistryStatus>('loading')

@@ -136,6 +136,16 @@ std::optional<task::TaskInfo> TaskService::activeTask() const
     return rowToTask(rows.first());
 }
 
+QString TaskService::resolveActiveTaskIdForDevice(const QString& deviceId) const
+{
+    if (deviceId.isEmpty()) return {};
+    const auto active = activeTask();
+    if (!active.has_value()) return {};
+    if (active->deviceIds.contains(deviceId))
+        return active->id;
+    return {};
+}
+
 bool TaskService::validateDeviceIds(const QStringList& deviceIds)
 {
     if (!m_deviceReg) return true;

@@ -11,7 +11,6 @@ interface NavItem {
 
 const topNav: NavItem[] = [
   { id: 'devices', icon: 'router', label: '设备列表' },
-  { id: 'resources', icon: 'folder_open', label: '资源管理' },
   { id: 'replay', icon: 'replay', label: '数据回放' },
   { id: 'calibration', icon: 'tune', label: '校准分析' },
   { id: 'archives', icon: 'archive', label: '日志归档' },
@@ -195,7 +194,7 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
           />
         ))}
 
-        {(activeNav === 'devices' || activeNav === 'resources' || activeNav === 'replay' || activeNav === 'calibration' || activeNav === 'archives') && (
+        {(activeNav === 'devices' || activeNav === 'replay' || activeNav === 'calibration' || activeNav === 'archives') && (
           <div className="flex-1 px-1 overflow-y-auto mt-3">
             {activeNav === 'devices' && (
               <>
@@ -245,9 +244,12 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                   if (isRadar(d)) {
                     const checked = checkedDeviceIds.includes(d.id)
                     const controllable = d.backendManaged === true && !!d.endpointId
-                    const stateColor =
+                    const deviceRuntime = deviceStates.find(s => s.id === d.id)
+                    const stateColor = !checked ? '#94a3b8' :
                       globalState === 'Fault' ? '#ef4444' :
-                      acquisition ? '#22c55e' : '#94a3b8'
+                      acquisition || deviceRuntime?.acquisition ? '#22c55e' : '#94a3b8'
+                    const stateTitle = !checked ? '未选中'
+                      : deviceRuntime?.state ?? (deviceStates.length > 0 ? globalState : '未连接')
                     return (
                       <div key={d.id}>
                         <div className="flex items-center gap-1.5 px-1.5 py-1 rounded-md hover:bg-black/3 transition-colors cursor-pointer"
@@ -271,7 +273,7 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                             </div>
                           </div>
                           {/* Status dot */}
-                          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: stateColor }} title={deviceStates.length > 0 ? globalState : '未连接'} />
+                          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: stateColor }} title={stateTitle} />
                           <button
                             className="p-0.5 rounded border-none bg-transparent cursor-pointer hover:bg-red-50 flex-shrink-0"
                             style={{ color: 'var(--onSurfaceVariant)' }}
@@ -503,11 +505,6 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
               </>
             )}
 
-            {activeNav === 'resources' && (
-              <PanelPlaceholder icon="folder_open" title="资源管理"
-                desc="导入/导出设备配置文件、校准数据、回放数据文件、地图图层等资源。" />
-            )}
-
             {activeNav === 'replay' && (
               <PanelPlaceholder icon="replay" title="数据回放"
                 desc="加载航迹数据文件，在地图上回放探测事件，支持时间轴控制和事件浏览。" />
@@ -574,7 +571,7 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
         )}
 
         {/* Structure tree — radar devices with face toggles */}
-        {!['devices','resources','replay','calibration','archives'].includes(activeNav) && (
+        {!['devices','replay','calibration','archives'].includes(activeNav) && (
           <div className="mt-5 px-1">
             <p className="text-[9px] uppercase tracking-[0.18em] mb-2 opacity-80 font-semibold"
               style={{ color: 'var(--outline)', fontFamily: "'Inter', sans-serif" }}>

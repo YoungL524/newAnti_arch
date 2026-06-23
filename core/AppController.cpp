@@ -3,6 +3,7 @@
 #include "web/WebApiController.h"
 #include "web/TrackDisplayWebBridge.h"
 #include "web/TaskApiRoutes.h"
+#include "web/EndpointApiRoutes.h"
 #include "business/DeviceRegistry.h"
 #include "business/TaskService.h"
 #include "business/RuntimeSettingsService.h"
@@ -22,6 +23,7 @@
 #include <QVariantMap>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QSet>
 #include <cstring>
 
 AppController::AppController(QObject* parent)
@@ -92,6 +94,9 @@ bool AppController::initialize()
     } else {
         qWarning() << "[AppController] 数据库不可用，TaskService 跳过";
     }
+
+    if (m_radarProcessor && m_taskService)
+        m_radarProcessor->setTaskService(m_taskService.get());
 
     m_runtimeSettings = std::make_unique<RuntimeSettingsService>();
     qDebug() << "[AppController] 运行时参数服务已就绪";
@@ -202,6 +207,8 @@ bool AppController::ensureTracksSchema()
         "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
         "  ts_ms INTEGER NOT NULL,"
         "  source TEXT,"
+        "  task_id TEXT,"
+        "  device_id TEXT,"
         "  scene_num INTEGER,"
         "  target_id INTEGER,"
         "  range_m REAL,"
@@ -218,6 +225,23 @@ bool AppController::ensureTracksSchema()
         qWarning() << QStringLiteral("[AppController] tracks 表初始化失败");
         ok = false;
     }
+
+    auto ensureTracksColumn = [this](const QString& column, const QString& type) -> bool {
+        const auto cols = m_dataStore->query(QStringLiteral("PRAGMA table_info(tracks)"));
+        for (const auto& col : cols) {
+            if (col.value(QStringLiteral("name")).toString() == column)
+                return true;
+        }
+        if (!m_dataStore->execute(
+                QStringLiteral("ALTER TABLE tracks ADD COLUMN %1 %2").arg(column, type))) {
+            qWarning() << QStringLiteral("[AppController] tracks 表添加列失败: %1").arg(column);
+            return false;
+        }
+        return true;
+    };
+    ok = ensureTracksColumn(QStringLiteral("task_id"), QStringLiteral("TEXT")) && ok;
+    ok = ensureTracksColumn(QStringLiteral("device_id"), QStringLiteral("TEXT")) && ok;
+
     if (!m_dataStore->execute(QStringLiteral(
             "CREATE INDEX IF NOT EXISTS idx_tracks_ts ON tracks(ts_ms)"))) {
         qWarning() << QStringLiteral("[AppController] tracks 时间索引初始化失败");
@@ -226,6 +250,16 @@ bool AppController::ensureTracksSchema()
     if (!m_dataStore->execute(QStringLiteral(
             "CREATE INDEX IF NOT EXISTS idx_tracks_target ON tracks(target_id)"))) {
         qWarning() << QStringLiteral("[AppController] tracks 目标索引初始化失败");
+        ok = false;
+    }
+    if (!m_dataStore->execute(QStringLiteral(
+            "CREATE INDEX IF NOT EXISTS idx_tracks_task_ts ON tracks(task_id, ts_ms)"))) {
+        qWarning() << QStringLiteral("[AppController] tracks task_ts 索引初始化失败");
+        ok = false;
+    }
+    if (!m_dataStore->execute(QStringLiteral(
+            "CREATE INDEX IF NOT EXISTS idx_tracks_task_device ON tracks(task_id, device_id)"))) {
+        qWarning() << QStringLiteral("[AppController] tracks task_device 索引初始化失败");
         ok = false;
     }
 
@@ -662,6 +696,61 @@ void AppController::insertSystemEvent(const QString& category,
 }
 
 // ════════════════════════════════════════════════════════════════
+// 通信端点配置
+// ════════════════════════════════════════════════════════════════
+
+QJsonObject AppController::endpointsConfigJson()
+{
+    return m_configManager.getConfig(QStringLiteral("endpoints"));
+}
+
+bool AppController::updateEndpointsConfig(const QJsonObject& root, QString* errorOut)
+{
+    auto setError = [&](const QString& msg) {
+        if (errorOut) *errorOut = msg;
+        qWarning().noquote() << QStringLiteral("[AppController] 端点配置更新失败: %1").arg(msg);
+        return false;
+    };
+
+    const QStringList validationErrors = ConfigManager::validateConfig(QStringLiteral("endpoints"), root);
+    if (!validationErrors.isEmpty())
+        return setError(validationErrors.join(QStringLiteral("; ")));
+
+    QSet<QString> newIds;
+    for (const auto& val : root[QStringLiteral("endpoints")].toArray()) {
+        const QString id = val.toObject()[QStringLiteral("id")].toString();
+        if (id.isEmpty())
+            return setError(QStringLiteral("端点 id 不能为空"));
+        if (newIds.contains(id))
+            return setError(QStringLiteral("端点 id 重复: %1").arg(id));
+        newIds.insert(id);
+    }
+
+    if (m_deviceRegistry) {
+        for (const auto& d : m_deviceRegistry->list()) {
+            if (!d.endpointId.isEmpty() && !newIds.contains(d.endpointId))
+                return setError(QStringLiteral("端点 %1 仍被设备 %2 绑定，无法删除")
+                                    .arg(d.endpointId, d.id));
+        }
+    }
+
+    const QVector<EndpointConfig> configs = EndpointConfigLoader::parseFromJsonObject(root);
+    if (configs.isEmpty())
+        return setError(QStringLiteral("至少需要一个有效端点"));
+
+    if (!m_configManager.saveConfig(QStringLiteral("endpoints"), root))
+        return setError(QStringLiteral("写入 endpoints.json 失败"));
+
+    if (!m_commManager)
+        return setError(QStringLiteral("通信管理器未初始化"));
+
+    if (!m_commManager->reloadEndpoints(configs, m_running))
+        return setError(QStringLiteral("通信端点热重载失败"));
+
+    qInfo().noquote() << QStringLiteral("[AppController] 端点配置已保存并重载，共 %1 个端点").arg(configs.size());
+    return true;
+}
+
 // ════════════════════════════════════════════════════════════════
 // Web 服务 (组合根持有 web::WebService)
 // ════════════════════════════════════════════════════════════════
@@ -686,6 +775,8 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
 
     if (m_taskService)
         TaskApiRoutes::registerRoutes(m_webService.get(), m_taskService.get());
+
+    EndpointApiRoutes::registerRoutes(m_webService.get(), this);
 
     // SystemBus → DphPublisher bridge (RuntimeSettings 事件，防止重复订阅)
     if (m_runtimeSettingsSubId == 0 && m_runtimeSettings && m_dphPublisher) {

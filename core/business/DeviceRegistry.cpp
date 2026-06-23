@@ -6,6 +6,23 @@
 
 static const QString kTable = QStringLiteral("devices");
 
+static void migrateEndpointBinding(DataStore* store, const QString& endpointId, const QString& keepDeviceId)
+{
+    if (!store || endpointId.isEmpty()) return;
+    auto rows = store->query(
+        QStringLiteral("SELECT id FROM devices WHERE endpoint_id = ? AND id != ?"),
+        {endpointId, keepDeviceId});
+    for (const auto& row : rows) {
+        qDebug() << "[DeviceRegistry] endpointId" << endpointId
+                 << "从设备" << row.value(QStringLiteral("id")).toString()
+                 << "迁移到" << keepDeviceId;
+    }
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    store->execute(
+        QStringLiteral("UPDATE devices SET endpoint_id = '', updated_at = ? WHERE endpoint_id = ? AND id != ?"),
+        {now, endpointId, keepDeviceId});
+}
+
 QVariantMap DeviceInfo::toVariantMap() const {
     return {
         {QStringLiteral("id"), id},
@@ -171,16 +188,8 @@ QVector<DeviceInfo> DeviceRegistry::findRadarDevicesByEndpoint(const QString& en
 
 bool DeviceRegistry::create(const DeviceInfo& dev) {
     if (!m_store) return false;
-    if (!dev.endpointId.isEmpty() && dev.kind == DeviceKind::Radar) {
-        auto devices = findRadarDevicesByEndpoint(dev.endpointId);
-        for (const auto& d : devices) {
-            if (d.id != dev.id) {
-                qWarning() << "[DeviceRegistry] 创建失败: endpointId" << dev.endpointId
-                           << "已被设备" << d.id << "绑定";
-                return false;
-            }
-        }
-    }
+    if (!dev.endpointId.isEmpty() && dev.kind == DeviceKind::Radar)
+        migrateEndpointBinding(m_store, dev.endpointId, dev.id);
     DeviceInfo d = dev;
     qint64 now = QDateTime::currentMSecsSinceEpoch();
     d.createdAt = now;
@@ -206,16 +215,8 @@ std::optional<DeviceInfo> DeviceRegistry::createAssigningId(DeviceInfo dev)
 bool DeviceRegistry::update(const DeviceInfo& dev) {
     if (!m_store) return false;
     if (!get(dev.id).has_value()) return false;
-    if (!dev.endpointId.isEmpty() && dev.kind == DeviceKind::Radar) {
-        auto devices = findRadarDevicesByEndpoint(dev.endpointId);
-        for (const auto& d : devices) {
-            if (d.id != dev.id) {
-                qWarning() << "[DeviceRegistry] 更新失败: endpointId" << dev.endpointId
-                           << "已被设备" << d.id << "绑定";
-                return false;
-            }
-        }
-    }
+    if (!dev.endpointId.isEmpty() && dev.kind == DeviceKind::Radar)
+        migrateEndpointBinding(m_store, dev.endpointId, dev.id);
     DeviceInfo d = dev;
     d.updatedAt = QDateTime::currentMSecsSinceEpoch();
     // Build SET clause dynamically

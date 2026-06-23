@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 #include "CommTypes.h"
 #include "Endpoint.h"
 #include <QObject>
@@ -14,6 +14,7 @@ public:
 
     bool addEndpoint(const EndpointConfig& config);
     void removeEndpoint(const QString& id);
+    bool reloadEndpoints(const QVector<EndpointConfig>& configs, bool openAfter);
     Endpoint* endpoint(const QString& id) const;
 
     bool sendTo(const QString& endpointId, const QString& targetKey, const QByteArray& data);

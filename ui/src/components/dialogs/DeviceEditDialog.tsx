@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import RadarEditForm from './RadarEditForm'
 import SubDeviceEditForm from './SubDeviceEditForm'
 import type { AppDevice, RadarDevice, SubDevice } from '../map/types'
+import { saveEndpoints, type CommEndpoint } from '../../lib/endpointsApi'
 
 interface Props {
   device: AppDevice
@@ -15,11 +16,25 @@ interface Props {
 export default function DeviceEditDialog({ device, radarDevices, onUpdateDevice, onUpdateSubDevice, onClose }: Props) {
   const [saveError, setSaveError] = useState('')
 
-  const handleSave = async (updates: Partial<RadarDevice> | Partial<SubDevice>) => {
+  const handleRadarSave = async (updates: Partial<RadarDevice>, endpoint: CommEndpoint) => {
     setSaveError('')
-    const ok = 'lng' in device
-      ? await onUpdateDevice(device.id, updates as Partial<RadarDevice>)
-      : await onUpdateSubDevice(device.id, updates as Partial<SubDevice>)
+    if (endpoint.localPort <= 0) {
+      setSaveError('本机端口必须大于 0')
+      return
+    }
+    const epResult = await saveEndpoints([endpoint])
+    if (!epResult.ok) {
+      setSaveError(epResult.error || '端点保存失败')
+      return
+    }
+    const ok = await onUpdateDevice(device.id, { ...updates, endpointId: endpoint.id })
+    if (ok) onClose()
+    else setSaveError('设备保存失败，请重试')
+  }
+
+  const handleSubSave = async (updates: Partial<SubDevice>) => {
+    setSaveError('')
+    const ok = await onUpdateSubDevice(device.id, updates)
     if (ok) onClose()
     else setSaveError('保存失败，请重试')
   }
@@ -27,14 +42,14 @@ export default function DeviceEditDialog({ device, radarDevices, onUpdateDevice,
   const content = 'lng' in device ? (
     <RadarEditForm
       device={device}
-      onSave={(updates) => handleSave(updates)}
+      onSave={handleRadarSave}
       onCancel={onClose}
     />
   ) : (
     <SubDeviceEditForm
       device={device}
       radarDevices={radarDevices}
-      onSave={(updates) => handleSave(updates)}
+      onSave={handleSubSave}
       onCancel={onClose}
     />
   )
@@ -47,7 +62,7 @@ export default function DeviceEditDialog({ device, radarDevices, onUpdateDevice,
     >
       <div
         className="glass-panel flex flex-col"
-        style={{ width: 420, maxHeight: '85vh', overflow: 'hidden' }}
+        style={{ width: 460, maxHeight: '85vh', overflow: 'hidden' }}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => { if (e.key === 'Escape') onClose() }}
       >

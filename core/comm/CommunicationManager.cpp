@@ -1,4 +1,4 @@
-﻿#include "CommunicationManager.h"
+#include "CommunicationManager.h"
 #include "UdpEndpoint.h"
 #include <QDebug>
 
@@ -49,6 +49,27 @@ void CommunicationManager::removeEndpoint(const QString& id)
         (*it)->deleteLater();
         m_endpoints.erase(it);
     }
+}
+
+bool CommunicationManager::reloadEndpoints(const QVector<EndpointConfig>& configs, bool openAfter)
+{
+    stopAll();
+    const auto ids = m_endpoints.keys();
+    for (const QString& id : ids)
+        removeEndpoint(id);
+
+    for (const auto& cfg : configs) {
+        if (cfg.id.isEmpty()) {
+            qWarning() << QStringLiteral("[CommunicationManager] 跳过重载：端点 id 为空");
+            continue;
+        }
+        if (!addEndpoint(cfg))
+            return false;
+    }
+
+    if (openAfter)
+        startAll();
+    return true;
 }
 
 Endpoint* CommunicationManager::endpoint(const QString& id) const

@@ -1,6 +1,7 @@
-﻿#include "RadarDataProcessor.h"
+#include "RadarDataProcessor.h"
 #include "CommunicationManager.h"
 #include "DeviceRegistry.h"
+#include "TaskService.h"
 #include "DataStore.h"
 #include "SystemBus.h"
 
@@ -33,6 +34,11 @@ RadarDataProcessor::RadarDataProcessor(CommunicationManager* commManager,
 void RadarDataProcessor::setDeviceRegistry(DeviceRegistry* reg)
 {
     m_deviceReg = reg;
+}
+
+void RadarDataProcessor::setTaskService(TaskService* taskService)
+{
+    m_taskService = taskService;
 }
 
 RadarDataProcessor::~RadarDataProcessor()
@@ -121,9 +127,28 @@ void RadarDataProcessor::handleGeneralPackage(const QString& endpointId,
     const TargetType& tgt = gp.h_c.TrackInfo;
     const uint32_t sceneNum = gp.datapackageheader.F_UI_Scene_Num;
 
-    // 1) 缓冲航迹，攒批写入（避免每包 fsync）
+    QString deviceId;
+    if (m_deviceReg) {
+        auto dev = m_deviceReg->findRadarByEndpointId(endpointId);
+        if (dev.has_value())
+            deviceId = dev->id;
+    }
+
+    // 1) 缓冲航迹，攒批写入（仅归属当前 active task 的设备）
     if (m_dataStore && m_dataStore->isConnected()) {
-        bufferTrack(receivedMs, endpointId, tgt, sceneNum);
+        QString taskId;
+        if (m_taskService && !deviceId.isEmpty())
+            taskId = m_taskService->resolveActiveTaskIdForDevice(deviceId);
+        if (!taskId.isEmpty()) {
+            bufferTrack(receivedMs, endpointId, deviceId, taskId, tgt, sceneNum);
+        } else {
+            ++m_trackArchiveSkipCount;
+            if (m_trackArchiveSkipCount == 1 || m_trackArchiveSkipCount % 100 == 0) {
+                qDebug() << QStringLiteral("[RadarDataProcessor] 不属于当前任务，跳过归档 endpoint=%1 device=%2 skipped=%3")
+                            .arg(endpointId, deviceId.isEmpty() ? QStringLiteral("(未映射)") : deviceId)
+                            .arg(m_trackArchiveSkipCount);
+            }
+        }
     }
 
     // 2) 发布到 SystemBus，供 UI 等订阅
@@ -140,27 +165,24 @@ void RadarDataProcessor::handleGeneralPackage(const QString& endpointId,
     }
 
     // 3) 输出业务 TrackPoint（供 TrackDisplayManager / 全量 snapshot 使用）
-    if (m_deviceReg) {
-        auto dev = m_deviceReg->findRadarByEndpointId(endpointId);
-        if (dev.has_value()) {
-            TrackPoint pt;
-            pt.deviceId     = dev->id;
-            pt.trackId      = tgt.TargetID;
-            pt.timestampMs  = receivedMs;
-            pt.range        = tgt.Range;
-            pt.azimuth      = tgt.Azimuth;
-            pt.elevation    = tgt.Elevation;
-            pt.radialSpeed  = tgt.RadialSpeed;
-            pt.rcs          = tgt.RCS;
-            pt.altitude     = tgt.Altitude;
-            pt.x            = tgt.x;
-            pt.y            = tgt.y;
-            pt.z            = tgt.z;
-            pt.sceneNumber  = sceneNum;
-            emit trackPointReady(pt);
-        } else {
-            qDebug() << "[RadarDataProcessor] endpointId" << endpointId << "未绑定雷达业务设备，跳过 TrackPoint";
-        }
+    if (!deviceId.isEmpty()) {
+        TrackPoint pt;
+        pt.deviceId     = deviceId;
+        pt.trackId      = tgt.TargetID;
+        pt.timestampMs  = receivedMs;
+        pt.range        = tgt.Range;
+        pt.azimuth      = tgt.Azimuth;
+        pt.elevation    = tgt.Elevation;
+        pt.radialSpeed  = tgt.RadialSpeed;
+        pt.rcs          = tgt.RCS;
+        pt.altitude     = tgt.Altitude;
+        pt.x            = tgt.x;
+        pt.y            = tgt.y;
+        pt.z            = tgt.z;
+        pt.sceneNumber  = sceneNum;
+        emit trackPointReady(pt);
+    } else if (m_deviceReg) {
+        qDebug() << "[RadarDataProcessor] endpointId" << endpointId << "未绑定雷达业务设备，跳过 TrackPoint";
     }
 
     // 低频采样打印，避免刷屏
@@ -200,12 +222,16 @@ void RadarDataProcessor::handleWorkStandby(const QString& endpointId,
 
 void RadarDataProcessor::bufferTrack(qint64 tsMs,
                                      const QString& endpointId,
+                                     const QString& deviceId,
+                                     const QString& taskId,
                                      const TargetType& tgt,
                                      uint32_t sceneNum)
 {
     QVariantMap row;
     row.insert(QStringLiteral("ts_ms"),        tsMs);
     row.insert(QStringLiteral("source"),       endpointId);
+    row.insert(QStringLiteral("task_id"),      taskId);
+    row.insert(QStringLiteral("device_id"),    deviceId);
     row.insert(QStringLiteral("scene_num"),    sceneNum);
     row.insert(QStringLiteral("target_id"),    tgt.TargetID);
     row.insert(QStringLiteral("range_m"),      tgt.Range);
@@ -218,6 +244,12 @@ void RadarDataProcessor::bufferTrack(qint64 tsMs,
     row.insert(QStringLiteral("z"),            tgt.z);
 
     m_trackBuffer.append(std::move(row));
+    ++m_trackArchiveCount;
+    if (m_trackArchiveCount == 1 || m_trackArchiveCount % 50 == 0) {
+        qDebug() << QStringLiteral("[RadarDataProcessor] 航迹归属 task=%1 device=%2 endpoint=%3 archived=%4")
+                    .arg(taskId, deviceId, endpointId)
+                    .arg(m_trackArchiveCount);
+    }
 
     // 达到阈值 → 立即 flush
     if (m_trackBuffer.size() >= kFlushThreshold) {
