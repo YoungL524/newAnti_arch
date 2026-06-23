@@ -63,6 +63,24 @@ export async function fetchEndpoints(): Promise<EndpointsResponse & { endpoints:
   }
 }
 
+export async function saveEndpoint(endpoint: CommEndpoint): Promise<EndpointsResponse & { endpoint?: CommEndpoint }> {
+  try {
+    const res = await fetch(`${BASE}/${encodeURIComponent(endpoint.id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(endpoint),
+    })
+    const data = await res.json()
+    if (!data.ok) return { ok: false, error: data.error || `HTTP ${res.status}` }
+    const saved = data.endpoint
+      ? normalizeEndpoint(data.endpoint as Record<string, unknown>)
+      : endpoint
+    return { ok: true, reloaded: data.reloaded, endpoint: saved }
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : '网络错误' }
+  }
+}
+
 export async function saveEndpoints(endpoints: CommEndpoint[]): Promise<EndpointsResponse> {
   try {
     const res = await fetch(BASE, {

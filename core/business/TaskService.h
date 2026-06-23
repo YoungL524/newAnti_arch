@@ -4,6 +4,7 @@
 #include <QString>
 #include <QStringList>
 #include <QVector>
+#include <QSet>
 #include <optional>
 
 class DataStore;
@@ -47,6 +48,7 @@ public:
     std::optional<task::TaskInfo> activeTask() const;
     /// Active task contains deviceId → task id; otherwise empty.
     QString resolveActiveTaskIdForDevice(const QString& deviceId) const;
+    void refreshActiveTaskCache();
     std::optional<task::TaskInfo> create(task::TaskInfo task);
     bool update(const task::TaskInfo& task);
     bool updateDevices(const QString& id, const QStringList& deviceIds);
@@ -65,7 +67,13 @@ private:
     void clearError();
     void setError(const QString& msg);
 
+    struct ActiveTaskContext {
+        QString taskId;
+        QSet<QString> deviceIds;
+    };
+
     DataStore* m_store = nullptr;
     DeviceRegistry* m_deviceReg = nullptr;
     QString m_lastError;
+    ActiveTaskContext m_activeTaskCache;
 };

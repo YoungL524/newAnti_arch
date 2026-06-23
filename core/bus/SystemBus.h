@@ -31,6 +31,9 @@ public:
 
     static SystemBus& getInstance();
 
+    /**
+     * @brief 永久关闭总线（不可逆）；仅在进程退出时调用
+     */
     void shutdown();
 
     // ========== ISystemBus接口实现 ==========
@@ -295,8 +298,16 @@ private:
     void invokeEnvelopeCallbacks(const std::vector<BusEnvelopeCallback>& callbacks,
                                  const BusEnvelope& envelope) const;
 
-    void startProcessing();
+    /**
+     * @brief 停止业务处理线程（可再次 startProcessing）
+     * @note 与 shutdown() 不同，不会进入不可逆 ShutDown 状态
+     */
     void stopProcessing();
+
+    /**
+     * @brief 启动业务处理线程
+     */
+    void startProcessing();
 
 private:
     // ========== 订阅管理 ==========

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QHash>
 #include <QVariantMap>
 #include <QVector>
 #include <optional>
@@ -58,6 +59,9 @@ public:
     std::optional<DeviceInfo> get(const QString& id) const;
     /// 按 endpointId 查找绑定的 Radar 业务设备（用于航迹归属；多个时返回空，避免错误映射）
     std::optional<DeviceInfo> findRadarByEndpointId(const QString& endpointId) const;
+    /// 热路径：endpointId → 业务 deviceId（内存缓存，无 SQLite）
+    QString cachedDeviceIdForEndpoint(const QString& endpointId) const;
+    void refreshEndpointCache();
     bool create(const DeviceInfo& dev);
     /// 创建设备，id 为空时自动生成（含冲突重试）
     std::optional<DeviceInfo> createAssigningId(DeviceInfo dev);
@@ -68,4 +72,5 @@ private:
     /// 查询所有绑定该 endpoint 的 Radar 设备（写端冲突检查用）
     QVector<DeviceInfo> findRadarDevicesByEndpoint(const QString& endpointId) const;
     DataStore* m_store = nullptr;
+    QHash<QString, QString> m_endpointToDeviceId;
 };

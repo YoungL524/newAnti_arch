@@ -34,6 +34,8 @@ AppController::AppController(QObject* parent)
 AppController::~AppController()
 {
     stop();
+    // 进程退出时才永久关闭总线；stop() 为软停止，支持同进程再次 start()
+    SystemBus::getInstance().shutdown();
 }
 
 bool AppController::initialize()
@@ -90,10 +92,14 @@ bool AppController::initialize()
         } else {
             qDebug() << "[AppController] TaskService 已就绪，共"
                      << m_taskService->list().size() << "个任务";
+            m_taskService->refreshActiveTaskCache();
         }
     } else {
         qWarning() << "[AppController] 数据库不可用，TaskService 跳过";
     }
+
+    if (m_deviceRegistry)
+        m_deviceRegistry->refreshEndpointCache();
 
     if (m_radarProcessor && m_taskService)
         m_radarProcessor->setTaskService(m_taskService.get());
@@ -346,8 +352,8 @@ void AppController::stop()
         m_runtimeSettingsSubId = 0;
     }
 
-    // 关闭 SystemBus
-    SystemBus::getInstance().shutdown();
+    // 软停止：不 shutdown SystemBus，以便同进程内可再次 start()
+    // SystemBus::shutdown() 仅在析构时调用（进程级退出）
 
     // 断开数据库连接
     if (m_dataStore) {
@@ -749,6 +755,45 @@ bool AppController::updateEndpointsConfig(const QJsonObject& root, QString* erro
 
     qInfo().noquote() << QStringLiteral("[AppController] 端点配置已保存并重载，共 %1 个端点").arg(configs.size());
     return true;
+}
+
+bool AppController::updateEndpointConfig(const QString& id, const QJsonObject& endpointObj, QString* errorOut)
+{
+    auto setError = [&](const QString& msg) {
+        if (errorOut) *errorOut = msg;
+        qWarning().noquote() << QStringLiteral("[AppController] 单端点更新失败: %1").arg(msg);
+        return false;
+    };
+
+    if (id.isEmpty())
+        return setError(QStringLiteral("端点 id 不能为空"));
+
+    const QString bodyId = endpointObj[QStringLiteral("id")].toString();
+    if (!bodyId.isEmpty() && bodyId != id)
+        return setError(QStringLiteral("路径 id 与 body id 不一致"));
+
+    QJsonObject mergedEndpoint = endpointObj;
+    mergedEndpoint[QStringLiteral("id")] = id;
+
+    QJsonObject current = endpointsConfigJson();
+    QJsonArray endpoints = current[QStringLiteral("endpoints")].toArray();
+    QJsonArray updated;
+    bool found = false;
+    for (const auto& val : endpoints) {
+        QJsonObject obj = val.toObject();
+        if (obj[QStringLiteral("id")].toString() == id) {
+            updated.append(mergedEndpoint);
+            found = true;
+        } else {
+            updated.append(obj);
+        }
+    }
+    if (!found)
+        updated.append(mergedEndpoint);
+
+    QJsonObject root;
+    root[QStringLiteral("endpoints")] = updated;
+    return updateEndpointsConfig(root, errorOut);
 }
 
 // ════════════════════════════════════════════════════════════════

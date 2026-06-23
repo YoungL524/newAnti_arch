@@ -138,12 +138,31 @@ std::optional<task::TaskInfo> TaskService::activeTask() const
 
 QString TaskService::resolveActiveTaskIdForDevice(const QString& deviceId) const
 {
-    if (deviceId.isEmpty()) return {};
-    const auto active = activeTask();
-    if (!active.has_value()) return {};
-    if (active->deviceIds.contains(deviceId))
-        return active->id;
+    if (deviceId.isEmpty() || m_activeTaskCache.taskId.isEmpty())
+        return {};
+    if (m_activeTaskCache.deviceIds.contains(deviceId))
+        return m_activeTaskCache.taskId;
     return {};
+}
+
+void TaskService::refreshActiveTaskCache()
+{
+    m_activeTaskCache = {};
+    if (!m_store)
+        return;
+
+    auto rows = m_store->query(
+        QStringLiteral("SELECT id FROM tasks WHERE status = ? ORDER BY activated_at DESC LIMIT 1"),
+        {QString::fromUtf8(task::kStatusActive)});
+    if (rows.isEmpty())
+        return;
+
+    m_activeTaskCache.taskId = rows.first().value(QStringLiteral("id")).toString();
+    auto devRows = m_store->query(
+        QStringLiteral("SELECT device_id FROM task_devices WHERE task_id = ?"),
+        {m_activeTaskCache.taskId});
+    for (const auto& dr : devRows)
+        m_activeTaskCache.deviceIds.insert(dr.value(QStringLiteral("device_id")).toString());
 }
 
 bool TaskService::validateDeviceIds(const QStringList& deviceIds)
@@ -253,8 +272,10 @@ bool TaskService::update(const task::TaskInfo& task)
     if (ok)
         ok = saveDeviceIds(task.id, task.deviceIds);
 
-    if (ok && m_store->commitTransaction())
+    if (ok && m_store->commitTransaction()) {
+        refreshActiveTaskCache();
         return true;
+    }
 
     m_store->rollbackTransaction();
     if (m_lastError.isEmpty())
@@ -279,8 +300,10 @@ bool TaskService::updateDevices(const QString& id, const QStringList& deviceIds)
         return false;
     }
     const bool ok = saveDeviceIds(id, deviceIds);
-    if (ok && m_store->commitTransaction())
+    if (ok && m_store->commitTransaction()) {
+        refreshActiveTaskCache();
         return true;
+    }
     m_store->rollbackTransaction();
     if (m_lastError.isEmpty())
         setError(QStringLiteral("更新任务设备失败"));
@@ -316,8 +339,10 @@ bool TaskService::activate(const QString& id)
             {QString::fromUtf8(task::kStatusActive), now, id});
     }
 
-    if (ok && m_store->commitTransaction())
+    if (ok && m_store->commitTransaction()) {
+        refreshActiveTaskCache();
         return true;
+    }
 
     m_store->rollbackTransaction();
     setError(QStringLiteral("激活任务失败"));
@@ -344,6 +369,7 @@ bool TaskService::complete(const QString& id)
         setError(QStringLiteral("完成任务失败"));
         return false;
     }
+    refreshActiveTaskCache();
     return true;
 }
 
@@ -368,6 +394,7 @@ bool TaskService::archive(const QString& id)
         setError(QStringLiteral("归档任务失败"));
         return false;
     }
+    refreshActiveTaskCache();
     return true;
 }
 
@@ -389,8 +416,10 @@ bool TaskService::remove(const QString& id)
     if (ok)
         ok = m_store->execute(QStringLiteral("DELETE FROM tasks WHERE id = ?"), {id});
 
-    if (ok && m_store->commitTransaction())
+    if (ok && m_store->commitTransaction()) {
+        refreshActiveTaskCache();
         return true;
+    }
 
     m_store->rollbackTransaction();
     setError(QStringLiteral("删除任务失败"));

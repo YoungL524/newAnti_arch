@@ -6,9 +6,9 @@
 
 static const QString kTable = QStringLiteral("devices");
 
-static void migrateEndpointBinding(DataStore* store, const QString& endpointId, const QString& keepDeviceId)
+static bool migrateEndpointBinding(DataStore* store, const QString& endpointId, const QString& keepDeviceId)
 {
-    if (!store || endpointId.isEmpty()) return;
+    if (!store || endpointId.isEmpty()) return true;
     auto rows = store->query(
         QStringLiteral("SELECT id FROM devices WHERE endpoint_id = ? AND id != ?"),
         {endpointId, keepDeviceId});
@@ -18,7 +18,7 @@ static void migrateEndpointBinding(DataStore* store, const QString& endpointId, 
                  << "迁移到" << keepDeviceId;
     }
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    store->execute(
+    return store->execute(
         QStringLiteral("UPDATE devices SET endpoint_id = '', updated_at = ? WHERE endpoint_id = ? AND id != ?"),
         {now, endpointId, keepDeviceId});
 }
@@ -100,7 +100,11 @@ bool DeviceRegistry::ensureSchema() {
         "  created_at INTEGER NOT NULL,"
         "  updated_at INTEGER NOT NULL"
         ")");
-    return m_store->execute(sql);
+    if (!m_store->execute(sql))
+        return false;
+    return m_store->execute(
+        QStringLiteral("CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_endpoint_id_unique "
+                       "ON devices(endpoint_id) WHERE endpoint_id != ''"));
 }
 
 bool DeviceRegistry::ensureDefaultControllableRadar() {
@@ -156,23 +160,50 @@ std::optional<DeviceInfo> DeviceRegistry::get(const QString& id) const {
 }
 
 std::optional<DeviceInfo> DeviceRegistry::findRadarByEndpointId(const QString& endpointId) const {
-    if (!m_store) return std::nullopt;
-    auto rows = m_store->query(
-        QStringLiteral("SELECT * FROM devices WHERE endpoint_id = ? AND kind = ?"),
-        {endpointId, static_cast<int>(DeviceKind::Radar)});
-    if (rows.isEmpty()) {
-        // 历史数据：业务 id 与 endpoints.json 端点 id 相同（如 radar_cpu），但未写 endpoint_id
-        auto legacy = get(endpointId);
-        if (legacy.has_value() && legacy->kind == DeviceKind::Radar)
-            return legacy;
+    const QString deviceId = cachedDeviceIdForEndpoint(endpointId);
+    if (deviceId.isEmpty())
         return std::nullopt;
+    return get(deviceId);
+}
+
+QString DeviceRegistry::cachedDeviceIdForEndpoint(const QString& endpointId) const
+{
+    if (endpointId.isEmpty())
+        return {};
+    return m_endpointToDeviceId.value(endpointId);
+}
+
+void DeviceRegistry::refreshEndpointCache()
+{
+    m_endpointToDeviceId.clear();
+    if (!m_store)
+        return;
+
+    QHash<QString, int> endpointCounts;
+    for (const auto& d : list()) {
+        if (d.kind != DeviceKind::Radar || d.endpointId.isEmpty())
+            continue;
+        endpointCounts[d.endpointId]++;
     }
-    if (rows.size() > 1) {
-        qWarning() << "[DeviceRegistry] endpointId" << endpointId
-                   << "绑定了" << rows.size() << "个雷达设备，拒绝返回，避免航迹错误归属";
-        return std::nullopt;
+
+    for (const auto& d : list()) {
+        if (d.kind != DeviceKind::Radar || d.endpointId.isEmpty())
+            continue;
+        if (endpointCounts.value(d.endpointId) == 1)
+            m_endpointToDeviceId.insert(d.endpointId, d.id);
+        else if (endpointCounts.value(d.endpointId) > 1) {
+            qWarning() << "[DeviceRegistry] endpointId" << d.endpointId
+                       << "绑定了" << endpointCounts.value(d.endpointId)
+                       << "个雷达设备，缓存中跳过";
+        }
     }
-    return DeviceInfo::fromVariantMap(rows.first());
+
+    for (const auto& d : list()) {
+        if (d.kind != DeviceKind::Radar || !d.endpointId.isEmpty())
+            continue;
+        if (!m_endpointToDeviceId.contains(d.id))
+            m_endpointToDeviceId.insert(d.id, d.id);
+    }
 }
 
 QVector<DeviceInfo> DeviceRegistry::findRadarDevicesByEndpoint(const QString& endpointId) const {
@@ -188,13 +219,26 @@ QVector<DeviceInfo> DeviceRegistry::findRadarDevicesByEndpoint(const QString& en
 
 bool DeviceRegistry::create(const DeviceInfo& dev) {
     if (!m_store) return false;
+    if (!m_store->beginTransaction())
+        return false;
+
+    bool ok = true;
     if (!dev.endpointId.isEmpty() && dev.kind == DeviceKind::Radar)
-        migrateEndpointBinding(m_store, dev.endpointId, dev.id);
+        ok = migrateEndpointBinding(m_store, dev.endpointId, dev.id);
+
     DeviceInfo d = dev;
     qint64 now = QDateTime::currentMSecsSinceEpoch();
     d.createdAt = now;
     d.updatedAt = now;
-    return m_store->insert(kTable, d.toVariantMap());
+    if (ok)
+        ok = m_store->insert(kTable, d.toVariantMap());
+
+    if (ok && m_store->commitTransaction()) {
+        refreshEndpointCache();
+        return true;
+    }
+    m_store->rollbackTransaction();
+    return false;
 }
 
 std::optional<DeviceInfo> DeviceRegistry::createAssigningId(DeviceInfo dev)
@@ -215,11 +259,15 @@ std::optional<DeviceInfo> DeviceRegistry::createAssigningId(DeviceInfo dev)
 bool DeviceRegistry::update(const DeviceInfo& dev) {
     if (!m_store) return false;
     if (!get(dev.id).has_value()) return false;
+    if (!m_store->beginTransaction())
+        return false;
+
+    bool ok = true;
     if (!dev.endpointId.isEmpty() && dev.kind == DeviceKind::Radar)
-        migrateEndpointBinding(m_store, dev.endpointId, dev.id);
+        ok = migrateEndpointBinding(m_store, dev.endpointId, dev.id);
+
     DeviceInfo d = dev;
     d.updatedAt = QDateTime::currentMSecsSinceEpoch();
-    // Build SET clause dynamically
     auto vm = d.toVariantMap();
     QStringList setClauses;
     QVariantList bindValues;
@@ -232,7 +280,15 @@ bool DeviceRegistry::update(const DeviceInfo& dev) {
     QString sql = QStringLiteral("UPDATE devices SET ")
                   + setClauses.join(QStringLiteral(", "))
                   + QStringLiteral(" WHERE id = ?");
-    return m_store->execute(sql, bindValues);
+    if (ok)
+        ok = m_store->execute(sql, bindValues);
+
+    if (ok && m_store->commitTransaction()) {
+        refreshEndpointCache();
+        return true;
+    }
+    m_store->rollbackTransaction();
+    return false;
 }
 
 bool DeviceRegistry::remove(const QString& id) {
@@ -249,6 +305,7 @@ bool DeviceRegistry::remove(const QString& id) {
             m_store->rollbackTransaction();
             return false;
         }
+        refreshEndpointCache();
         return true;
     }
     m_store->rollbackTransaction();

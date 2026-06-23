@@ -128,11 +128,8 @@ void RadarDataProcessor::handleGeneralPackage(const QString& endpointId,
     const uint32_t sceneNum = gp.datapackageheader.F_UI_Scene_Num;
 
     QString deviceId;
-    if (m_deviceReg) {
-        auto dev = m_deviceReg->findRadarByEndpointId(endpointId);
-        if (dev.has_value())
-            deviceId = dev->id;
-    }
+    if (m_deviceReg)
+        deviceId = m_deviceReg->cachedDeviceIdForEndpoint(endpointId);
 
     // 1) 缓冲航迹，攒批写入（仅归属当前 active task 的设备）
     if (m_dataStore && m_dataStore->isConnected()) {

@@ -107,6 +107,7 @@ public:
 
     QJsonObject endpointsConfigJson();
     bool updateEndpointsConfig(const QJsonObject& root, QString* errorOut = nullptr);
+    bool updateEndpointConfig(const QString& id, const QJsonObject& endpoint, QString* errorOut = nullptr);
 
 private slots:
     /**
