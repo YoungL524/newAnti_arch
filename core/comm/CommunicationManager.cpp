@@ -107,6 +107,16 @@ void CommunicationManager::stopAll()
     qDebug() << QStringLiteral("[CommunicationManager] 所有端点已停止");
 }
 
+int CommunicationManager::openEndpointCount() const
+{
+    int count = 0;
+    for (auto it = m_endpoints.constBegin(); it != m_endpoints.constEnd(); ++it) {
+        if ((*it)->isOpen())
+            ++count;
+    }
+    return count;
+}
+
 Endpoint* CommunicationManager::createEndpoint(const EndpointConfig& config)
 {
     switch (config.protocol) {

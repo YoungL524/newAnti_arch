@@ -272,6 +272,7 @@ private:
     uint16_t m_reverseTargetDevice = DEVICE_RADAR_NH_KU_1;
     bool m_dphEnabled = true;
     bool m_running = false;
+    bool m_shutdown = false;
 
     std::unique_ptr<web::WebService> m_webService;       ///< HTTP/WS 服务
     std::unique_ptr<WebApiController> m_webApi;           ///< REST 路由 + WS 消息组装

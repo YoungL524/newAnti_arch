@@ -233,6 +233,8 @@ void WebApiController::registerRestRoutes()
                 if (err.error != QJsonParseError::NoError)
                     return QStringLiteral("facesJson JSON 格式错误");
             }
+            if (d.kind != DeviceKind::Radar && !d.endpointId.isEmpty())
+                return QStringLiteral("只有雷达设备允许绑定通信端点");
             return {};
         };
 

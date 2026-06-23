@@ -55,6 +55,10 @@ void AppController::stopRuntime()
 
 void AppController::shutdown()
 {
+    if (m_shutdown)
+        return;
+    m_shutdown = true;
+
     if (m_webApi) {
         m_webApi->shutdown();
         m_webApi.reset();
@@ -638,9 +642,7 @@ AppHealth AppController::healthReport() const
     // 通信端点状态
     if (m_commManager) {
         report.comm.totalEndpoints = m_commManager->endpointCount();
-        // open 计数需遍历端点；目前 CommManager 无公开遍历接口，
-        // 用 totalEndpoints 近似，未来可细化
-        report.comm.openEndpoints = m_commManager->endpointCount();
+        report.comm.openEndpoints = m_commManager->openEndpointCount();
     }
 
     // 数据处理状态
