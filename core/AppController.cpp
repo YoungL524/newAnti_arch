@@ -643,6 +643,7 @@ AppHealth AppController::healthReport() const
     if (m_commManager) {
         report.comm.totalEndpoints = m_commManager->endpointCount();
         report.comm.openEndpoints = m_commManager->openEndpointCount();
+        report.comm.endpointOpen = m_commManager->endpointOpenStates();
     }
 
     // 数据处理状态
@@ -818,9 +819,6 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
             return st;
         },
         [this]() { return healthReport(); },
-        [cm = m_commManager.get()](const QString& endpointId) {
-            return cm && cm->isEndpointOpen(endpointId);
-        },
         this);
     m_webApi->registerRestRoutes();
     m_webApi->connectWebPush();

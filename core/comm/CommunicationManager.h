@@ -1,6 +1,7 @@
 #pragma once
 #include "CommTypes.h"
 #include "Endpoint.h"
+#include <QHash>
 #include <QObject>
 #include <QMap>
 
@@ -25,6 +26,7 @@ public:
     int endpointCount() const { return m_endpoints.size(); }
     int openEndpointCount() const;
     bool isEndpointOpen(const QString& endpointId) const;
+    QHash<QString, bool> endpointOpenStates() const;
 
 signals:
     /**

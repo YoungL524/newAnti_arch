@@ -123,6 +123,14 @@ bool CommunicationManager::isEndpointOpen(const QString& endpointId) const
     return ep && ep->isOpen();
 }
 
+QHash<QString, bool> CommunicationManager::endpointOpenStates() const
+{
+    QHash<QString, bool> states;
+    for (auto it = m_endpoints.constBegin(); it != m_endpoints.constEnd(); ++it)
+        states.insert(it.key(), (*it)->isOpen());
+    return states;
+}
+
 Endpoint* CommunicationManager::createEndpoint(const EndpointConfig& config)
 {
     switch (config.protocol) {

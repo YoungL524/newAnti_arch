@@ -46,6 +46,7 @@ QString resolveDeviceEndpointId(const QString& deviceId, const QString& endpoint
 {
     if (!endpointId.isEmpty())
         return endpointId;
+    // Legacy fallback: 历史库可能存在 id=radar_cpu 但未写 endpoint_id 的设备
     if (deviceId == QStringLiteral("radar_cpu"))
         return QStringLiteral("radar_cpu");
     return {};
@@ -59,7 +60,6 @@ WebApiController::WebApiController(web::WebService* ws,
                                    RuntimeSettingsService* runtimeSettings,
                                    RuntimeStatusProvider runtimeStatusProvider,
                                    HealthProvider healthProvider,
-                                   EndpointOpenChecker endpointOpenChecker,
                                    QObject* parent)
     : QObject(parent)
     , m_ws(ws)
@@ -68,7 +68,6 @@ WebApiController::WebApiController(web::WebService* ws,
     , m_runtimeSettings(runtimeSettings)
     , m_runtimeStatusProvider(std::move(runtimeStatusProvider))
     , m_health(std::move(healthProvider))
-    , m_isEndpointOpen(std::move(endpointOpenChecker))
 {
 }
 
@@ -468,15 +467,14 @@ void WebApiController::shutdown()
 
 QJsonArray WebApiController::buildDeviceStatusArray(const AppHealth& health) const
 {
-    Q_UNUSED(health);
     QJsonArray arr;
     bool wmcMerged = false;
 
-    auto endpointOpenFor = [this](const QString& deviceId, const QString& endpointId) -> bool {
+    auto endpointOpenFor = [&health](const QString& deviceId, const QString& endpointId) -> bool {
         const QString ep = resolveDeviceEndpointId(deviceId, endpointId);
         if (ep.isEmpty())
             return false;
-        return m_isEndpointOpen && m_isEndpointOpen(ep);
+        return health.comm.endpointOpen.value(ep, false);
     };
 
     if (m_deviceReg) {

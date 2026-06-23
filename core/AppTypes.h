@@ -1,6 +1,8 @@
 #pragma once
 
 #include <QtGlobal>
+#include <QHash>
+#include <QString>
 #include <cstdint>
 #include "LatencyStats.h"
 
@@ -24,6 +26,8 @@ struct AppHealth {
     struct CommStatus {
         int totalEndpoints = 0;
         int openEndpoints = 0;
+        /// 各 endpoint 是否已打开（healthReport 一次性采样）
+        QHash<QString, bool> endpointOpen;
     };
     struct ProcessingStatus {
         uint64_t generalPackageCount = 0;
