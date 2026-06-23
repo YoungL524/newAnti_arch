@@ -117,6 +117,12 @@ int CommunicationManager::openEndpointCount() const
     return count;
 }
 
+bool CommunicationManager::isEndpointOpen(const QString& endpointId) const
+{
+    Endpoint* ep = endpoint(endpointId);
+    return ep && ep->isOpen();
+}
+
 Endpoint* CommunicationManager::createEndpoint(const EndpointConfig& config)
 {
     switch (config.protocol) {

@@ -24,6 +24,7 @@ public:
 
     int endpointCount() const { return m_endpoints.size(); }
     int openEndpointCount() const;
+    bool isEndpointOpen(const QString& endpointId) const;
 
 signals:
     /**
