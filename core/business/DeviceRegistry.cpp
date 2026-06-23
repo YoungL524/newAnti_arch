@@ -294,8 +294,20 @@ QVector<DeviceInfo> DeviceRegistry::findRadarDevicesByEndpoint(const QString& en
     return result;
 }
 
+bool DeviceRegistry::validateDeviceWrite(const DeviceInfo& dev)
+{
+    if (dev.kind != DeviceKind::Radar && !dev.endpointId.isEmpty()) {
+        qWarning() << "[DeviceRegistry] 非雷达设备不允许绑定 endpoint:" << dev.id
+                   << "endpointId=" << dev.endpointId;
+        return false;
+    }
+    return true;
+}
+
 bool DeviceRegistry::create(const DeviceInfo& dev) {
     if (!m_store) return false;
+    if (!validateDeviceWrite(dev))
+        return false;
     m_lastMigratedDeviceIds.clear();
     if (!m_store->beginTransaction())
         return false;
@@ -337,6 +349,8 @@ std::optional<DeviceInfo> DeviceRegistry::createAssigningId(DeviceInfo dev)
 bool DeviceRegistry::update(const DeviceInfo& dev) {
     if (!m_store) return false;
     if (!get(dev.id).has_value()) return false;
+    if (!validateDeviceWrite(dev))
+        return false;
     m_lastMigratedDeviceIds.clear();
     if (!m_store->beginTransaction())
         return false;

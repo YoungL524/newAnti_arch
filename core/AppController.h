@@ -253,6 +253,11 @@ private:
     void wireTrackDisplayPipeline();
 
     void stopRuntime();
+    /**
+     * @brief 释放 AppController 持有的 Web/TrackDisplay/订阅等资源（幂等）。
+     * @note 不是运行态 stop（见 stop()/stopRuntime()）；不会关闭 SystemBus。
+     *       SystemBus::shutdown() 仅在析构最终阶段调用（进程退出级）。
+     */
     void shutdown();
 
 private:
