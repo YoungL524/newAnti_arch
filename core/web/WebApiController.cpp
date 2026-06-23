@@ -256,7 +256,7 @@ void WebApiController::registerRestRoutes()
             return r;
         });
 
-        m_ws->handlePutPrefix(QStringLiteral("/api/devices/"), [this, validate, deviceFromBody, handleTrackInteraction](const QString& suffix, const QJsonObject& body) {
+        m_ws->handlePutPrefix(QStringLiteral("/api/devices/"), [this, validate, deviceFromBody, deviceInfoToJson, handleTrackInteraction](const QString& suffix, const QJsonObject& body) {
             if (auto r = handleTrackInteraction(suffix, body))
                 return *r;
 
@@ -275,6 +275,8 @@ void WebApiController::registerRestRoutes()
             bool ok = m_deviceReg->update(d);
             QJsonObject r{{QStringLiteral("ok"), ok}};
             if (ok) {
+                if (auto updated = m_deviceReg->get(d.id); updated.has_value())
+                    r[QStringLiteral("device")] = deviceInfoToJson(updated.value());
                 const QStringList migrated = m_deviceReg->takeLastMigratedDeviceIds();
                 if (!migrated.isEmpty()) {
                     QJsonArray arr;

@@ -33,11 +33,64 @@ AppController::AppController(QObject* parent)
 
 AppController::~AppController()
 {
-    stop();
-    if (m_dataStore) {
-        m_dataStore->disconnect();
-    }
+    shutdown();
     SystemBus::getInstance().shutdown();
+}
+
+void AppController::stopRuntime()
+{
+    if (!m_running)
+        return;
+
+    m_running = false;
+
+    if (m_dphPublisher)
+        m_dphPublisher->stop();
+
+    if (m_commManager)
+        m_commManager->stopAll();
+
+    qDebug() << QStringLiteral("[AppController] 运行态已停止（通信/DPH），总线订阅与 Web 保持");
+}
+
+void AppController::shutdown()
+{
+    if (m_webApi) {
+        m_webApi->shutdown();
+        m_webApi.reset();
+    }
+
+    if (m_trackDisplayManager) {
+        m_trackDisplayManager->stop();
+        m_trackDisplayManager->clear();
+    }
+
+    if (m_trackDisplayWebBridge) {
+        m_trackDisplayWebBridge->stop();
+        m_trackDisplayWebBridge.reset();
+    }
+
+    stopRuntime();
+
+    if (m_busRouter) {
+        m_busRouter->unsubscribe();
+        qDebug() << QStringLiteral("[AppController] BusToCommRouter 已停止订阅");
+    }
+
+    if (m_runtimeSettingsSubId != 0) {
+        SystemBus::getInstance().unsubscribe(m_runtimeSettingsSubId);
+        m_runtimeSettingsSubId = 0;
+    }
+
+    if (m_webService) {
+        m_webService->stop();
+        m_webService.reset();
+    }
+
+    if (m_dataStore)
+        m_dataStore->disconnect();
+
+    qDebug() << QStringLiteral("[AppController] 进程级 shutdown 完成");
 }
 
 bool AppController::initialize()
@@ -303,61 +356,12 @@ void AppController::start()
     }
 
     m_running = true;
-    qDebug() << QStringLiteral("[AppController] 所有服务已启动");
+    qDebug() << QStringLiteral("[AppController] 运行态已启动");
 }
 
 void AppController::stop()
 {
-    // Web API shutdown 独立于 m_running：即使 core 通信层未启动也要清理
-    if (m_webApi) {
-        m_webApi->shutdown();
-        m_webApi.reset();
-    }
-
-    // 先停航迹产出，再拆 Web 桥，避免总线 worker 回调已销毁对象
-    if (m_trackDisplayManager) {
-        m_trackDisplayManager->stop();
-    }
-
-    if (m_trackDisplayWebBridge) {
-        m_trackDisplayWebBridge->stop();
-        m_trackDisplayWebBridge.reset();
-    }
-
-    if (m_trackDisplayManager) {
-        m_trackDisplayManager->clear();
-    }
-
-    if (!m_running) {
-        return;
-    }
-
-    m_running = false;
-
-    if (m_dphPublisher) {
-        m_dphPublisher->stop();
-    }
-
-    if (m_busRouter) {
-        m_busRouter->unsubscribe();
-        qDebug() << QStringLiteral("[AppController] BusToCommRouter 已停止订阅");
-    }
-
-    // 停止通信层
-    if (m_commManager) {
-        m_commManager->stopAll();
-    }
-
-    // 取消运行时参数订阅
-    if (m_runtimeSettingsSubId != 0) {
-        SystemBus::getInstance().unsubscribe(m_runtimeSettingsSubId);
-        m_runtimeSettingsSubId = 0;
-    }
-
-    // 软停止：不断开数据库、不 shutdown SystemBus，同进程可再次 start()
-    // 数据库与 SystemBus::shutdown() 仅在析构时释放（进程退出级）
-
-    qDebug() << QStringLiteral("[AppController] 所有服务已停止");
+    stopRuntime();
 }
 
 bool AppController::initializeCommunication()

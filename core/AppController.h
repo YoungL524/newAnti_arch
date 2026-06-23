@@ -54,12 +54,12 @@ public:
     bool initialize();
 
     /**
-     * @brief 启动所有服务
+     * @brief 启动运行态（通信端点、DPH）
      */
     void start();
 
     /**
-     * @brief 停止所有服务
+     * @brief 停止运行态（通信端点、DPH）；保留总线订阅、Web、数据库
      */
     void stop();
 
@@ -251,6 +251,9 @@ private:
      * @brief 在 DeviceRegistry / TrackDisplayManager 就绪后接通航迹显示链路
      */
     void wireTrackDisplayPipeline();
+
+    void stopRuntime();
+    void shutdown();
 
 private:
     ConfigManager m_configManager;                          ///< 配置管理器（数据访问层）

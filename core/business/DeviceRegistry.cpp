@@ -50,15 +50,37 @@ static bool dedupeLegacyEndpointBindings(DataStore* store)
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     for (const auto& row : dups) {
         const QString endpointId = row.value(QStringLiteral("endpoint_id")).toString();
-        auto bound = store->query(
-            QStringLiteral("SELECT id FROM devices WHERE endpoint_id = ? AND kind = ? "
-                           "ORDER BY updated_at DESC, created_at ASC"),
-            {endpointId, static_cast<int>(DeviceKind::Radar)});
-        for (int i = 1; i < bound.size(); ++i) {
-            const QString deviceId = bound[i].value(QStringLiteral("id")).toString();
+        auto allBound = store->query(
+            QStringLiteral("SELECT id, kind FROM devices WHERE endpoint_id = ? "
+                           "ORDER BY kind ASC, updated_at DESC, created_at ASC"),
+            {endpointId});
+
+        QString keepId;
+        QStringList toClear;
+        QVector<QVariantMap> radars;
+        for (const auto& dev : allBound) {
+            if (dev.value(QStringLiteral("kind")).toInt() == static_cast<int>(DeviceKind::Radar))
+                radars.append(dev);
+            else
+                toClear.append(dev.value(QStringLiteral("id")).toString());
+        }
+
+        if (!radars.isEmpty()) {
+            keepId = radars.first().value(QStringLiteral("id")).toString();
+            for (int i = 1; i < radars.size(); ++i)
+                toClear.append(radars[i].value(QStringLiteral("id")).toString());
+        } else {
+            for (const auto& dev : allBound)
+                toClear.append(dev.value(QStringLiteral("id")).toString());
+        }
+
+        for (const QString& deviceId : toClear) {
+            if (deviceId == keepId)
+                continue;
             qWarning() << "[DeviceRegistry] 历史重复 endpoint" << endpointId
-                       << "解除设备" << deviceId << "的绑定（保留"
-                       << bound.first().value(QStringLiteral("id")).toString() << "）";
+                       << "解除设备" << deviceId << "的绑定"
+                       << (keepId.isEmpty() ? QStringLiteral("(无保留设备)")
+                                            : QStringLiteral("(保留 %1)").arg(keepId));
             if (!store->execute(
                     QStringLiteral("UPDATE devices SET endpoint_id = '', updated_at = ? WHERE id = ?"),
                     {now, deviceId}))

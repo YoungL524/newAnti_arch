@@ -185,7 +185,12 @@ export default function App() {
     if (!apiDev) { console.warn('[devices] 后端未返回设备数据'); return false }
     const radar = apiDeviceToRadar(apiDev)
     if (!radar) { console.warn('[devices] 后端返回数据格式错误'); return false }
-    setDevices(prev => [...prev, radar])
+    setDevices(prev => {
+      const migrated = r.data?.migratedDeviceIds ?? []
+      const cleared = prev.map(item =>
+        migrated.includes(item.id) ? { ...item, endpointId: undefined } : item)
+      return [...cleared, radar]
+    })
     const tid = activeTaskIdRef.current
     if (tid) {
       const task = tasksRef.current.find(t => t.id === tid)
@@ -241,7 +246,17 @@ export default function App() {
     const merged = { ...current, ...updates }
     const r = await apiUpdateDevice(id, radarToApiPayload(id, merged))
     if (!r.ok) { console.warn('[devices] 更新雷达失败:', r.error); return false }
-    setDevices(prev => prev.map(d => d.id === id ? { ...d, ...updates } : d))
+    const apiDev = r.data?.device
+    const migrated = r.data?.migratedDeviceIds ?? []
+    setDevices(prev => prev.map(d => {
+      if (migrated.includes(d.id))
+        return { ...d, endpointId: undefined }
+      if (d.id === id) {
+        const fromServer = apiDev ? apiDeviceToRadar(apiDev) : null
+        return fromServer ?? { ...d, ...updates }
+      }
+      return d
+    }))
     return true
   }, [])
 

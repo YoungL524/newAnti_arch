@@ -20,6 +20,13 @@ export interface ApiDevice {
 export interface CreateDeviceResponse {
   ok: boolean
   device: ApiDevice
+  migratedDeviceIds?: string[]
+}
+
+export interface UpdateDeviceResponse {
+  ok: boolean
+  device?: ApiDevice
+  migratedDeviceIds?: string[]
 }
 
 const LEGACY_BRANDS: Record<string, RadarBrand> = {
@@ -119,7 +126,7 @@ export async function createDevice(payload: any): Promise<ApiResult<CreateDevice
   })
 }
 
-export async function updateDevice(id: string, payload: any): Promise<ApiResult> {
+export async function updateDevice(id: string, payload: any): Promise<ApiResult<UpdateDeviceResponse>> {
   return apiCall(`${BASE}/${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
