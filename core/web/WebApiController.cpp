@@ -247,6 +247,12 @@ void WebApiController::registerRestRoutes()
             QJsonObject r;
             r[QStringLiteral("ok")] = true;
             r[QStringLiteral("device")] = deviceInfoToJson(created.value());
+            const QStringList migrated = m_deviceReg->takeLastMigratedDeviceIds();
+            if (!migrated.isEmpty()) {
+                QJsonArray arr;
+                for (const auto& id : migrated) arr.append(id);
+                r[QStringLiteral("migratedDeviceIds")] = arr;
+            }
             return r;
         });
 
@@ -267,7 +273,16 @@ void WebApiController::registerRestRoutes()
             if (!err.isEmpty())
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), err}};
             bool ok = m_deviceReg->update(d);
-            return QJsonObject{{QStringLiteral("ok"), ok}};
+            QJsonObject r{{QStringLiteral("ok"), ok}};
+            if (ok) {
+                const QStringList migrated = m_deviceReg->takeLastMigratedDeviceIds();
+                if (!migrated.isEmpty()) {
+                    QJsonArray arr;
+                    for (const auto& id : migrated) arr.append(id);
+                    r[QStringLiteral("migratedDeviceIds")] = arr;
+                }
+            }
+            return r;
         });
 
         m_ws->handleDeletePrefix(QStringLiteral("/api/devices/"), [this](const QString& suffix, const QJsonObject&) {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QStringList>
 #include <QHash>
 #include <QVariantMap>
 #include <QVector>
@@ -67,10 +68,13 @@ public:
     std::optional<DeviceInfo> createAssigningId(DeviceInfo dev);
     bool update(const DeviceInfo& dev);
     bool remove(const QString& id);
+    /// 最近一次 create/update 因 endpoint 绑定迁移而解除绑定的设备 id（取后清空）
+    QStringList takeLastMigratedDeviceIds();
 
 private:
     /// 查询所有绑定该 endpoint 的 Radar 设备（写端冲突检查用）
     QVector<DeviceInfo> findRadarDevicesByEndpoint(const QString& endpointId) const;
     DataStore* m_store = nullptr;
     QHash<QString, QString> m_endpointToDeviceId;
+    QStringList m_lastMigratedDeviceIds;
 };

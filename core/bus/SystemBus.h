@@ -299,13 +299,13 @@ private:
                                  const BusEnvelope& envelope) const;
 
     /**
-     * @brief 停止业务处理线程（可再次 startProcessing）
-     * @note 与 shutdown() 不同，不会进入不可逆 ShutDown 状态
+     * @brief 停止业务处理线程（进程退出清理用，不可恢复）
+     * @note AppController 软停止不应调用；与 shutdown() 配合使用
      */
     void stopProcessing();
 
     /**
-     * @brief 启动业务处理线程
+     * @brief 启动业务处理线程（单例构造时调用一次，进程级常驻）
      */
     void startProcessing();
 

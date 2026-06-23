@@ -6,21 +6,66 @@
 
 static const QString kTable = QStringLiteral("devices");
 
-static bool migrateEndpointBinding(DataStore* store, const QString& endpointId, const QString& keepDeviceId)
+static bool migrateEndpointBinding(DataStore* store, const QString& endpointId, const QString& keepDeviceId,
+                                   QStringList* migratedOut = nullptr)
 {
-    if (!store || endpointId.isEmpty()) return true;
+    QStringList migrated;
+    if (!store || endpointId.isEmpty()) {
+        if (migratedOut) *migratedOut = migrated;
+        return true;
+    }
     auto rows = store->query(
         QStringLiteral("SELECT id FROM devices WHERE endpoint_id = ? AND id != ?"),
         {endpointId, keepDeviceId});
     for (const auto& row : rows) {
+        const QString id = row.value(QStringLiteral("id")).toString();
+        migrated.append(id);
         qDebug() << "[DeviceRegistry] endpointId" << endpointId
-                 << "从设备" << row.value(QStringLiteral("id")).toString()
-                 << "迁移到" << keepDeviceId;
+                 << "从设备" << id << "迁移到" << keepDeviceId;
+    }
+    if (migrated.isEmpty()) {
+        if (migratedOut) *migratedOut = migrated;
+        return true;
     }
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    return store->execute(
-        QStringLiteral("UPDATE devices SET endpoint_id = '', updated_at = ? WHERE endpoint_id = ? AND id != ?"),
-        {now, endpointId, keepDeviceId});
+    if (!store->execute(
+            QStringLiteral("UPDATE devices SET endpoint_id = '', updated_at = ? WHERE endpoint_id = ? AND id != ?"),
+            {now, endpointId, keepDeviceId})) {
+        if (migratedOut) migratedOut->clear();
+        return false;
+    }
+    if (migratedOut) *migratedOut = migrated;
+    return true;
+}
+
+static bool dedupeLegacyEndpointBindings(DataStore* store)
+{
+    if (!store) return false;
+    auto dups = store->query(
+        QStringLiteral("SELECT endpoint_id FROM devices WHERE endpoint_id != '' "
+                       "GROUP BY endpoint_id HAVING COUNT(*) > 1"));
+    if (dups.isEmpty())
+        return true;
+
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    for (const auto& row : dups) {
+        const QString endpointId = row.value(QStringLiteral("endpoint_id")).toString();
+        auto bound = store->query(
+            QStringLiteral("SELECT id FROM devices WHERE endpoint_id = ? AND kind = ? "
+                           "ORDER BY updated_at DESC, created_at ASC"),
+            {endpointId, static_cast<int>(DeviceKind::Radar)});
+        for (int i = 1; i < bound.size(); ++i) {
+            const QString deviceId = bound[i].value(QStringLiteral("id")).toString();
+            qWarning() << "[DeviceRegistry] 历史重复 endpoint" << endpointId
+                       << "解除设备" << deviceId << "的绑定（保留"
+                       << bound.first().value(QStringLiteral("id")).toString() << "）";
+            if (!store->execute(
+                    QStringLiteral("UPDATE devices SET endpoint_id = '', updated_at = ? WHERE id = ?"),
+                    {now, deviceId}))
+                return false;
+        }
+    }
+    return true;
 }
 
 QVariantMap DeviceInfo::toVariantMap() const {
@@ -102,6 +147,8 @@ bool DeviceRegistry::ensureSchema() {
         ")");
     if (!m_store->execute(sql))
         return false;
+    if (!dedupeLegacyEndpointBindings(m_store))
+        return false;
     return m_store->execute(
         QStringLiteral("CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_endpoint_id_unique "
                        "ON devices(endpoint_id) WHERE endpoint_id != ''"));
@@ -179,14 +226,15 @@ void DeviceRegistry::refreshEndpointCache()
     if (!m_store)
         return;
 
+    const QVector<DeviceInfo> devices = list();
     QHash<QString, int> endpointCounts;
-    for (const auto& d : list()) {
+    for (const auto& d : devices) {
         if (d.kind != DeviceKind::Radar || d.endpointId.isEmpty())
             continue;
         endpointCounts[d.endpointId]++;
     }
 
-    for (const auto& d : list()) {
+    for (const auto& d : devices) {
         if (d.kind != DeviceKind::Radar || d.endpointId.isEmpty())
             continue;
         if (endpointCounts.value(d.endpointId) == 1)
@@ -198,12 +246,19 @@ void DeviceRegistry::refreshEndpointCache()
         }
     }
 
-    for (const auto& d : list()) {
+    for (const auto& d : devices) {
         if (d.kind != DeviceKind::Radar || !d.endpointId.isEmpty())
             continue;
         if (!m_endpointToDeviceId.contains(d.id))
             m_endpointToDeviceId.insert(d.id, d.id);
     }
+}
+
+QStringList DeviceRegistry::takeLastMigratedDeviceIds()
+{
+    const QStringList result = m_lastMigratedDeviceIds;
+    m_lastMigratedDeviceIds.clear();
+    return result;
 }
 
 QVector<DeviceInfo> DeviceRegistry::findRadarDevicesByEndpoint(const QString& endpointId) const {
@@ -219,12 +274,13 @@ QVector<DeviceInfo> DeviceRegistry::findRadarDevicesByEndpoint(const QString& en
 
 bool DeviceRegistry::create(const DeviceInfo& dev) {
     if (!m_store) return false;
+    m_lastMigratedDeviceIds.clear();
     if (!m_store->beginTransaction())
         return false;
 
     bool ok = true;
     if (!dev.endpointId.isEmpty() && dev.kind == DeviceKind::Radar)
-        ok = migrateEndpointBinding(m_store, dev.endpointId, dev.id);
+        ok = migrateEndpointBinding(m_store, dev.endpointId, dev.id, &m_lastMigratedDeviceIds);
 
     DeviceInfo d = dev;
     qint64 now = QDateTime::currentMSecsSinceEpoch();
@@ -259,12 +315,13 @@ std::optional<DeviceInfo> DeviceRegistry::createAssigningId(DeviceInfo dev)
 bool DeviceRegistry::update(const DeviceInfo& dev) {
     if (!m_store) return false;
     if (!get(dev.id).has_value()) return false;
+    m_lastMigratedDeviceIds.clear();
     if (!m_store->beginTransaction())
         return false;
 
     bool ok = true;
     if (!dev.endpointId.isEmpty() && dev.kind == DeviceKind::Radar)
-        ok = migrateEndpointBinding(m_store, dev.endpointId, dev.id);
+        ok = migrateEndpointBinding(m_store, dev.endpointId, dev.id, &m_lastMigratedDeviceIds);
 
     DeviceInfo d = dev;
     d.updatedAt = QDateTime::currentMSecsSinceEpoch();

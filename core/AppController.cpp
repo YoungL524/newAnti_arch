@@ -34,7 +34,9 @@ AppController::AppController(QObject* parent)
 AppController::~AppController()
 {
     stop();
-    // 进程退出时才永久关闭总线；stop() 为软停止，支持同进程再次 start()
+    if (m_dataStore) {
+        m_dataStore->disconnect();
+    }
     SystemBus::getInstance().shutdown();
 }
 
@@ -352,13 +354,8 @@ void AppController::stop()
         m_runtimeSettingsSubId = 0;
     }
 
-    // 软停止：不 shutdown SystemBus，以便同进程内可再次 start()
-    // SystemBus::shutdown() 仅在析构时调用（进程级退出）
-
-    // 断开数据库连接
-    if (m_dataStore) {
-        m_dataStore->disconnect();
-    }
+    // 软停止：不断开数据库、不 shutdown SystemBus，同进程可再次 start()
+    // 数据库与 SystemBus::shutdown() 仅在析构时释放（进程退出级）
 
     qDebug() << QStringLiteral("[AppController] 所有服务已停止");
 }
