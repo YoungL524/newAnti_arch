@@ -94,6 +94,11 @@ void registerRoutes(web::WebService* ws, DataStore* store)
 
         const int limit = clampTrackLimit(query.queryItemValue(QStringLiteral("limit")));
         const QString orderRaw = query.queryItemValue(QStringLiteral("order")).trimmed().toLower();
+        if (!orderRaw.isEmpty()
+            && orderRaw != QStringLiteral("asc")
+            && orderRaw != QStringLiteral("desc")) {
+            return fail(QStringLiteral("order 仅支持 asc 或 desc"));
+        }
         const bool desc = (orderRaw == QStringLiteral("desc"));
 
         QString sql = QStringLiteral("SELECT * FROM tracks WHERE task_id = ?");

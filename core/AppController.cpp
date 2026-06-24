@@ -364,6 +364,11 @@ bool AppController::ensureTracksSchema()
         qWarning() << QStringLiteral("[AppController] tracks task_device 索引初始化失败");
         ok = false;
     }
+    if (!m_dataStore->execute(QStringLiteral(
+            "CREATE INDEX IF NOT EXISTS idx_tracks_task_device_ts ON tracks(task_id, device_id, ts_ms)"))) {
+        qWarning() << QStringLiteral("[AppController] tracks task_device_ts 索引初始化失败");
+        ok = false;
+    }
 
     return ok;
 }

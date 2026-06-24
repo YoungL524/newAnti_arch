@@ -1,5 +1,13 @@
 /** Protocol types matching C++ HttpServer API */
 
+export interface LogEntry {
+  level: string
+  message: string
+  timestamp: number
+  taskId?: string
+  deviceId?: string
+}
+
 export interface DeviceStatus {
   id: string
   state: string       // Standby | Starting | Working | Stopping | Fault
@@ -8,7 +16,7 @@ export interface DeviceStatus {
 
 export interface LogsResponse {
   ok: boolean
-  logs: { level: string; message: string; timestamp: number }[]
+  logs: LogEntry[]
 }
 
 export interface StatusResponse {
@@ -31,11 +39,8 @@ export interface WsStatusMessage {
   devices: DeviceStatus[]
 }
 
-export interface WsLogMessage {
+export interface WsLogMessage extends LogEntry {
   type: 'log'
-  level: string        // INFO | WARN | ERROR
-  message: string
-  timestamp: number
 }
 
 export type WsMessage = WsStatusMessage | WsTracksMessage | WsLogMessage

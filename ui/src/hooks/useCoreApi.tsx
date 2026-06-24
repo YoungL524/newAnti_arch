@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { StatusResponse, LogsResponse, WsMessage, RadarTrack, DeviceStatus } from '../lib/protocol'
+import type { StatusResponse, LogsResponse, WsMessage, RadarTrack, DeviceStatus, LogEntry } from '../lib/protocol'
 
 interface CommandResponse {
   ok: boolean
@@ -40,7 +40,7 @@ interface CoreState {
   interactionError: string      // 航迹交互失败原因（用户可见）
   tracks: RadarTrack[]
   trackRate: number
-  logEntries: { level: string; message: string; timestamp: number }[]
+  logEntries: LogEntry[]
   setCheckedDevices: (ids: string[]) => void
   dismissNoSelectionHint: () => void
   dismissCommandError: () => void
@@ -79,7 +79,7 @@ export function CoreProvider({ children }: { children: ReactNode }) {
 
   const tracksRef = useRef<RadarTrack[]>([])
   const trackCountRef = useRef(0)
-  const logRef = useRef<{ level: string; message: string; timestamp: number }[]>([])
+  const logRef = useRef<LogEntry[]>([])
   const checkedRef = useRef<string[]>([])
   const pendingRef = useRef(false)
   const workingRef = useRef(false)
@@ -402,9 +402,14 @@ export function CoreProvider({ children }: { children: ReactNode }) {
               flushTracksToState()
             }
           } else if (msg.type === 'log') {
-            const next = [...logRef.current, {
-              level: msg.level, message: msg.message, timestamp: msg.timestamp,
-            }].slice(-200)
+            const entry: LogEntry = {
+              level: msg.level,
+              message: msg.message,
+              timestamp: msg.timestamp,
+              ...(msg.taskId ? { taskId: msg.taskId } : {}),
+              ...(msg.deviceId ? { deviceId: msg.deviceId } : {}),
+            }
+            const next = [...logRef.current, entry].slice(-200)
             logRef.current = next
             setState(prev => ({ ...prev, logEntries: next }))
           }
