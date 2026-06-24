@@ -14,6 +14,28 @@ constexpr int kDefaultEventLimit = 500;
 constexpr int kMinEventLimit = 1;
 constexpr int kMaxEventLimit = 1000;
 
+struct OptionalMs {
+    bool hasValue = false;
+    bool parseError = false;
+    qint64 value = 0;
+};
+
+QJsonObject fail(const QString& msg)
+{
+    return {{QStringLiteral("ok"), false}, {QStringLiteral("error"), msg}};
+}
+
+OptionalMs parseOptionalMs(const QString& raw)
+{
+    if (raw.isEmpty())
+        return {};
+    bool ok = false;
+    const qint64 v = raw.toLongLong(&ok);
+    if (!ok)
+        return {false, true, 0};
+    return {true, false, v};
+}
+
 int clampEventLimit(const QString& raw)
 {
     if (raw.isEmpty())
@@ -60,6 +82,14 @@ void registerRoutes(web::WebService* ws, DataStore* store)
         const QString deviceId = query.queryItemValue(QStringLiteral("deviceId"));
         const QString category = query.queryItemValue(QStringLiteral("category"));
         const int limit = clampEventLimit(query.queryItemValue(QStringLiteral("limit")));
+        const OptionalMs startMs = parseOptionalMs(query.queryItemValue(QStringLiteral("startMs")));
+        const OptionalMs endMs = parseOptionalMs(query.queryItemValue(QStringLiteral("endMs")));
+        if (startMs.parseError)
+            return fail(QStringLiteral("startMs 无效"));
+        if (endMs.parseError)
+            return fail(QStringLiteral("endMs 无效"));
+        if (startMs.hasValue && endMs.hasValue && startMs.value > endMs.value)
+            return fail(QStringLiteral("startMs 不能大于 endMs"));
 
         QString sql = QStringLiteral("SELECT * FROM system_events WHERE 1=1");
         QVariantList params;
@@ -74,6 +104,14 @@ void registerRoutes(web::WebService* ws, DataStore* store)
         if (!category.isEmpty()) {
             sql += QStringLiteral(" AND category = ?");
             params.append(category);
+        }
+        if (startMs.hasValue) {
+            sql += QStringLiteral(" AND ts_ms >= ?");
+            params.append(startMs.value);
+        }
+        if (endMs.hasValue) {
+            sql += QStringLiteral(" AND ts_ms <= ?");
+            params.append(endMs.value);
         }
         sql += QStringLiteral(" ORDER BY ts_ms DESC LIMIT ?");
         params.append(limit);

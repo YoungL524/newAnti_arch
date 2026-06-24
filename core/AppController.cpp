@@ -4,6 +4,7 @@
 #include "web/TrackDisplayWebBridge.h"
 #include "web/TaskApiRoutes.h"
 #include "web/SystemEventApiRoutes.h"
+#include "web/TrackHistoryApiRoutes.h"
 #include "web/EndpointApiRoutes.h"
 #include "business/DeviceRegistry.h"
 #include "business/TaskService.h"
@@ -879,8 +880,10 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
 
     EndpointApiRoutes::registerRoutes(m_webService.get(), this);
 
-    if (m_dataStore && m_dataStore->isConnected())
+    if (m_dataStore && m_dataStore->isConnected()) {
         SystemEventApiRoutes::registerRoutes(m_webService.get(), m_dataStore.get());
+        TrackHistoryApiRoutes::registerRoutes(m_webService.get(), m_dataStore.get());
+    }
 
     // SystemBus → DphPublisher bridge (RuntimeSettings 事件，防止重复订阅)
     if (m_runtimeSettingsSubId == 0 && m_runtimeSettings && m_dphPublisher) {

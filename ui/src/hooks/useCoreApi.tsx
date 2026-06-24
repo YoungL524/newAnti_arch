@@ -103,7 +103,6 @@ export function CoreProvider({ children }: { children: ReactNode }) {
       return {
         ...prev,
         tracks: applyPendingInteractions([...tracksRef.current]),
-        logEntries: [...logRef.current],
       }
     })
   }, [applyPendingInteractions])
@@ -403,9 +402,11 @@ export function CoreProvider({ children }: { children: ReactNode }) {
               flushTracksToState()
             }
           } else if (msg.type === 'log') {
-            logRef.current = [...logRef.current, {
+            const next = [...logRef.current, {
               level: msg.level, message: msg.message, timestamp: msg.timestamp,
             }].slice(-200)
+            logRef.current = next
+            setState(prev => ({ ...prev, logEntries: next }))
           }
         } catch { /* ignore */ }
       }
@@ -434,13 +435,14 @@ export function CoreProvider({ children }: { children: ReactNode }) {
     }
   }, [flushTracksToState])
 
-  // ── 1s 节流：仅刷新 trackRate，航迹数据已在 WS 到达时即时更新 ──
+  // ── 1s 节流：trackRate 仅采集中更新；日志始终同步 ──
   useEffect(() => {
     const id = setInterval(() => {
-      setState(prev => {
-        if (!prev.acquisition) return prev
-        return { ...prev, trackRate: trackCountRef.current, logEntries: [...logRef.current] }
-      })
+      setState(prev => ({
+        ...prev,
+        logEntries: [...logRef.current],
+        ...(prev.acquisition ? { trackRate: trackCountRef.current } : {}),
+      }))
       trackCountRef.current = 0
     }, 1000)
     return () => clearInterval(id)
