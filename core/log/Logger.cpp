@@ -146,7 +146,7 @@ void Logger::pruneOldLogs(const QString& logsDir, int keepDays)
     }
 }
 
-QString Logger::formatLine(QtMsgType type, const QString& msg)
+QString Logger::formatLine(QtMsgType type, const QString& msg, qint64 timestampMs)
 {
     const char* level = "INFO ";
     switch (type) {
@@ -157,7 +157,7 @@ QString Logger::formatLine(QtMsgType type, const QString& msg)
     case QtFatalMsg:    level = "FATAL"; break;
     }
 
-    const QString ts = QDateTime::currentDateTime()
+    const QString ts = QDateTime::fromMSecsSinceEpoch(timestampMs)
                            .toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"));
 
     QString contextSuffix;
@@ -209,7 +209,8 @@ void Logger::handle(QtMsgType type, const QMessageLogContext& ctx, const QString
 {
     Q_UNUSED(ctx);
 
-    const QString line = formatLine(type, msg);
+    const qint64 timestampMs = QDateTime::currentMSecsSinceEpoch();
+    const QString line = formatLine(type, msg, timestampMs);
 
     // 控制台不需要锁（OS 自己保证 WriteConsole/fwrite 的原子写入足够好）
     writeConsole(type, line);
@@ -229,7 +230,7 @@ void Logger::handle(QtMsgType type, const QMessageLogContext& ctx, const QString
     record.message = msg;
     record.taskId = LogContext::currentTaskId();
     record.deviceId = LogContext::currentDeviceId();
-    record.timestampMs = QDateTime::currentMSecsSinceEpoch();
+    record.timestampMs = timestampMs;
 
     {
         QMutexLocker lock(&m_mutex);

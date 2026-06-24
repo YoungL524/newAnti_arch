@@ -287,6 +287,16 @@ bool AppController::ensureSystemEventsSchema()
         qWarning() << QStringLiteral("[AppController] system_events task_ts 索引初始化失败");
         ok = false;
     }
+    if (!m_dataStore->execute(QStringLiteral(
+            "CREATE INDEX IF NOT EXISTS idx_sysevt_device_ts ON system_events(device_id, ts_ms)"))) {
+        qWarning() << QStringLiteral("[AppController] system_events device_ts 索引初始化失败");
+        ok = false;
+    }
+    if (!m_dataStore->execute(QStringLiteral(
+            "CREATE INDEX IF NOT EXISTS idx_sysevt_task_device_ts ON system_events(task_id, device_id, ts_ms)"))) {
+        qWarning() << QStringLiteral("[AppController] system_events task_device_ts 索引初始化失败");
+        ok = false;
+    }
 
     return ok;
 }

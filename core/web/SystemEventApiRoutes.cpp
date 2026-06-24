@@ -10,6 +10,21 @@ namespace SystemEventApiRoutes {
 
 namespace {
 
+constexpr int kDefaultEventLimit = 500;
+constexpr int kMinEventLimit = 1;
+constexpr int kMaxEventLimit = 1000;
+
+int clampEventLimit(const QString& raw)
+{
+    if (raw.isEmpty())
+        return kDefaultEventLimit;
+    bool ok = false;
+    const int n = raw.toInt(&ok);
+    if (!ok)
+        return kDefaultEventLimit;
+    return qBound(kMinEventLimit, n, kMaxEventLimit);
+}
+
 QJsonObject rowToJson(const QVariantMap& row)
 {
     QJsonObject j;
@@ -43,6 +58,8 @@ void registerRoutes(web::WebService* ws, DataStore* store)
         QUrlQuery query(queryString);
         const QString taskId = query.queryItemValue(QStringLiteral("taskId"));
         const QString deviceId = query.queryItemValue(QStringLiteral("deviceId"));
+        const QString category = query.queryItemValue(QStringLiteral("category"));
+        const int limit = clampEventLimit(query.queryItemValue(QStringLiteral("limit")));
 
         QString sql = QStringLiteral("SELECT * FROM system_events WHERE 1=1");
         QVariantList params;
@@ -54,7 +71,12 @@ void registerRoutes(web::WebService* ws, DataStore* store)
             sql += QStringLiteral(" AND device_id = ?");
             params.append(deviceId);
         }
-        sql += QStringLiteral(" ORDER BY ts_ms DESC LIMIT 500");
+        if (!category.isEmpty()) {
+            sql += QStringLiteral(" AND category = ?");
+            params.append(category);
+        }
+        sql += QStringLiteral(" ORDER BY ts_ms DESC LIMIT ?");
+        params.append(limit);
 
         QJsonArray arr;
         for (const auto& row : store->query(sql, params))

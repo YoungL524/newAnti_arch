@@ -119,7 +119,7 @@ private:
     /**
      * @brief 拼装一条标准日志：时间 [级别] msg\n
      */
-    static QString formatLine(QtMsgType type, const QString& msg);
+    static QString formatLine(QtMsgType type, const QString& msg, qint64 timestampMs);
 
     QMutex   m_mutex;
     QString  m_logsDir;
