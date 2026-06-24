@@ -23,6 +23,7 @@ set(CORE_HEADERS
     data/ConfigManager.h
     data/DataStore.h
     log/Logger.h
+    log/LogContext.h
     business/IWorkModeCommandSender.h
     business/RadarWorkModeController.h
     business/BusWorkModeSender.h
@@ -45,6 +46,7 @@ set(CORE_SOURCES
     web/TaskApiRoutes.cpp
     web/EndpointApiRoutes.cpp
     log/Logger.cpp
+    log/LogContext.cpp
     comm/Endpoint.cpp
     comm/UdpEndpoint.cpp
     comm/CommunicationManager.cpp

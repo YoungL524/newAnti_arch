@@ -9,6 +9,7 @@
  */
 struct TrackPoint {
     QString   deviceId;          // DeviceRegistry 业务设备 id
+    QString   taskId;            // 当前 active task id（未归属时为空）
     uint32_t  trackId = 0;
     qint64    timestampMs = 0;
     double    range = 0;

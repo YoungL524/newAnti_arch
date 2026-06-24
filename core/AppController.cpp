@@ -15,6 +15,7 @@
 #include "BusWorkModeSender.h"
 #include "RadarWorkModeController.h"
 #include "log/Logger.h"
+#include "log/LogContext.h"
 #include <QDateTime>
 #include <QCoreApplication>
 #include <QDir>
@@ -242,7 +243,9 @@ bool AppController::ensureSystemEventsSchema()
         "  category TEXT NOT NULL,"
         "  source TEXT,"
         "  detail TEXT,"
-        "  size INTEGER"
+        "  size INTEGER,"
+        "  task_id TEXT,"
+        "  device_id TEXT"
         ")"
     );
 
@@ -251,6 +254,23 @@ bool AppController::ensureSystemEventsSchema()
         qWarning() << QStringLiteral("[AppController] system_events 表初始化失败");
         ok = false;
     }
+
+    auto ensureSystemEventsColumn = [this](const QString& column, const QString& type) -> bool {
+        const auto cols = m_dataStore->query(QStringLiteral("PRAGMA table_info(system_events)"));
+        for (const auto& col : cols) {
+            if (col.value(QStringLiteral("name")).toString() == column)
+                return true;
+        }
+        if (!m_dataStore->execute(
+                QStringLiteral("ALTER TABLE system_events ADD COLUMN %1 %2").arg(column, type))) {
+            qWarning() << QStringLiteral("[AppController] system_events 表添加列失败: %1").arg(column);
+            return false;
+        }
+        return true;
+    };
+    ok = ensureSystemEventsColumn(QStringLiteral("task_id"), QStringLiteral("TEXT")) && ok;
+    ok = ensureSystemEventsColumn(QStringLiteral("device_id"), QStringLiteral("TEXT")) && ok;
+
     if (!m_dataStore->execute(QStringLiteral(
             "CREATE INDEX IF NOT EXISTS idx_sysevt_ts ON system_events(ts_ms)"))) {
         qWarning() << QStringLiteral("[AppController] system_events 时间索引初始化失败");
@@ -259,6 +279,11 @@ bool AppController::ensureSystemEventsSchema()
     if (!m_dataStore->execute(QStringLiteral(
             "CREATE INDEX IF NOT EXISTS idx_sysevt_cat ON system_events(category)"))) {
         qWarning() << QStringLiteral("[AppController] system_events 分类索引初始化失败");
+        ok = false;
+    }
+    if (!m_dataStore->execute(QStringLiteral(
+            "CREATE INDEX IF NOT EXISTS idx_sysevt_task_ts ON system_events(task_id, ts_ms)"))) {
+        qWarning() << QStringLiteral("[AppController] system_events task_ts 索引初始化失败");
         ok = false;
     }
 
@@ -672,10 +697,19 @@ AppHealth AppController::healthReport() const
 
 void AppController::onCommError(const QString& endpointId, const QString& message)
 {
+    QString deviceId;
+    if (m_deviceRegistry)
+        deviceId = m_deviceRegistry->cachedDeviceIdForEndpoint(endpointId);
+
+    QString taskId;
+    if (m_taskService && !deviceId.isEmpty())
+        taskId = m_taskService->resolveTaskIdForDevice(deviceId);
+
+    LogContext::Scope logScope(deviceId, taskId);
     qWarning() << QStringLiteral("[AppController] 通信错误: 端点='%1' - %2")
                   .arg(endpointId, message);
 
-    insertSystemEvent(QStringLiteral("error"), endpointId, message);
+    insertSystemEvent(QStringLiteral("error"), endpointId, message, deviceId, taskId);
 
     // 将错误发布到 SystemBus
     DataPacket errorPacket = createErrorPacket(
@@ -688,7 +722,9 @@ void AppController::onCommError(const QString& endpointId, const QString& messag
 
 void AppController::insertSystemEvent(const QString& category,
                                       const QString& source,
-                                      const QString& detail)
+                                      const QString& detail,
+                                      const QString& deviceId,
+                                      const QString& taskId)
 {
     if (!m_dataStore || !m_dataStore->isConnected()) {
         return;
@@ -699,6 +735,10 @@ void AppController::insertSystemEvent(const QString& category,
     row.insert(QStringLiteral("category"), category);
     row.insert(QStringLiteral("source"), source);
     row.insert(QStringLiteral("detail"), detail);
+    if (!taskId.isEmpty())
+        row.insert(QStringLiteral("task_id"), taskId);
+    if (!deviceId.isEmpty())
+        row.insert(QStringLiteral("device_id"), deviceId);
     if (!m_dataStore->insert(QStringLiteral("system_events"), row)) {
         qWarning() << QStringLiteral("[AppController] 写入 system_events 失败: %1/%2")
                       .arg(category, source);

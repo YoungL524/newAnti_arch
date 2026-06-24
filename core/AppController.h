@@ -234,12 +234,16 @@ private:
     /**
      * @brief 写入一条 system_events 事件记录
      * @param category 事件分类
-     * @param source 事件来源
+     * @param source 事件来源（如 endpointId）
      * @param detail 事件详情
+     * @param deviceId 业务设备 id（可空）
+     * @param taskId 当前任务 id（可空）
      */
     void insertSystemEvent(const QString& category,
                            const QString& source,
-                           const QString& detail);
+                           const QString& detail,
+                           const QString& deviceId = {},
+                           const QString& taskId = {});
 
     /**
      * @brief 初始化业务逻辑层（工作模式控制器等）

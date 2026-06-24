@@ -2,6 +2,7 @@ set(TESTCOMM_HEADERS
     ${CMAKE_SOURCE_DIR}/core/protocol/StructureSend.h
     ${CMAKE_SOURCE_DIR}/core/protocol/StructureReceive.h
     ${CMAKE_SOURCE_DIR}/core/log/Logger.h
+    ${CMAKE_SOURCE_DIR}/core/log/LogContext.h
     TestComm.h
     StdinReader.h
 )
@@ -10,6 +11,7 @@ set(TESTCOMM_SOURCES
     main.cpp
     TestComm.cpp
     ${CMAKE_SOURCE_DIR}/core/log/Logger.cpp
+    ${CMAKE_SOURCE_DIR}/core/log/LogContext.cpp
 )
 
 add_executable(test_comm ${TESTCOMM_SOURCES} ${TESTCOMM_HEADERS})

@@ -1,4 +1,5 @@
 #include "Logger.h"
+#include "LogContext.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -144,7 +145,20 @@ QString Logger::formatLine(QtMsgType type, const QString& msg)
 
     const QString ts = QDateTime::currentDateTime()
                            .toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"));
-    return QStringLiteral("%1 [%2] %3\n").arg(ts, QString::fromLatin1(level), msg);
+
+    QString contextSuffix;
+    const QString taskId = LogContext::currentTaskId();
+    const QString deviceId = LogContext::currentDeviceId();
+    if (!taskId.isEmpty() || !deviceId.isEmpty()) {
+        QStringList parts;
+        if (!taskId.isEmpty())
+            parts << QStringLiteral("task=%1").arg(taskId);
+        if (!deviceId.isEmpty())
+            parts << QStringLiteral("device=%1").arg(deviceId);
+        contextSuffix = QStringLiteral(" [%1]").arg(parts.join(QStringLiteral(" ")));
+    }
+
+    return QStringLiteral("%1 [%2] %3%4\n").arg(ts, QString::fromLatin1(level), msg, contextSuffix);
 }
 
 #ifdef Q_OS_WIN

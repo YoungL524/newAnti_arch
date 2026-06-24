@@ -33,6 +33,14 @@ struct TaskInfo {
     static TaskInfo fromJson(const QJsonObject& body);
 };
 
+/// 当前 active task 的运行时快照（来自内存缓存，热路径只读）
+struct ActiveTaskContext {
+    QString id;
+    QStringList deviceIds;
+
+    bool isEmpty() const { return id.isEmpty(); }
+};
+
 } // namespace task
 
 class TaskService {
@@ -45,8 +53,14 @@ public:
 
     QVector<task::TaskInfo> list() const;
     std::optional<task::TaskInfo> get(const QString& id) const;
+    /// 完整 active task（查库，含 name/status 等元数据）
     std::optional<task::TaskInfo> activeTask() const;
-    /// Active task contains deviceId → task id; otherwise empty.
+    /// 当前 active task 快照（内存缓存，热路径）
+    std::optional<task::ActiveTaskContext> getActiveTask() const;
+    bool isDeviceInActiveTask(const QString& deviceId) const;
+    /// deviceId 属于当前 active task 时返回 taskId，否则空
+    QString resolveTaskIdForDevice(const QString& deviceId) const;
+    /// @deprecated 请用 resolveTaskIdForDevice
     QString resolveActiveTaskIdForDevice(const QString& deviceId) const;
     void refreshActiveTaskCache();
     std::optional<task::TaskInfo> create(task::TaskInfo task);
@@ -67,7 +81,7 @@ private:
     void clearError();
     void setError(const QString& msg);
 
-    struct ActiveTaskContext {
+    struct ActiveTaskCache {
         QString taskId;
         QSet<QString> deviceIds;
     };
@@ -75,5 +89,5 @@ private:
     DataStore* m_store = nullptr;
     DeviceRegistry* m_deviceReg = nullptr;
     QString m_lastError;
-    ActiveTaskContext m_activeTaskCache;
+    ActiveTaskCache m_activeTaskCache;
 };

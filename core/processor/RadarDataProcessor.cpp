@@ -4,6 +4,7 @@
 #include "TaskService.h"
 #include "DataStore.h"
 #include "SystemBus.h"
+#include "log/LogContext.h"
 
 #include <QDateTime>
 #include <QDebug>
@@ -131,11 +132,14 @@ void RadarDataProcessor::handleGeneralPackage(const QString& endpointId,
     if (m_deviceReg)
         deviceId = m_deviceReg->cachedDeviceIdForEndpoint(endpointId);
 
+    QString taskId;
+    if (m_taskService && !deviceId.isEmpty())
+        taskId = m_taskService->resolveTaskIdForDevice(deviceId);
+
+    LogContext::Scope logScope(deviceId, taskId);
+
     // 1) 缓冲航迹，攒批写入（仅归属当前 active task 的设备）
     if (m_dataStore && m_dataStore->isConnected()) {
-        QString taskId;
-        if (m_taskService && !deviceId.isEmpty())
-            taskId = m_taskService->resolveActiveTaskIdForDevice(deviceId);
         if (!taskId.isEmpty()) {
             bufferTrack(receivedMs, endpointId, deviceId, taskId, tgt, sceneNum);
         } else {
@@ -165,6 +169,7 @@ void RadarDataProcessor::handleGeneralPackage(const QString& endpointId,
     if (!deviceId.isEmpty()) {
         TrackPoint pt;
         pt.deviceId     = deviceId;
+        pt.taskId       = taskId;
         pt.trackId      = tgt.TargetID;
         pt.timestampMs  = receivedMs;
         pt.range        = tgt.Range;

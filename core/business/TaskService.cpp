@@ -136,13 +136,36 @@ std::optional<task::TaskInfo> TaskService::activeTask() const
     return rowToTask(rows.first());
 }
 
-QString TaskService::resolveActiveTaskIdForDevice(const QString& deviceId) const
+std::optional<task::ActiveTaskContext> TaskService::getActiveTask() const
+{
+    if (m_activeTaskCache.taskId.isEmpty())
+        return std::nullopt;
+    task::ActiveTaskContext ctx;
+    ctx.id = m_activeTaskCache.taskId;
+    for (const auto& devId : m_activeTaskCache.deviceIds)
+        ctx.deviceIds.append(devId);
+    return ctx;
+}
+
+bool TaskService::isDeviceInActiveTask(const QString& deviceId) const
+{
+    if (deviceId.isEmpty() || m_activeTaskCache.taskId.isEmpty())
+        return false;
+    return m_activeTaskCache.deviceIds.contains(deviceId);
+}
+
+QString TaskService::resolveTaskIdForDevice(const QString& deviceId) const
 {
     if (deviceId.isEmpty() || m_activeTaskCache.taskId.isEmpty())
         return {};
     if (m_activeTaskCache.deviceIds.contains(deviceId))
         return m_activeTaskCache.taskId;
     return {};
+}
+
+QString TaskService::resolveActiveTaskIdForDevice(const QString& deviceId) const
+{
+    return resolveTaskIdForDevice(deviceId);
 }
 
 void TaskService::refreshActiveTaskCache()
