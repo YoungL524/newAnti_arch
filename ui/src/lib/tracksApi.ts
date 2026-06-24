@@ -31,11 +31,48 @@ export interface FetchTrackHistoryResult {
 
 const BASE = '/api/tracks/history'
 
+function num(v: unknown, fallback = 0): number {
+  const n = typeof v === 'number' ? v : Number(v)
+  return Number.isFinite(n) ? n : fallback
+}
+
+function str(v: unknown): string {
+  return typeof v === 'string' ? v : v != null ? String(v) : ''
+}
+
+function normalizeTrackHistoryPoint(raw: unknown): TrackHistoryPoint | null {
+  if (!raw || typeof raw !== 'object') return null
+  const o = raw as Record<string, unknown>
+  const taskId = str(o.taskId)
+  const deviceId = str(o.deviceId)
+  if (!taskId) return null
+  return {
+    taskId,
+    deviceId,
+    tsMs: num(o.tsMs),
+    sceneNum: num(o.sceneNum),
+    targetId: num(o.targetId),
+    range: num(o.range),
+    azimuth: num(o.azimuth),
+    elevation: num(o.elevation),
+    radialSpeed: num(o.radialSpeed),
+    altitude: num(o.altitude),
+    x: num(o.x),
+    y: num(o.y),
+    z: num(o.z),
+  }
+}
+
 export async function fetchTrackHistory(
   params: FetchTrackHistoryParams,
 ): Promise<FetchTrackHistoryResult> {
+  const taskId = params.taskId.trim()
+  if (!taskId) {
+    return { ok: false, error: 'taskId 不能为空', tracks: [] }
+  }
+
   const qs = new URLSearchParams()
-  qs.set('taskId', params.taskId)
+  qs.set('taskId', taskId)
   if (params.deviceId) qs.set('deviceId', params.deviceId)
   if (params.startMs != null) qs.set('startMs', String(params.startMs))
   if (params.endMs != null) qs.set('endMs', String(params.endMs))
@@ -47,7 +84,13 @@ export async function fetchTrackHistory(
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}`, tracks: [] }
     const data = await res.json()
     if (!data.ok) return { ok: false, error: data.error || 'API 返回失败', tracks: [] }
-    return { ok: true, tracks: (data.tracks ?? []) as TrackHistoryPoint[] }
+
+    const tracks: TrackHistoryPoint[] = []
+    for (const raw of data.tracks ?? []) {
+      const pt = normalizeTrackHistoryPoint(raw)
+      if (pt) tracks.push(pt)
+    }
+    return { ok: true, tracks }
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : '网络错误'
     return { ok: false, error: msg, tracks: [] }
