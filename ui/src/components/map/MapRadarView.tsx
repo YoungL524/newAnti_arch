@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import AMapLoader from '@amap/amap-jsapi-loader'
 import PPIOverlay from './PPIOverlay'
 import TrackLayer from './TrackLayer'
+import HistoryTrackLayer from './HistoryTrackLayer'
 import SelectedTracksPanel from './SelectedTracksPanel'
 import { type RadarDevice, RADAR_CENTER } from './types'
 import { useCore } from '../../hooks/useCoreApi'
@@ -32,7 +33,7 @@ function markNode(AMap: any, device: RadarDevice) {
 }
 
 export default function MapRadarView({ devices }: { devices: RadarDevice[] }) {
-  const { acquisition, devices: deviceStates, checkedDeviceIds } = useCore()
+  const { acquisition, devices: deviceStates, checkedDeviceIds, historyTracks } = useCore()
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const mapInstanceRef = useRef<any>(null)
@@ -151,7 +152,17 @@ export default function MapRadarView({ devices }: { devices: RadarDevice[] }) {
               />
             )
           })}
-          {/* Track layers — 仅勾选的设备显示航迹 */}
+          {/* 历史航迹层（淡色，与实时层分离） */}
+          {devices.filter(d => checkedDeviceIds.includes(d.id)).map(d => (
+            <HistoryTrackLayer
+              key={`history-${d.id}`}
+              device={d}
+              points={historyTracks}
+              mapInstance={mapInstanceRef.current}
+              mapClass={mapRef.current}
+            />
+          ))}
+          {/* 实时航迹层 */}
           {devices.filter(d => checkedDeviceIds.includes(d.id)).map(d => (
             <TrackLayer
               key={`track-${d.id}`}

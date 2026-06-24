@@ -271,7 +271,7 @@ export default function App() {
   }, [])
 
   return (
-    <CoreProvider>
+    <CoreProvider activeTaskId={activeTaskId}>
       <div className="h-screen flex flex-col overflow-hidden" style={{ background: 'var(--canvas)' }}>
         <div className="flex-1 flex overflow-hidden">
           {sidebarOpen && (

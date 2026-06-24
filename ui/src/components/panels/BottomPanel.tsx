@@ -60,7 +60,7 @@ export default function BottomPanel({ allDevices }: { allDevices: AppDevice[] })
   const [collapsed, setCollapsed] = useState(false)
   const [tab, setTab] = useState<'activity' | 'track'>('activity')
   const [filter, setFilter] = useState<LogLevel>('ALL')
-  const { logEntries } = useCore()
+  const { logEntries, systemEvents, historyLoading, historyError } = useCore()
   const logEndRef = useRef<HTMLDivElement>(null)
 
   // 按级别筛选
@@ -141,6 +141,30 @@ export default function BottomPanel({ allDevices }: { allDevices: AppDevice[] })
         <div className="flex-1 flex flex-col overflow-hidden">
           {tab === 'activity' ? (
             <div className="flex-1 overflow-y-auto">
+              {(historyLoading || historyError) && (
+                <div className="px-5 py-1.5 text-[10px] shrink-0"
+                  style={{ color: historyError ? 'var(--error)' : '#9ca3af', borderBottom: '1px solid rgba(229,231,226,0.3)' }}>
+                  {historyLoading ? '正在加载任务历史数据…' : historyError}
+                </div>
+              )}
+              {systemEvents.length > 0 && (
+                <div className="px-5 py-2 shrink-0" style={{ borderBottom: '1px solid rgba(229,231,226,0.35)' }}>
+                  <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: '#9ca3af' }}>
+                    任务事件 · {systemEvents.length}
+                  </div>
+                  <div className="space-y-1 max-h-[72px] overflow-y-auto">
+                    {systemEvents.slice(0, 20).map((ev, i) => (
+                      <div key={i} className="text-[10px] flex gap-2" style={{ color: 'var(--secondary)' }}>
+                        <span style={{ fontFamily: "'JetBrains Mono', monospace", color: '#9ca3af' }}>
+                          {fmtTime(ev.tsMs)}
+                        </span>
+                        <span className="font-semibold" style={{ color: '#64748b' }}>{ev.category}</span>
+                        <span className="truncate flex-1">{ev.detail || ev.source}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               {logs.length === 0 ? (
                 <div className="flex items-center justify-center h-full text-[11px]" style={{ color: '#9ca3af' }}>
                   {logEntries.length === 0 ? '等待后端日志...' : '无匹配日志'}

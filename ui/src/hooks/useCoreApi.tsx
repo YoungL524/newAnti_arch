@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { StatusResponse, LogsResponse, WsMessage, RadarTrack, DeviceStatus, LogEntry } from '../lib/protocol'
+import { fetchTrackHistory, type TrackHistoryPoint } from '../lib/tracksApi'
+import { fetchSystemEvents, type SystemEvent } from '../lib/systemEventsApi'
 
 interface CommandResponse {
   ok: boolean
@@ -39,6 +41,10 @@ interface CoreState {
   commandError: string          // 启停命令失败原因（用户可见）
   interactionError: string      // 航迹交互失败原因（用户可见）
   tracks: RadarTrack[]
+  historyTracks: TrackHistoryPoint[]
+  systemEvents: SystemEvent[]
+  historyLoading: boolean
+  historyError: string
   trackRate: number
   logEntries: LogEntry[]
   setCheckedDevices: (ids: string[]) => void
@@ -52,7 +58,8 @@ interface CoreState {
 const defaultState: CoreState = {
   connected: false, acquisition: false, state: 'Unknown', commandPending: false,
   devices: [], checkedDeviceIds: [], noSelectionHint: false, commandError: '', interactionError: '',
-  tracks: [], trackRate: 0, logEntries: [],
+  tracks: [], trackRate: 0, historyTracks: [], systemEvents: [], historyLoading: false, historyError: '',
+  logEntries: [],
   setCheckedDevices: () => {}, dismissNoSelectionHint: () => {}, dismissCommandError: () => {}, dismissInteractionError: () => {}, toggleAcquisition: () => {},
   setTrackInteraction: async () => false,
 }
@@ -71,7 +78,7 @@ function computeAggregate(devices: DeviceState[]): { acquisition: boolean; state
   }
 }
 
-export function CoreProvider({ children }: { children: ReactNode }) {
+export function CoreProvider({ children, activeTaskId = null }: { children: ReactNode; activeTaskId?: string | null }) {
   const [state, setState] = useState<CoreState>(() => ({
     ...defaultState,
     setCheckedDevices: () => {}, toggleAcquisition: () => {},
@@ -106,6 +113,13 @@ export function CoreProvider({ children }: { children: ReactNode }) {
       }
     })
   }, [applyPendingInteractions])
+
+  const clearLiveTracks = useCallback(() => {
+    tracksRef.current = []
+    trackCountRef.current = 0
+    pendingInteractionRef.current.clear()
+    setState(prev => ({ ...prev, tracks: [], trackRate: 0 }))
+  }, [])
 
   const setCheckedDevices = useCallback((ids: string[]) => {
     checkedRef.current = ids
@@ -315,6 +329,53 @@ export function CoreProvider({ children }: { children: ReactNode }) {
       rollback('网络错误')
     }
   }, [refreshStatus])
+
+  // ── 任务切换：清空实时层，加载历史航迹与系统事件 ──
+  useEffect(() => {
+    clearLiveTracks()
+
+    if (!activeTaskId) {
+      setState(prev => ({
+        ...prev,
+        historyTracks: [],
+        systemEvents: [],
+        historyLoading: false,
+        historyError: '',
+      }))
+      return
+    }
+
+    let cancelled = false
+    setState(prev => ({
+      ...prev,
+      historyTracks: [],
+      systemEvents: [],
+      historyLoading: true,
+      historyError: '',
+    }))
+
+    ;(async () => {
+      const [tracksRes, eventsRes] = await Promise.all([
+        fetchTrackHistory({ taskId: activeTaskId, limit: 1000, order: 'asc' }),
+        fetchSystemEvents({ taskId: activeTaskId, limit: 200 }),
+      ])
+      if (cancelled) return
+
+      const errors: string[] = []
+      if (!tracksRes.ok) errors.push(tracksRes.error ?? '历史航迹加载失败')
+      if (!eventsRes.ok) errors.push(eventsRes.error ?? '系统事件加载失败')
+
+      setState(prev => ({
+        ...prev,
+        historyTracks: tracksRes.ok ? tracksRes.tracks : [],
+        systemEvents: eventsRes.ok ? eventsRes.events : [],
+        historyLoading: false,
+        historyError: errors.join('；'),
+      }))
+    })()
+
+    return () => { cancelled = true }
+  }, [activeTaskId, clearLiveTracks])
 
   // ── HTTP 轮询 ──
   useEffect(() => {
