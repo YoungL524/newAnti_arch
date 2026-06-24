@@ -54,10 +54,13 @@ function normalizeSystemEvent(raw: unknown): SystemEvent | null {
 export async function fetchSystemEvents(
   params: FetchSystemEventsParams = {},
 ): Promise<FetchSystemEventsResult> {
+  const taskId = params.taskId?.trim()
+  const deviceId = params.deviceId?.trim()
+  const category = params.category?.trim()
   const qs = new URLSearchParams()
-  if (params.taskId?.trim()) qs.set('taskId', params.taskId.trim())
-  if (params.deviceId) qs.set('deviceId', params.deviceId)
-  if (params.category) qs.set('category', params.category)
+  if (taskId) qs.set('taskId', taskId)
+  if (deviceId) qs.set('deviceId', deviceId)
+  if (category) qs.set('category', category)
   if (params.startMs != null) qs.set('startMs', String(params.startMs))
   if (params.endMs != null) qs.set('endMs', String(params.endMs))
   if (params.limit != null) qs.set('limit', String(params.limit))

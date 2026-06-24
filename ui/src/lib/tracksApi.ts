@@ -45,7 +45,7 @@ function normalizeTrackHistoryPoint(raw: unknown): TrackHistoryPoint | null {
   const o = raw as Record<string, unknown>
   const taskId = str(o.taskId)
   const deviceId = str(o.deviceId)
-  if (!taskId) return null
+  if (!taskId || !deviceId) return null
   return {
     taskId,
     deviceId,
@@ -73,7 +73,7 @@ export async function fetchTrackHistory(
 
   const qs = new URLSearchParams()
   qs.set('taskId', taskId)
-  if (params.deviceId) qs.set('deviceId', params.deviceId)
+  if (params.deviceId?.trim()) qs.set('deviceId', params.deviceId.trim())
   if (params.startMs != null) qs.set('startMs', String(params.startMs))
   if (params.endMs != null) qs.set('endMs', String(params.endMs))
   if (params.limit != null) qs.set('limit', String(params.limit))
