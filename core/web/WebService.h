@@ -25,7 +25,8 @@ namespace web {
 class WebService : public QObject {
     Q_OBJECT
 public:
-    using JsonHandler = std::function<QJsonObject(const QJsonObject&)>;
+    using JsonHandler = std::function<QJsonObject(const QJsonObject& body)>;
+    using GetJsonHandler = std::function<QJsonObject(const QJsonObject& body, const QString& queryString)>;
     using PrefixHandler = std::function<QJsonObject(const QString& suffix, const QJsonObject& body)>;
 
     struct Result {
@@ -44,7 +45,7 @@ public:
     void stop();
 
     /// Register REST handlers.
-    void handleGet(const QString& path, JsonHandler handler);
+    void handleGet(const QString& path, GetJsonHandler handler);
     void handlePost(const QString& path, JsonHandler handler);
     void handlePut(const QString& path, JsonHandler handler);
     void handleDelete(const QString& path, JsonHandler handler);
@@ -88,7 +89,7 @@ private:
     quint16      m_httpPort   = 8088;
     QHash<QTcpSocket*, QByteArray> m_buffers;
     QHash<QTcpSocket*, QTimer*>    m_idleTimers;
-    QHash<QString, JsonHandler>    m_getHandlers;
+    QHash<QString, GetJsonHandler> m_getHandlers;
     QHash<QString, JsonHandler>    m_postHandlers;
     QHash<QString, JsonHandler>    m_putHandlers;
     QHash<QString, JsonHandler>    m_deleteHandlers;

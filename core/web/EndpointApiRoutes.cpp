@@ -10,7 +10,7 @@ void registerRoutes(web::WebService* ws, AppController* controller)
     if (!ws || !controller)
         return;
 
-    ws->handleGet(QStringLiteral("/api/endpoints"), [controller](const QJsonObject&) {
+    ws->handleGet(QStringLiteral("/api/endpoints"), [controller](const QJsonObject&, const QString&) {
         QJsonObject r;
         r[QStringLiteral("ok")] = true;
         r[QStringLiteral("endpoints")] = controller->endpointsConfigJson()[QStringLiteral("endpoints")];

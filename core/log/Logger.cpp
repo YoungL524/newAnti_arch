@@ -8,6 +8,7 @@
 #include <QTextStream>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QJsonObject>
 
 #include <cstdio>
 
@@ -19,6 +20,19 @@ Logger& Logger::instance()
 {
     static Logger inst;
     return inst;
+}
+
+QJsonObject LogRecord::toJson() const
+{
+    QJsonObject j;
+    j[QStringLiteral("level")] = level;
+    j[QStringLiteral("message")] = message;
+    j[QStringLiteral("timestamp")] = timestampMs;
+    if (!taskId.isEmpty())
+        j[QStringLiteral("taskId")] = taskId;
+    if (!deviceId.isEmpty())
+        j[QStringLiteral("deviceId")] = deviceId;
+    return j;
 }
 
 Logger::~Logger()
@@ -200,26 +214,6 @@ void Logger::handle(QtMsgType type, const QMessageLogContext& ctx, const QString
     // 控制台不需要锁（OS 自己保证 WriteConsole/fwrite 的原子写入足够好）
     writeConsole(type, line);
 
-    QMutexLocker lock(&m_mutex);
-    if (!m_initialized) {
-        return;
-    }
-
-    // 跨天则切换文件
-    const QDate today = QDate::currentDate();
-    if (today != m_currentDate) {
-        rotateIfNeededLocked(today);
-    }
-
-    if (!m_file.isOpen()) {
-        return;
-    }
-
-    const QByteArray bytes = line.toUtf8();
-    m_file.write(bytes);
-    m_file.flush();  // 现场排错优先：每条都 flush，避免崩溃丢日志
-
-    // 外部回调 (mutex 外执行)
     QString levelStr;
     switch (type) {
     case QtDebugMsg:   levelStr = QStringLiteral("DEBUG"); break;
@@ -229,29 +223,61 @@ void Logger::handle(QtMsgType type, const QMessageLogContext& ctx, const QString
     case QtFatalMsg:   levelStr = QStringLiteral("FATAL"); break;
     default:           levelStr = QStringLiteral("DEBUG"); break;
     }
+
+    LogRecord record;
+    record.level = levelStr;
+    record.message = msg;
+    record.taskId = LogContext::currentTaskId();
+    record.deviceId = LogContext::currentDeviceId();
+    record.timestampMs = QDateTime::currentMSecsSinceEpoch();
+
     {
-        QMutexLocker cbLock(&m_cbMutex);
-        if (m_externalCb) {
-            m_externalCb(levelStr, msg);
+        QMutexLocker lock(&m_mutex);
+        if (m_initialized) {
+            const QDate today = QDate::currentDate();
+            if (today != m_currentDate)
+                rotateIfNeededLocked(today);
+
+            if (m_file.isOpen()) {
+                m_file.write(line.toUtf8());
+                m_file.flush();
+            }
         }
     }
 
-    // 环形缓冲区 (INFO 及以上级别)
-    if (type >= QtInfoMsg) {
-        QMutexLocker lock(&m_recentMutex);
-        m_recentLogs.append(qMakePair(levelStr, msg));
-        if (m_recentLogs.size() > 200) m_recentLogs.remove(0, 50);
+    std::function<void(const LogRecord&)> externalCb;
+    {
+        QMutexLocker cbLock(&m_cbMutex);
+        externalCb = m_externalCb;
     }
+    if (externalCb)
+        externalCb(record);
+
+    if (type >= QtInfoMsg) {
+        QMutexLocker recentLock(&m_recentMutex);
+        m_recentRecords.append(record);
+        if (m_recentRecords.size() > 200)
+            m_recentRecords.remove(0, 50);
+    }
+}
+
+QVector<LogRecord> Logger::recentLogRecords(int count) const
+{
+    QMutexLocker lock(&m_recentMutex);
+    if (m_recentRecords.size() <= count)
+        return m_recentRecords;
+    return m_recentRecords.mid(m_recentRecords.size() - count);
 }
 
 QVector<QPair<QString, QString>> Logger::recentLogs(int count) const
 {
-    QMutexLocker lock(&m_recentMutex);
-    if (m_recentLogs.size() <= count) return m_recentLogs;
-    return m_recentLogs.mid(m_recentLogs.size() - count);
+    QVector<QPair<QString, QString>> result;
+    for (const auto& rec : recentLogRecords(count))
+        result.append(qMakePair(rec.level, rec.message));
+    return result;
 }
 
-void Logger::setExternalCallback(std::function<void(const QString&, const QString&)> cb)
+void Logger::setExternalCallback(std::function<void(const LogRecord&)> cb)
 {
     QMutexLocker lock(&m_cbMutex);
     m_externalCb = std::move(cb);

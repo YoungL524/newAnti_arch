@@ -116,7 +116,7 @@ void WebService::stop() {
 // ============================================================
 // Handler Registration
 // ============================================================
-void WebService::handleGet(const QString& path, JsonHandler handler) {
+void WebService::handleGet(const QString& path, GetJsonHandler handler) {
     m_getHandlers[path] = std::move(handler);
 }
 void WebService::handlePost(const QString& path, JsonHandler handler) {
@@ -358,7 +358,7 @@ bool WebService::dispatchRequest(QTcpSocket* sock, QByteArray& raw) {
     if (req.method == Method::GET && cleanPath == QStringLiteral("/")) {
         serveIndex(sock, keepAlive);
     } else if (req.method == Method::GET && m_getHandlers.contains(cleanPath)) {
-        sendJson(sock, 200, m_getHandlers[cleanPath](body), keepAlive);
+        sendJson(sock, 200, m_getHandlers[cleanPath](body, req.queryString), keepAlive);
     } else if (req.method == Method::GET) {
         if (!prefixMatch(m_getPrefixHandlers, "GET"))
             serveStaticFile(sock, cleanPath, keepAlive);

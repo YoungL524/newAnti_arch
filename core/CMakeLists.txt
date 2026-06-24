@@ -4,6 +4,7 @@ set(CORE_HEADERS
     web/WebApiController.h
     web/TrackDisplayWebBridge.h
     web/TaskApiRoutes.h
+    web/SystemEventApiRoutes.h
     web/EndpointApiRoutes.h
     comm/CommTypes.h
     comm/Endpoint.h
@@ -44,6 +45,7 @@ set(CORE_SOURCES
     web/WebApiController.cpp
     web/TrackDisplayWebBridge.cpp
     web/TaskApiRoutes.cpp
+    web/SystemEventApiRoutes.cpp
     web/EndpointApiRoutes.cpp
     log/Logger.cpp
     log/LogContext.cpp

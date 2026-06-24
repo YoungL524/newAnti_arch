@@ -48,7 +48,7 @@ void TaskApiRoutes::registerRoutes(web::WebService* ws, TaskService* taskService
 {
     if (!ws || !taskService) return;
 
-    ws->handleGet(QStringLiteral("/api/tasks"), [taskService](const QJsonObject&) {
+    ws->handleGet(QStringLiteral("/api/tasks"), [taskService](const QJsonObject&, const QString&) {
         QJsonArray arr;
         for (const auto& t : taskService->list())
             arr.append(taskToJson(t));
@@ -58,7 +58,7 @@ void TaskApiRoutes::registerRoutes(web::WebService* ws, TaskService* taskService
         return r;
     });
 
-    ws->handleGet(QStringLiteral("/api/tasks/active"), [taskService](const QJsonObject&) {
+    ws->handleGet(QStringLiteral("/api/tasks/active"), [taskService](const QJsonObject&, const QString&) {
         auto active = taskService->activeTask();
         QJsonObject r;
         r[QStringLiteral("ok")] = true;

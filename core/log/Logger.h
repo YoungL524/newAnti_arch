@@ -6,8 +6,19 @@
 #include <QDate>
 #include <QVector>
 #include <QPair>
+#include <QJsonObject>
 #include <QtMsgHandler>
 #include <functional>
+
+struct LogRecord {
+    QString level;
+    QString message;
+    QString taskId;
+    QString deviceId;
+    qint64  timestampMs = 0;
+
+    QJsonObject toJson() const;
+};
 
 /**
  * @file Logger.h
@@ -62,12 +73,14 @@ public:
 
     /**
      * @brief 注册外部回调：每条日志写入后调用 (线程安全: 回调在 mutex 外执行)
-     * @param cb 参数为 (levelStr, message), levelStr ∈ {DEBUG,INFO,WARN,ERROR,FATAL}
      */
-    void setExternalCallback(std::function<void(const QString& level, const QString& msg)> cb);
+    void setExternalCallback(std::function<void(const LogRecord&)> cb);
+
+    /// 获取最近 N 条结构化日志 (线程安全)
+    QVector<LogRecord> recentLogRecords(int count = 50) const;
 
     /**
-     * @brief 获取最近 N 条日志 (线程安全)
+     * @brief 获取最近 N 条日志 (线程安全，兼容旧接口)
      */
     QVector<QPair<QString, QString>> recentLogs(int count = 50) const;
 
@@ -114,10 +127,10 @@ private:
     QDate    m_currentDate;
     int      m_keepDays = 7;
     bool     m_initialized = false;
-    std::function<void(const QString&, const QString&)> m_externalCb;
+    std::function<void(const LogRecord&)> m_externalCb;
     QMutex   m_cbMutex;                ///< 保护 m_externalCb 读写
 
     // 环形缓冲区：保存最近日志用于 WS 初连接推送
     mutable QMutex m_recentMutex;
-    QVector<QPair<QString, QString>> m_recentLogs;
+    QVector<LogRecord> m_recentRecords;
 };

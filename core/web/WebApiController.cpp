@@ -76,7 +76,7 @@ WebApiController::~WebApiController() { shutdown(); }
 void WebApiController::registerRestRoutes()
 {
     // GET /api/status
-    m_ws->handleGet(QStringLiteral("/api/status"), [this](const QJsonObject&) {
+    m_ws->handleGet(QStringLiteral("/api/status"), [this](const QJsonObject&, const QString&) {
         QJsonObject s;
         auto health = m_health();
         s[QStringLiteral("ok")] = true;
@@ -95,16 +95,11 @@ void WebApiController::registerRestRoutes()
     });
 
     // GET /api/logs
-    m_ws->handleGet(QStringLiteral("/api/logs"), [](const QJsonObject&) {
+    m_ws->handleGet(QStringLiteral("/api/logs"), [](const QJsonObject&, const QString&) {
         QJsonObject r; r[QStringLiteral("ok")] = true;
         QJsonArray arr;
-        for (const auto& p : Logger::instance().recentLogs(100)) {
-            QJsonObject item;
-            item[QStringLiteral("level")] = p.first;
-            item[QStringLiteral("message")] = p.second;
-            item[QStringLiteral("timestamp")] = QDateTime::currentMSecsSinceEpoch();
-            arr.append(item);
-        }
+        for (const auto& rec : Logger::instance().recentLogRecords(100))
+            arr.append(rec.toJson());
         r[QStringLiteral("logs")] = arr;
         return r;
     });
@@ -226,7 +221,7 @@ void WebApiController::registerRestRoutes()
             return j;
         };
 
-        m_ws->handleGet(QStringLiteral("/api/devices"), [this, deviceInfoToJson](const QJsonObject&) {
+        m_ws->handleGet(QStringLiteral("/api/devices"), [this, deviceInfoToJson](const QJsonObject&, const QString&) {
             QJsonArray arr;
             for (const auto& d : m_deviceReg->list()) {
                 auto item = deviceInfoToJson(d);
@@ -356,7 +351,7 @@ void WebApiController::registerRestRoutes()
         return st;
     };
 
-    m_ws->handleGet(QStringLiteral("/api/runtime-settings"), [this, buildStatusJson](const QJsonObject&) {
+    m_ws->handleGet(QStringLiteral("/api/runtime-settings"), [this, buildStatusJson](const QJsonObject&, const QString&) {
         QJsonObject r;
         r[QStringLiteral("ok")] = true;
         QJsonObject settingsJson;
@@ -430,13 +425,10 @@ void WebApiController::connectWebPush()
     });
 
     // Logger → WS 日志推送
-    Logger::instance().setExternalCallback([ws](const QString& level, const QString& msg) {
-        if (level == QStringLiteral("DEBUG")) return;
-        QJsonObject m;
+    Logger::instance().setExternalCallback([ws](const LogRecord& rec) {
+        if (rec.level == QStringLiteral("DEBUG")) return;
+        QJsonObject m = rec.toJson();
         m[QStringLiteral("type")] = QStringLiteral("log");
-        m[QStringLiteral("level")] = level;
-        m[QStringLiteral("message")] = msg;
-        m[QStringLiteral("timestamp")] = QDateTime::currentMSecsSinceEpoch();
         QMetaObject::invokeMethod(ws, [ws, m]() { ws->broadcast(m); }, Qt::QueuedConnection);
     });
 
