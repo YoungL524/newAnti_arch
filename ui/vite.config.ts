@@ -3,10 +3,9 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  server: {
+    server: {
     port: 5173,
     strictPort: true,
-    // WS 由前端直连 core:8089，不经 Vite 代理（刷新时代理层 ECONNRESET 无法抑制）
     proxy: {
       '/api': {
         target: 'http://localhost:8088',
@@ -22,6 +21,11 @@ export default defineConfig({
             console.error('[vite] api proxy error:', err.message)
           })
         },
+      },
+      '/ws': {
+        target: 'ws://localhost:8089',
+        ws: true,
+        rewrite: (path) => path.replace(/^\/ws/, ''),
       },
     },
   },

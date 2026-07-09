@@ -131,6 +131,7 @@ export type DeviceDataRow = RadarTrack | LevelSensorData | OptoelectronicData | 
 export interface WsTrackDisplayPoint {
   trackId: number
   deviceId: string
+  taskId?: string
   timestamp: number
   range: number
   azimuth: number          // rad

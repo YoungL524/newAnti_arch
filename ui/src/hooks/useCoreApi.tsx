@@ -78,7 +78,17 @@ function computeAggregate(devices: DeviceState[]): { acquisition: boolean; state
   }
 }
 
-export function CoreProvider({ children, activeTaskId = null }: { children: ReactNode; activeTaskId?: string | null }) {
+export function CoreProvider({
+  children,
+  activeTaskId = null,
+  activeTaskDeviceIds = [],
+  ensureActiveTaskDevices,
+}: {
+  children: ReactNode
+  activeTaskId?: string | null
+  activeTaskDeviceIds?: string[]
+  ensureActiveTaskDevices?: (deviceIds: string[]) => Promise<boolean>
+}) {
   const [state, setState] = useState<CoreState>(() => ({
     ...defaultState,
     setCheckedDevices: () => {}, toggleAcquisition: () => {},
@@ -92,6 +102,12 @@ export function CoreProvider({ children, activeTaskId = null }: { children: Reac
   const workingRef = useRef(false)
   const stateRef = useRef('Unknown')
   const pendingInteractionRef = useRef<Map<string, { selected: boolean; trackingEnabled: boolean }>>(new Map())
+  const activeTaskIdRef = useRef<string | null>(activeTaskId ?? null)
+  const activeTaskDeviceIdsRef = useRef<string[]>(activeTaskDeviceIds)
+  const ensureActiveTaskDevicesRef = useRef(ensureActiveTaskDevices)
+  activeTaskIdRef.current = activeTaskId ?? null
+  activeTaskDeviceIdsRef.current = activeTaskDeviceIds
+  ensureActiveTaskDevicesRef.current = ensureActiveTaskDevices
 
   const applyPendingInteractions = useCallback((list: RadarTrack[]): RadarTrack[] => {
     const pending = pendingInteractionRef.current
@@ -196,6 +212,11 @@ export function CoreProvider({ children, activeTaskId = null }: { children: Reac
       setState(prev => ({ ...prev, connected: false }))
     }
   }, [applyStatusResponse])
+
+  // acquisition 变为 true 时，把 tracksRef 中已有数据刷到 state（避免 WS 早于 status 到达）
+  useEffect(() => {
+    if (state.acquisition) flushTracksToState()
+  }, [state.acquisition, flushTracksToState])
 
   const toggleAcquisition = useCallback(async () => {
     const cids = checkedRef.current
@@ -305,6 +326,14 @@ export function CoreProvider({ children, activeTaskId = null }: { children: Reac
     }
 
     try {
+      if (!isWorking && ensureActiveTaskDevicesRef.current) {
+        const ok = await ensureActiveTaskDevicesRef.current(cids)
+        if (!ok) {
+          rollback('无法将设备绑定到当前任务')
+          return
+        }
+      }
+
       const res = await fetch(`/api/${isWorking ? 'stop' : 'start'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -325,6 +354,7 @@ export function CoreProvider({ children, activeTaskId = null }: { children: Reac
         setState(prev => ({ ...prev, commandError: '部分设备未执行: ' + JSON.stringify(data.rejectedDeviceIds) }))
       }
       setState(prev => ({ ...prev, commandPending: false }))
+      await refreshStatus()
     } catch {
       rollback('网络错误')
     }
@@ -402,12 +432,72 @@ export function CoreProvider({ children, activeTaskId = null }: { children: Reac
     let cancelled = false
     let ws: WebSocket | null = null
     let reconnectTimer: ReturnType<typeof setTimeout>
+    let tracksRaf = 0
+    let pendingTracksRaw: string | null = null
+
+    const applyTracksSnapshot = (msg: WsMessage) => {
+      if (msg.type !== 'tracks' || msg.mode !== 'snapshot' || !Array.isArray(msg.tracks)) return
+      const currentTaskId = activeTaskIdRef.current
+      const taskDevices = new Set(activeTaskDeviceIdsRef.current)
+      const visibleTracks = currentTaskId
+        ? msg.tracks.filter(t => {
+            if (t.taskId === currentTaskId) return true
+            return !!t.deviceId && taskDevices.has(t.deviceId)
+          })
+        : []
+      tracksRef.current = visibleTracks.map((t): RadarTrack => ({
+        batchId: t.trackId ?? 0,
+        deviceId: t.deviceId,
+        trackId: t.trackId,
+        slantRange: t.range ?? 0,
+        azimuth: ((t.azimuth ?? 0) * 180) / Math.PI,
+        elevation: ((t.elevation ?? 0) * 180) / Math.PI,
+        altitude: t.altitude ?? 0,
+        radialSpeed: t.radialSpeed ?? 0,
+        amplitude: 0, snr: 0, extrapolateFlag: 0,
+        targetType: t.trackId ?? 0, signalId: 0, sceneNum: 0,
+        timestamp: t.timestamp ?? Date.now(),
+        pointIndex: t.pointIndex,
+        style: t.style,
+        interaction: t.interaction,
+      }))
+      trackCountRef.current = visibleTracks.length
+      for (const k of [...pendingInteractionRef.current.keys()]) {
+        const [devId, tidStr] = k.split(':')
+        const tid = Number(tidStr)
+        const head = tracksRef.current.find(
+          tr => tr.deviceId === devId && (tr.trackId ?? tr.batchId) === tid,
+        )
+        const pending = pendingInteractionRef.current.get(k)
+        if (head?.interaction && pending
+            && head.interaction.selected === pending.selected
+            && head.interaction.trackingEnabled === pending.trackingEnabled) {
+          pendingInteractionRef.current.delete(k)
+        }
+      }
+      flushTracksToState()
+    }
+
+    const scheduleTracksSnapshot = (raw: string) => {
+      pendingTracksRaw = raw
+      if (tracksRaf) return
+      tracksRaf = requestAnimationFrame(() => {
+        tracksRaf = 0
+        const nextRaw = pendingTracksRaw
+        pendingTracksRaw = null
+        if (!nextRaw) return
+        try {
+          applyTracksSnapshot(JSON.parse(nextRaw) as WsMessage)
+        } catch { /* ignore */ }
+      })
+    }
 
     const connect = () => {
       if (cancelled) return
 
-      // 开发模式直连 core WS 端口，避免经 Vite 代理刷新时 ECONNRESET 刷屏
-      const url = 'ws://localhost:8089'
+      // 开发模式 WS：优先直连 core:8089；可通过 VITE_WS_URL 覆盖
+      const url = (import.meta.env.VITE_WS_URL as string | undefined)
+        ?? `ws://${window.location.hostname}:8089`
 
       ws = new WebSocket(url)
 
@@ -418,8 +508,14 @@ export function CoreProvider({ children, activeTaskId = null }: { children: Reac
 
       ws.onmessage = (e) => {
         if (cancelled) return
+        const raw = String(e.data)
+        // tracks snapshot 体积大：延后 parse，避免阻塞 WS 读缓冲导致 TCP ZeroWindow
+        if (raw.includes('"type":"tracks"') || raw.includes('"type": "tracks"')) {
+          scheduleTracksSnapshot(raw)
+          return
+        }
         try {
-          const msg: WsMessage = JSON.parse(e.data)
+          const msg: WsMessage = JSON.parse(raw)
           if (msg.type === 'status') {
             const devices: DeviceState[] = (msg.devices || []).map((d: DeviceStatus) => ({
               id: d.id, state: d.state, acquisition: d.acquisition,
@@ -428,40 +524,6 @@ export function CoreProvider({ children, activeTaskId = null }: { children: Reac
             setState(prev => ({
               ...prev, connected: msg.connected, devices, ...agg,
             }))
-          } else if (msg.type === 'tracks') {
-            if (msg.mode === 'snapshot' && Array.isArray(msg.tracks)) {
-              tracksRef.current = msg.tracks.map((t): RadarTrack => ({
-                batchId: t.trackId ?? 0,
-                deviceId: t.deviceId,
-                trackId: t.trackId,
-                slantRange: t.range ?? 0,
-                azimuth: ((t.azimuth ?? 0) * 180) / Math.PI,
-                elevation: ((t.elevation ?? 0) * 180) / Math.PI,
-                altitude: t.altitude ?? 0,
-                radialSpeed: t.radialSpeed ?? 0,
-                amplitude: 0, snr: 0, extrapolateFlag: 0,
-                targetType: t.trackId ?? 0, signalId: 0, sceneNum: 0,
-                timestamp: t.timestamp ?? Date.now(),
-                pointIndex: t.pointIndex,
-                style: t.style,
-                interaction: t.interaction,
-              }))
-              trackCountRef.current = msg.tracks.length
-              for (const k of [...pendingInteractionRef.current.keys()]) {
-                const [devId, tidStr] = k.split(':')
-                const tid = Number(tidStr)
-                const head = tracksRef.current.find(
-                  tr => tr.deviceId === devId && (tr.trackId ?? tr.batchId) === tid,
-                )
-                const pending = pendingInteractionRef.current.get(k)
-                if (head?.interaction && pending
-                    && head.interaction.selected === pending.selected
-                    && head.interaction.trackingEnabled === pending.trackingEnabled) {
-                  pendingInteractionRef.current.delete(k)
-                }
-              }
-              flushTracksToState()
-            }
           } else if (msg.type === 'log') {
             const entry: LogEntry = {
               level: msg.level,
@@ -490,6 +552,7 @@ export function CoreProvider({ children, activeTaskId = null }: { children: Reac
     return () => {
       cancelled = true
       clearTimeout(reconnectTimer)
+      if (tracksRaf) cancelAnimationFrame(tracksRaf)
       if (ws) {
         ws.onopen = null
         ws.onmessage = null
@@ -501,18 +564,21 @@ export function CoreProvider({ children, activeTaskId = null }: { children: Reac
     }
   }, [flushTracksToState])
 
-  // ── 1s 节流：trackRate 仅采集中更新；日志始终同步 ──
+  // ── 1s 节流：采集中同步 tracks/trackRate；日志始终同步 ──
   useEffect(() => {
     const id = setInterval(() => {
       setState(prev => ({
         ...prev,
         logEntries: [...logRef.current],
-        ...(prev.acquisition ? { trackRate: trackCountRef.current } : {}),
+        ...(prev.acquisition ? {
+          tracks: applyPendingInteractions([...tracksRef.current]),
+          trackRate: trackCountRef.current,
+        } : {}),
       }))
       trackCountRef.current = 0
     }, 1000)
     return () => clearInterval(id)
-  }, [])
+  }, [applyPendingInteractions])
 
   const contextValue = useMemo(() => ({
     ...state, setCheckedDevices, dismissNoSelectionHint, dismissCommandError, dismissInteractionError, toggleAcquisition, setTrackInteraction,

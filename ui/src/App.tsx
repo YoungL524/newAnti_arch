@@ -89,6 +89,7 @@ export default function App() {
   const activeTask = useMemo(() => tasks.find(t => t.id === activeTaskId) ?? null, [tasks, activeTaskId])
 
   const taskDeviceIds = useMemo(() => new Set(activeTask?.deviceIds ?? []), [activeTask])
+  const activeTaskDeviceIdList = useMemo(() => activeTask?.deviceIds ?? [], [activeTask])
   const taskDevices = useMemo(() =>
     activeTask ? devices.filter(d => taskDeviceIds.has(d.id)) : devices,
   [devices, activeTask, taskDeviceIds])
@@ -270,8 +271,22 @@ export default function App() {
     return true
   }, [])
 
+  const ensureActiveTaskDevices = useCallback(async (deviceIds: string[]) => {
+    const tid = activeTaskIdRef.current
+    if (!tid || deviceIds.length === 0) return true
+    const task = tasksRef.current.find(t => t.id === tid)
+    if (!task) return true
+    const merged = [...new Set([...task.deviceIds, ...deviceIds])]
+    if (merged.length === task.deviceIds.length) return true
+    return syncTaskDevices(tid, merged)
+  }, [syncTaskDevices])
+
   return (
-    <CoreProvider activeTaskId={activeTaskId}>
+    <CoreProvider
+      activeTaskId={activeTaskId}
+      activeTaskDeviceIds={activeTaskDeviceIdList}
+      ensureActiveTaskDevices={ensureActiveTaskDevices}
+    >
       <div className="h-screen flex flex-col overflow-hidden" style={{ background: 'var(--canvas)' }}>
         <div className="flex-1 flex overflow-hidden">
           {sidebarOpen && (
