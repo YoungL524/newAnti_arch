@@ -1,4 +1,5 @@
 #include "TrackDisplayManager.h"
+#include "TaskService.h"
 #include "bus/BusEnvelope.h"
 #include "bus/SystemBus.h"
 #include <QDateTime>
@@ -8,8 +9,9 @@
 #include <algorithm>
 #include <memory>
 
-static constexpr int kMaxSnapshotPoints = 8000;
-static constexpr int kSnapshotIntervalMs = 500;
+static constexpr int kMaxPointsPerTrack = 80;
+static constexpr int kMaxSnapshotPoints = 600;
+static constexpr int kSnapshotIntervalMs = 1000;
 static constexpr qint64 kTrackStaleMs = 5000;
 
 TrackDisplayManager::TrackDisplayManager(QObject* parent)
@@ -19,6 +21,7 @@ TrackDisplayManager::TrackDisplayManager(QObject* parent)
     m_timer->setSingleShot(false);
     connect(m_timer, &QTimer::timeout, this, [this]() {
         const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        syncActiveTaskContext();
         pruneStaleTracks(now);
         deliverSnapshot(snapshot(now));
     });
@@ -59,15 +62,61 @@ void TrackDisplayManager::clear()
     m_interactions.clear();
 }
 
+void TrackDisplayManager::setTaskService(TaskService* taskService)
+{
+    m_taskService = taskService;
+    syncActiveTaskContext();
+}
+
+void TrackDisplayManager::syncActiveTaskContext()
+{
+    QString activeId;
+    QSet<QString> activeDevices;
+    if (m_taskService) {
+        if (const auto ctx = m_taskService->getActiveTask()) {
+            activeId = ctx->id;
+            for (const auto& devId : ctx->deviceIds)
+                activeDevices.insert(devId);
+        }
+    }
+    if (activeId == m_activeTaskId && activeDevices == m_activeDeviceIds)
+        return;
+    m_activeTaskId = activeId;
+    m_activeDeviceIds = activeDevices;
+    m_caches.clear();
+    m_interactions.clear();
+}
+
+bool TrackDisplayManager::isPointVisible(const TrackPoint& pt) const
+{
+    if (pt.deviceId.isEmpty())
+        return false;
+    if (!m_taskService)
+        return !pt.taskId.isEmpty();
+    if (m_activeTaskId.isEmpty())
+        return false;
+    return m_taskService->isDeviceInActiveTask(pt.deviceId);
+}
+
 void TrackDisplayManager::addPoint(const TrackPoint& pt)
 {
-    TrackKey key{pt.deviceId, pt.trackId};
+    syncActiveTaskContext();
+
+    TrackPoint scoped = pt;
+    if (scoped.taskId.isEmpty() && m_taskService)
+        scoped.taskId = m_taskService->resolveTaskIdForDevice(scoped.deviceId);
+    if (!isPointVisible(scoped))
+        return;
+
+    TrackKey key{scoped.deviceId, scoped.trackId};
     if (!m_interactions.contains(key))
         m_interactions[key] = TrackDisplayPoint::Interaction{};
 
     auto& cache = m_caches[key];
-    cache.points.append({pt, cache.nextPointIndex++});
-    cache.lastUpdateMs = pt.timestampMs;
+    cache.points.append({scoped, cache.nextPointIndex++});
+    cache.lastUpdateMs = scoped.timestampMs;
+    if (cache.points.size() > kMaxPointsPerTrack)
+        cache.points.remove(0, cache.points.size() - kMaxPointsPerTrack);
 
     if (cache.points.isEmpty()) {
         m_caches.remove(key);
@@ -134,11 +183,16 @@ TrackDisplaySnapshot TrackDisplayManager::snapshot(qint64 nowMs) const
         auto interaction = m_interactions.value(key);
 
         for (const auto& cp : cache.points) {
-            const auto& pt = cp.point;
+            TrackPoint pt = cp.point;
+            if (pt.taskId.isEmpty() && m_taskService)
+                pt.taskId = m_taskService->resolveTaskIdForDevice(pt.deviceId);
+            if (!isPointVisible(pt))
+                continue;
 
             TrackDisplayPoint dp;
             dp.trackId      = pt.trackId;
             dp.deviceId     = pt.deviceId;
+            dp.taskId       = pt.taskId;
             dp.timestamp    = pt.timestampMs;
             dp.range        = pt.range;
             dp.azimuth      = pt.azimuth;
@@ -178,6 +232,7 @@ void TrackDisplayManager::setInteraction(
     auto& interaction = m_interactions[key];
     interaction.selected = selected;
     interaction.trackingEnabled = trackingEnabled;
+    syncActiveTaskContext();
     deliverSnapshot(snapshot(QDateTime::currentMSecsSinceEpoch()));
 }
 

@@ -150,7 +150,7 @@ void WebService::setStaticDir(const QString& dir) {
 // ============================================================
 void WebService::broadcast(const QJsonObject& msg) {
     QByteArray data = QJsonDocument(msg).toJson(QJsonDocument::Compact);
-    constexpr qint64 kCongestionThreshold = 64 * 1024;  // 64KB pending write data
+    constexpr qint64 kCongestionThreshold = 256 * 1024;  // 256KB pending write data
 
     for (int i = m_wsClients.size() - 1; i >= 0; --i) {
         auto* ws = m_wsClients[i];

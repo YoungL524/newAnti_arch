@@ -47,6 +47,7 @@ interface CoreState {
   historyError: string
   trackRate: number
   logEntries: LogEntry[]
+  liveTracksNotice: string
   setCheckedDevices: (ids: string[]) => void
   dismissNoSelectionHint: () => void
   dismissCommandError: () => void
@@ -59,7 +60,7 @@ const defaultState: CoreState = {
   connected: false, acquisition: false, state: 'Unknown', commandPending: false,
   devices: [], checkedDeviceIds: [], noSelectionHint: false, commandError: '', interactionError: '',
   tracks: [], trackRate: 0, historyTracks: [], systemEvents: [], historyLoading: false, historyError: '',
-  logEntries: [],
+  logEntries: [], liveTracksNotice: '',
   setCheckedDevices: () => {}, dismissNoSelectionHint: () => {}, dismissCommandError: () => {}, dismissInteractionError: () => {}, toggleAcquisition: () => {},
   setTrackInteraction: async () => false,
 }
@@ -82,11 +83,17 @@ export function CoreProvider({
   children,
   activeTaskId = null,
   activeTaskDeviceIds = [],
+  tasksReady = false,
+  devicesReady = false,
+  defaultCheckedDeviceIds = [],
   ensureActiveTaskDevices,
 }: {
   children: ReactNode
   activeTaskId?: string | null
   activeTaskDeviceIds?: string[]
+  tasksReady?: boolean
+  devicesReady?: boolean
+  defaultCheckedDeviceIds?: string[]
   ensureActiveTaskDevices?: (deviceIds: string[]) => Promise<boolean>
 }) {
   const [state, setState] = useState<CoreState>(() => ({
@@ -104,9 +111,15 @@ export function CoreProvider({
   const pendingInteractionRef = useRef<Map<string, { selected: boolean; trackingEnabled: boolean }>>(new Map())
   const activeTaskIdRef = useRef<string | null>(activeTaskId ?? null)
   const activeTaskDeviceIdsRef = useRef<string[]>(activeTaskDeviceIds)
+  const tasksReadyRef = useRef(tasksReady)
   const ensureActiveTaskDevicesRef = useRef(ensureActiveTaskDevices)
+  const checkedUserOverrideRef = useRef(false)
+  const lastCheckedInitKeyRef = useRef('')
+  const prevActiveTaskIdForCheckRef = useRef<string | null | undefined>(undefined)
+  const taskIdFallbackWarnCountRef = useRef(0)
   activeTaskIdRef.current = activeTaskId ?? null
   activeTaskDeviceIdsRef.current = activeTaskDeviceIds
+  tasksReadyRef.current = tasksReady
   ensureActiveTaskDevicesRef.current = ensureActiveTaskDevices
 
   const applyPendingInteractions = useCallback((list: RadarTrack[]): RadarTrack[] => {
@@ -138,9 +151,31 @@ export function CoreProvider({
   }, [])
 
   const setCheckedDevices = useCallback((ids: string[]) => {
+    checkedUserOverrideRef.current = true
     checkedRef.current = ids
-    setState(prev => ({ ...prev, checkedDeviceIds: ids, noSelectionHint: false }))
+    setState(prev => ({ ...prev, checkedDeviceIds: ids, noSelectionHint: false, liveTracksNotice: '' }))
   }, [])
+
+  // 首次设备/任务就绪或 activeTask 切换时，初始化勾选设备（不覆盖用户手动选择，任务切换除外）
+  useEffect(() => {
+    if (!devicesReady || !tasksReady || defaultCheckedDeviceIds.length === 0) return
+
+    const taskSwitched = prevActiveTaskIdForCheckRef.current !== undefined
+      && prevActiveTaskIdForCheckRef.current !== activeTaskId
+    prevActiveTaskIdForCheckRef.current = activeTaskId
+
+    const initKey = `${activeTaskId ?? ''}|${defaultCheckedDeviceIds.join(',')}`
+    const firstInit = checkedRef.current.length === 0
+    const shouldInit = taskSwitched || firstInit
+    if (!shouldInit) return
+    if (checkedUserOverrideRef.current && !taskSwitched) return
+    if (initKey === lastCheckedInitKeyRef.current && !taskSwitched) return
+
+    lastCheckedInitKeyRef.current = initKey
+    if (taskSwitched) checkedUserOverrideRef.current = false
+    checkedRef.current = defaultCheckedDeviceIds
+    setState(prev => ({ ...prev, checkedDeviceIds: defaultCheckedDeviceIds, noSelectionHint: false }))
+  }, [activeTaskId, defaultCheckedDeviceIds, devicesReady, tasksReady])
 
   const dismissNoSelectionHint = useCallback(() => {
     setState(prev => ({ ...prev, noSelectionHint: false }))
@@ -437,14 +472,45 @@ export function CoreProvider({
 
     const applyTracksSnapshot = (msg: WsMessage) => {
       if (msg.type !== 'tracks' || msg.mode !== 'snapshot' || !Array.isArray(msg.tracks)) return
+      const ready = tasksReadyRef.current
       const currentTaskId = activeTaskIdRef.current
       const taskDevices = new Set(activeTaskDeviceIdsRef.current)
-      const visibleTracks = currentTaskId
-        ? msg.tracks.filter(t => {
-            if (t.taskId === currentTaskId) return true
-            return !!t.deviceId && taskDevices.has(t.deviceId)
-          })
-        : []
+      const received = msg.tracks.length
+
+      let visibleTracks = msg.tracks
+      let notice = ''
+
+      if (ready && currentTaskId) {
+        visibleTracks = msg.tracks.filter(t => {
+          if (t.taskId === currentTaskId) return true
+          // 兼容期 fallback：后端未写 taskId 时按任务设备列表匹配
+          if (!t.taskId && t.deviceId && taskDevices.has(t.deviceId)) {
+            taskIdFallbackWarnCountRef.current += 1
+            if (import.meta.env.DEV && taskIdFallbackWarnCountRef.current <= 3) {
+              console.warn('[tracks] taskId missing, fallback to deviceId', t.deviceId)
+            }
+            return true
+          }
+          return false
+        })
+      } else if (ready && !currentTaskId) {
+        visibleTracks = msg.tracks
+        if (received > 0) {
+          notice = '当前无激活任务，实时航迹未按任务过滤'
+        }
+      }
+
+      if (import.meta.env.DEV && received > 0) {
+        console.debug('[tracks]', {
+          received,
+          afterTaskFilter: visibleTracks.length,
+          activeTaskId: currentTaskId,
+          tasksReady: ready,
+          checkedDeviceIds: checkedRef.current,
+          acquisition: workingRef.current,
+        })
+      }
+
       tracksRef.current = visibleTracks.map((t): RadarTrack => ({
         batchId: t.trackId ?? 0,
         deviceId: t.deviceId,
@@ -462,6 +528,7 @@ export function CoreProvider({
         interaction: t.interaction,
       }))
       trackCountRef.current = visibleTracks.length
+      setState(prev => ({ ...prev, liveTracksNotice: notice }))
       for (const k of [...pendingInteractionRef.current.keys()]) {
         const [devId, tidStr] = k.split(':')
         const tid = Number(tidStr)
@@ -492,6 +559,8 @@ export function CoreProvider({
       })
     }
 
+    const WS_TRACKS_TYPE_RE = /"type"\s*:\s*"tracks"/
+
     const connect = () => {
       if (cancelled) return
 
@@ -509,8 +578,8 @@ export function CoreProvider({
       ws.onmessage = (e) => {
         if (cancelled) return
         const raw = String(e.data)
-        // tracks snapshot 体积大：延后 parse，避免阻塞 WS 读缓冲导致 TCP ZeroWindow
-        if (raw.includes('"type":"tracks"') || raw.includes('"type": "tracks"')) {
+        // tracks snapshot 体积大：延后 parse，避免阻塞 WS 读缓冲
+        if (WS_TRACKS_TYPE_RE.test(raw)) {
           scheduleTracksSnapshot(raw)
           return
         }

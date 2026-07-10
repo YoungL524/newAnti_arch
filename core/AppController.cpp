@@ -516,6 +516,9 @@ void AppController::wireTrackDisplayPipeline()
     else
         qWarning() << "[AppController] DeviceRegistry 不可用，TrackPoint 将无法映射 deviceId";
 
+    if (m_taskService)
+        m_trackDisplayManager->setTaskService(m_taskService.get());
+
     qDebug() << "[AppController] RadarDataProcessor → TrackDisplayManager 航迹显示链路已接通";
 }
 
@@ -876,6 +879,7 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
             return st;
         },
         [this]() { return healthReport(); },
+        m_taskService.get(),
         this);
     m_webApi->registerRestRoutes();
     m_webApi->connectWebPush();

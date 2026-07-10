@@ -14,6 +14,7 @@ namespace web { class WebService; }
 class RadarWorkModeController;
 class DeviceRegistry;
 class RuntimeSettingsService;
+class TaskService;
 
 /**
  * @brief Web API 胶水层：REST 路由注册 + WS 消息拼装。
@@ -35,6 +36,7 @@ public:
                      RuntimeSettingsService* runtimeSettings,
                      RuntimeStatusProvider runtimeStatusProvider,
                      HealthProvider healthProvider,
+                     TaskService* taskService = nullptr,
                      QObject* parent = nullptr);
     ~WebApiController() override;
 
@@ -70,6 +72,7 @@ private:
     RuntimeSettingsService*    m_runtimeSettings = nullptr;
     RuntimeStatusProvider      m_runtimeStatusProvider;
     HealthProvider             m_health;
+    TaskService*               m_taskService = nullptr;
     qint64                     m_lastStartMs = 0;   ///< 上次开始采集时间戳（节流）
     qint64                     m_lastStopMs = 0;    ///< 上次停止采集时间戳（节流）
     qint64                     m_lastResetMs = 0;   ///< 上次复位时间戳（节流）

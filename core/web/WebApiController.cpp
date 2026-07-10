@@ -6,6 +6,7 @@
 #include "RadarWorkModeController.h"
 #include "business/DeviceRegistry.h"
 #include "business/RuntimeSettingsService.h"
+#include "business/TaskService.h"
 #include "business/TrackTypes.h"
 #include "log/Logger.h"
 #include <cmath>
@@ -60,6 +61,7 @@ WebApiController::WebApiController(web::WebService* ws,
                                    RuntimeSettingsService* runtimeSettings,
                                    RuntimeStatusProvider runtimeStatusProvider,
                                    HealthProvider healthProvider,
+                                   TaskService* taskService,
                                    QObject* parent)
     : QObject(parent)
     , m_ws(ws)
@@ -68,6 +70,7 @@ WebApiController::WebApiController(web::WebService* ws,
     , m_runtimeSettings(runtimeSettings)
     , m_runtimeStatusProvider(std::move(runtimeStatusProvider))
     , m_health(std::move(healthProvider))
+    , m_taskService(taskService)
 {
 }
 
@@ -115,6 +118,18 @@ void WebApiController::registerRestRoutes()
             const auto resolution = resolveSingleControllerDeviceIds(ids);
             if (!ids.isEmpty() && !resolution.hasExecutableTarget)
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("不支持的设备 id")}};
+
+            if (work && m_taskService) {
+                QStringList bindIds;
+                if (!resolution.executedId.isEmpty())
+                    bindIds.append(resolution.executedId);
+                for (const auto& v : ids) {
+                    const QString id = v.toString();
+                    if (!id.isEmpty() && radarCpuDeviceIds().contains(id) && !bindIds.contains(id))
+                        bindIds.append(id);
+                }
+                m_taskService->mergeActiveTaskDevices(bindIds);
+            }
 
             const bool cmdAccepted = work ? m_wmc->requestWork() : m_wmc->requestStandby();
             if (!cmdAccepted)

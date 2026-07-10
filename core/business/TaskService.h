@@ -66,6 +66,8 @@ public:
     std::optional<task::TaskInfo> create(task::TaskInfo task);
     bool update(const task::TaskInfo& task);
     bool updateDevices(const QString& id, const QStringList& deviceIds);
+    /// 将设备并入当前 active task（去重）；无 active task 时 no-op
+    bool mergeActiveTaskDevices(const QStringList& deviceIds);
     /// Draft -> Active only. Tasks are one-shot: Completed/Archived cannot re-activate;
     /// use create + activate or a future clone/reopen for re-execution.
     bool activate(const QString& id);

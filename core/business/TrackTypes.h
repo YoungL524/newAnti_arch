@@ -44,6 +44,7 @@ inline uint qHash(const TrackKey& k, uint seed = 0) {
 struct TrackDisplayPoint {
     uint32_t  trackId = 0;
     QString   deviceId;
+    QString   taskId;            // 归属任务（未归属时为空）
     qint64    timestamp = 0;
     double    range = 0;
     double    azimuth = 0;

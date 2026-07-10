@@ -3,6 +3,7 @@
 #include "DataStore.h"
 
 #include <QDateTime>
+#include <QDebug>
 #include <QJsonArray>
 #include <QRandomGenerator>
 #include <QVariantMap>
@@ -186,6 +187,27 @@ void TaskService::refreshActiveTaskCache()
         {m_activeTaskCache.taskId});
     for (const auto& dr : devRows)
         m_activeTaskCache.deviceIds.insert(dr.value(QStringLiteral("device_id")).toString());
+
+    if (!m_activeTaskCache.taskId.isEmpty()) {
+        qDebug() << "[TaskService] refreshActiveTaskCache active=" << m_activeTaskCache.taskId
+                 << "devices=" << m_activeTaskCache.deviceIds.values();
+    }
+
+    // Auto-bind all endpoint-bound radars when active task has no devices
+    if (!m_activeTaskCache.taskId.isEmpty()
+        && m_activeTaskCache.deviceIds.isEmpty()
+        && m_deviceReg) {
+        QStringList autoIds;
+        for (const auto& d : m_deviceReg->list()) {
+            if (d.kind == DeviceKind::Radar && !d.endpointId.isEmpty())
+                autoIds.append(d.id);
+        }
+        if (!autoIds.isEmpty() && saveDeviceIds(m_activeTaskCache.taskId, autoIds)) {
+            for (const auto& id : autoIds)
+                m_activeTaskCache.deviceIds.insert(id);
+            qDebug() << "[TaskService] auto-bound devices to active task:" << autoIds;
+        }
+    }
 }
 
 bool TaskService::validateDeviceIds(const QStringList& deviceIds)
@@ -306,6 +328,30 @@ bool TaskService::update(const task::TaskInfo& task)
     return false;
 }
 
+bool TaskService::mergeActiveTaskDevices(const QStringList& deviceIds)
+{
+    if (deviceIds.isEmpty())
+        return true;
+    const auto ctx = getActiveTask();
+    if (!ctx)
+        return true;
+    auto t = get(ctx->id);
+    if (!t.has_value())
+        return false;
+
+    QStringList merged = t->deviceIds;
+    bool changed = false;
+    for (const auto& devId : deviceIds) {
+        if (devId.isEmpty() || merged.contains(devId))
+            continue;
+        merged.append(devId);
+        changed = true;
+    }
+    if (!changed)
+        return true;
+    return updateDevices(ctx->id, merged);
+}
+
 bool TaskService::updateDevices(const QString& id, const QStringList& deviceIds)
 {
     clearError();
@@ -364,6 +410,20 @@ bool TaskService::activate(const QString& id)
 
     if (ok && m_store->commitTransaction()) {
         refreshActiveTaskCache();
+        qDebug() << "[TaskService] task activated:" << id
+                 << "devices:" << m_activeTaskCache.deviceIds.values();
+
+        if (m_activeTaskCache.taskId == id && m_activeTaskCache.deviceIds.isEmpty() && m_deviceReg) {
+            QStringList autoIds;
+            for (const auto& d : m_deviceReg->list()) {
+                if (d.kind == DeviceKind::Radar && !d.endpointId.isEmpty())
+                    autoIds.append(d.id);
+            }
+            if (!autoIds.isEmpty()) {
+                qDebug() << "[TaskService] activate auto-bind devices:" << autoIds;
+                updateDevices(id, autoIds);
+            }
+        }
         return true;
     }
 

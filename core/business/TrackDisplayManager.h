@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QHash>
+#include <QSet>
 #include <QTimer>
 #include <QVector>
 #include <atomic>
@@ -9,6 +10,7 @@
 #include "TrackTypes.h"
 
 struct BusEnvelope;
+class TaskService;
 
 class TrackDisplayManager : public QObject {
     Q_OBJECT
@@ -22,8 +24,11 @@ public:
     void start();
     void stop();
     void clear();
+    void setTaskService(TaskService* taskService);
 
 private:
+    void syncActiveTaskContext();
+    bool isPointVisible(const TrackPoint& pt) const;
     void setInteraction(const QString& deviceId, uint32_t trackId,
                         bool selected, bool trackingEnabled);
     void onInteractionCommand(const BusEnvelope& env);
@@ -47,4 +52,7 @@ private:
     QTimer* m_timer = nullptr;
     uint32_t m_cmdSubId = 0;
     std::atomic_bool m_acceptCommands{false};
+    TaskService* m_taskService = nullptr;
+    QString m_activeTaskId;
+    QSet<QString> m_activeDeviceIds;
 };

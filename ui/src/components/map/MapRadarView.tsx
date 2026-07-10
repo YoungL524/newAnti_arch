@@ -33,7 +33,7 @@ function markNode(AMap: any, device: RadarDevice) {
 }
 
 export default function MapRadarView({ devices }: { devices: RadarDevice[] }) {
-  const { acquisition, devices: deviceStates, checkedDeviceIds, historyTracks } = useCore()
+  const { acquisition, devices: deviceStates, checkedDeviceIds, historyTracks, liveTracksNotice } = useCore()
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const mapInstanceRef = useRef<any>(null)
@@ -136,6 +136,22 @@ export default function MapRadarView({ devices }: { devices: RadarDevice[] }) {
 
       {ready && (
         <>
+          {devices.length > 0 && checkedDeviceIds.length === 0 && (
+            <div
+              className="absolute left-1/2 top-20 z-30 -translate-x-1/2 px-3 py-1.5 rounded-lg text-[11px] shadow-md"
+              style={{ background: 'rgba(255,255,255,0.95)', color: '#92400e', border: '1px solid rgba(251,191,36,0.5)' }}
+            >
+              请在左侧勾选要显示的雷达设备
+            </div>
+          )}
+          {liveTracksNotice && (
+            <div
+              className="absolute left-1/2 top-32 z-30 -translate-x-1/2 px-3 py-1.5 rounded-lg text-[11px] shadow-md"
+              style={{ background: 'rgba(255,255,255,0.95)', color: 'var(--secondary)', border: '1px solid var(--hairline)' }}
+            >
+              {liveTracksNotice}
+            </div>
+          )}
           {/* PPI overlays — 仅勾选的设备扫描 */}
           {devices.map(d => {
             const checked = checkedDeviceIds.includes(d.id)

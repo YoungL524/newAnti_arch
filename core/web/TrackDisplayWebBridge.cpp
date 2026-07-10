@@ -3,6 +3,7 @@
 #include "bus/SystemBus.h"
 #include "TrackTypes.h"
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QMetaObject>
 #include <QPointer>
@@ -80,28 +81,41 @@ void TrackDisplayWebBridge::pushSnapshot(const TrackDisplaySnapshot& snap)
         QJsonObject t;
         t[QStringLiteral("trackId")]     = static_cast<int>(dp.trackId);
         t[QStringLiteral("deviceId")]    = dp.deviceId;
+        t[QStringLiteral("taskId")]      = dp.taskId;
         t[QStringLiteral("timestamp")]   = dp.timestamp;
         t[QStringLiteral("range")]       = dp.range;
         t[QStringLiteral("azimuth")]     = dp.azimuth;
         t[QStringLiteral("elevation")]   = dp.elevation;
         t[QStringLiteral("radialSpeed")] = dp.radialSpeed;
-        t[QStringLiteral("rcs")]         = dp.rcs;
         t[QStringLiteral("altitude")]    = dp.altitude;
-        t[QStringLiteral("x")]           = dp.x;
-        t[QStringLiteral("y")]           = dp.y;
-        t[QStringLiteral("z")]           = dp.z;
         t[QStringLiteral("pointIndex")]  = static_cast<int>(dp.pointIndex);
-        QJsonObject style;
-        style[QStringLiteral("color")]   = dp.style.color;
-        style[QStringLiteral("size")]    = dp.style.size;
-        style[QStringLiteral("opacity")] = dp.style.opacity;
-        t[QStringLiteral("style")] = style;
-        QJsonObject interaction;
-        interaction[QStringLiteral("selected")]        = dp.interaction.selected;
-        interaction[QStringLiteral("trackingEnabled")] = dp.interaction.trackingEnabled;
-        t[QStringLiteral("interaction")] = interaction;
+        // 实时层不需要 x/y/z/rcs；style 仅绿点段下发，interaction 仅非默认时下发
+        if (dp.pointIndex >= 3) {
+            QJsonObject style;
+            style[QStringLiteral("color")]   = dp.style.color;
+            style[QStringLiteral("size")]    = dp.style.size;
+            style[QStringLiteral("opacity")] = dp.style.opacity;
+            t[QStringLiteral("style")] = style;
+        }
+        if (dp.interaction.selected || dp.interaction.trackingEnabled) {
+            QJsonObject interaction;
+            interaction[QStringLiteral("selected")]        = dp.interaction.selected;
+            interaction[QStringLiteral("trackingEnabled")] = dp.interaction.trackingEnabled;
+            t[QStringLiteral("interaction")] = interaction;
+        }
         tracks.append(t);
     }
     msg[QStringLiteral("tracks")] = tracks;
+
+    const int bytes = QJsonDocument(msg).toJson(QJsonDocument::Compact).size();
+    if (bytes > 48 * 1024) {
+        static qint64 lastWarnMs = 0;
+        const qint64 now = snap.timestamp;
+        if (now - lastWarnMs > 5000) {
+            lastWarnMs = now;
+            qWarning() << "[TrackDisplayWebBridge] WS tracks 帧过大，已截断 risk"
+                       << bytes << "bytes," << snap.tracks.size() << "points";
+        }
+    }
     m_ws->broadcast(msg);
 }

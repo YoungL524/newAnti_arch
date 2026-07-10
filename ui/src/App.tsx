@@ -32,6 +32,7 @@ export default function App() {
 
   const [tasks, setTasks] = useState<Task[]>([])
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
+  const [tasksReady, setTasksReady] = useState(false)
   const [tasksBackend, setTasksBackend] = useState(true)
   const [showTaskDialog, setShowTaskDialog] = useState(false)
   const tasksRef = useRef<Task[]>([])
@@ -75,6 +76,7 @@ export default function App() {
         setTasksBackend(ok)
       })
       .catch(() => setTasksBackend(false))
+      .finally(() => setTasksReady(true))
   }, [])
 
   useEffect(() => {
@@ -100,6 +102,15 @@ export default function App() {
   const allDevices = useMemo(() => [...devices, ...subDevices], [devices, subDevices])
   const visibleDevices = activeTask ? allTaskDevices : allDevices
   const visibleDeviceListEmpty = visibleDevices.length === 0
+  const devicesReady = deviceRegistryStatus !== 'loading'
+
+  const defaultCheckedDeviceIds = useMemo(() => {
+    const controllable = devices.filter(d => d.backendManaged && d.endpointId)
+    if (activeTask && activeTask.deviceIds.length > 0) {
+      return controllable.filter(d => activeTask.deviceIds.includes(d.id)).map(d => d.id)
+    }
+    return controllable.map(d => d.id)
+  }, [devices, activeTask])
 
   const syncTaskDevices = useCallback(async (taskId: string, deviceIds: string[]) => {
     if (!tasksBackend) {
@@ -285,6 +296,9 @@ export default function App() {
     <CoreProvider
       activeTaskId={activeTaskId}
       activeTaskDeviceIds={activeTaskDeviceIdList}
+      tasksReady={tasksReady}
+      devicesReady={devicesReady}
+      defaultCheckedDeviceIds={defaultCheckedDeviceIds}
       ensureActiveTaskDevices={ensureActiveTaskDevices}
     >
       <div className="h-screen flex flex-col overflow-hidden" style={{ background: 'var(--canvas)' }}>
