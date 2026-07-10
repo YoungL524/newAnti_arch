@@ -192,22 +192,6 @@ void TaskService::refreshActiveTaskCache()
         qDebug() << "[TaskService] refreshActiveTaskCache active=" << m_activeTaskCache.taskId
                  << "devices=" << m_activeTaskCache.deviceIds.values();
     }
-
-    // Auto-bind all endpoint-bound radars when active task has no devices
-    if (!m_activeTaskCache.taskId.isEmpty()
-        && m_activeTaskCache.deviceIds.isEmpty()
-        && m_deviceReg) {
-        QStringList autoIds;
-        for (const auto& d : m_deviceReg->list()) {
-            if (d.kind == DeviceKind::Radar && !d.endpointId.isEmpty())
-                autoIds.append(d.id);
-        }
-        if (!autoIds.isEmpty() && saveDeviceIds(m_activeTaskCache.taskId, autoIds)) {
-            for (const auto& id : autoIds)
-                m_activeTaskCache.deviceIds.insert(id);
-            qDebug() << "[TaskService] auto-bound devices to active task:" << autoIds;
-        }
-    }
 }
 
 bool TaskService::validateDeviceIds(const QStringList& deviceIds)
@@ -328,30 +312,6 @@ bool TaskService::update(const task::TaskInfo& task)
     return false;
 }
 
-bool TaskService::mergeActiveTaskDevices(const QStringList& deviceIds)
-{
-    if (deviceIds.isEmpty())
-        return true;
-    const auto ctx = getActiveTask();
-    if (!ctx)
-        return true;
-    auto t = get(ctx->id);
-    if (!t.has_value())
-        return false;
-
-    QStringList merged = t->deviceIds;
-    bool changed = false;
-    for (const auto& devId : deviceIds) {
-        if (devId.isEmpty() || merged.contains(devId))
-            continue;
-        merged.append(devId);
-        changed = true;
-    }
-    if (!changed)
-        return true;
-    return updateDevices(ctx->id, merged);
-}
-
 bool TaskService::updateDevices(const QString& id, const QStringList& deviceIds)
 {
     clearError();
@@ -392,6 +352,21 @@ bool TaskService::activate(const QString& id)
         return false;
     }
 
+    bool hasControllable = false;
+    if (m_deviceReg) {
+        for (const auto& devId : t->deviceIds) {
+            const auto dev = m_deviceReg->get(devId);
+            if (dev.has_value() && dev->kind == DeviceKind::Radar && !dev->endpointId.isEmpty()) {
+                hasControllable = true;
+                break;
+            }
+        }
+    }
+    if (!hasControllable) {
+        setError(QStringLiteral("激活任务前请至少绑定一个已绑定端点的雷达设备"));
+        return false;
+    }
+
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     if (!m_store->beginTransaction()) {
         setError(QStringLiteral("无法开始事务"));
@@ -412,18 +387,6 @@ bool TaskService::activate(const QString& id)
         refreshActiveTaskCache();
         qDebug() << "[TaskService] task activated:" << id
                  << "devices:" << m_activeTaskCache.deviceIds.values();
-
-        if (m_activeTaskCache.taskId == id && m_activeTaskCache.deviceIds.isEmpty() && m_deviceReg) {
-            QStringList autoIds;
-            for (const auto& d : m_deviceReg->list()) {
-                if (d.kind == DeviceKind::Radar && !d.endpointId.isEmpty())
-                    autoIds.append(d.id);
-            }
-            if (!autoIds.isEmpty()) {
-                qDebug() << "[TaskService] activate auto-bind devices:" << autoIds;
-                updateDevices(id, autoIds);
-            }
-        }
         return true;
     }
 

@@ -82,7 +82,8 @@ export default function TitleBar({ activeTask, backendStatus }: {
                    precision-shadow active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
         style={{ background: btnBg }}
         onClick={toggleAcquisition}
-        disabled={isTransient || commandPending}
+        disabled={isTransient || commandPending || (!activeTask && !isFault && !acquisition)}
+        title={!activeTask && !isFault && !acquisition ? '请先创建并激活任务' : undefined}
       >
         {btnLabel}
       </button>

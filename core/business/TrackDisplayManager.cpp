@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <memory>
 
-static constexpr int kMaxPointsPerTrack = 80;
 static constexpr int kMaxSnapshotPoints = 600;
 static constexpr int kSnapshotIntervalMs = 1000;
 static constexpr qint64 kTrackStaleMs = 5000;
@@ -89,13 +88,11 @@ void TrackDisplayManager::syncActiveTaskContext()
 
 bool TrackDisplayManager::isPointVisible(const TrackPoint& pt) const
 {
-    if (pt.deviceId.isEmpty())
+    if (pt.deviceId.isEmpty() || m_activeTaskId.isEmpty())
         return false;
-    if (!m_taskService)
-        return !pt.taskId.isEmpty();
-    if (m_activeTaskId.isEmpty())
+    if (pt.taskId.isEmpty())
         return false;
-    return m_taskService->isDeviceInActiveTask(pt.deviceId);
+    return pt.taskId == m_activeTaskId && m_activeDeviceIds.contains(pt.deviceId);
 }
 
 void TrackDisplayManager::addPoint(const TrackPoint& pt)
@@ -115,8 +112,6 @@ void TrackDisplayManager::addPoint(const TrackPoint& pt)
     auto& cache = m_caches[key];
     cache.points.append({scoped, cache.nextPointIndex++});
     cache.lastUpdateMs = scoped.timestampMs;
-    if (cache.points.size() > kMaxPointsPerTrack)
-        cache.points.remove(0, cache.points.size() - kMaxPointsPerTrack);
 
     if (cache.points.isEmpty()) {
         m_caches.remove(key);

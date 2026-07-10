@@ -86,7 +86,6 @@ export function CoreProvider({
   tasksReady = false,
   devicesReady = false,
   defaultCheckedDeviceIds = [],
-  ensureActiveTaskDevices,
 }: {
   children: ReactNode
   activeTaskId?: string | null
@@ -94,7 +93,6 @@ export function CoreProvider({
   tasksReady?: boolean
   devicesReady?: boolean
   defaultCheckedDeviceIds?: string[]
-  ensureActiveTaskDevices?: (deviceIds: string[]) => Promise<boolean>
 }) {
   const [state, setState] = useState<CoreState>(() => ({
     ...defaultState,
@@ -112,7 +110,6 @@ export function CoreProvider({
   const activeTaskIdRef = useRef<string | null>(activeTaskId ?? null)
   const activeTaskDeviceIdsRef = useRef<string[]>(activeTaskDeviceIds)
   const tasksReadyRef = useRef(tasksReady)
-  const ensureActiveTaskDevicesRef = useRef(ensureActiveTaskDevices)
   const checkedUserOverrideRef = useRef(false)
   const lastCheckedInitKeyRef = useRef('')
   const prevActiveTaskIdForCheckRef = useRef<string | null | undefined>(undefined)
@@ -120,7 +117,6 @@ export function CoreProvider({
   activeTaskIdRef.current = activeTaskId ?? null
   activeTaskDeviceIdsRef.current = activeTaskDeviceIds
   tasksReadyRef.current = tasksReady
-  ensureActiveTaskDevicesRef.current = ensureActiveTaskDevices
 
   const applyPendingInteractions = useCallback((list: RadarTrack[]): RadarTrack[] => {
     const pending = pendingInteractionRef.current
@@ -260,6 +256,15 @@ export function CoreProvider({
 
     setState(prev => ({ ...prev, commandError: '' }))
 
+    if (!isFault && !isWorking && !activeTaskIdRef.current) {
+      setState(prev => ({
+        ...prev,
+        commandError: '请先创建并激活任务',
+        noSelectionHint: false,
+      }))
+      return
+    }
+
     if (!isFault && !isWorking && cids.length === 0) {
       setState(prev => ({ ...prev, noSelectionHint: true, commandError: '' }))
       return
@@ -361,14 +366,6 @@ export function CoreProvider({
     }
 
     try {
-      if (!isWorking && ensureActiveTaskDevicesRef.current) {
-        const ok = await ensureActiveTaskDevicesRef.current(cids)
-        if (!ok) {
-          rollback('无法将设备绑定到当前任务')
-          return
-        }
-      }
-
       const res = await fetch(`/api/${isWorking ? 'stop' : 'start'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -406,9 +403,14 @@ export function CoreProvider({
         systemEvents: [],
         historyLoading: false,
         historyError: '',
+        liveTracksNotice: tasksReady ? '当前无激活任务，航迹显示未启用' : '',
+        tracks: [],
+        trackRate: 0,
       }))
       return
     }
+
+    setState(prev => ({ ...prev, liveTracksNotice: '' }))
 
     let cancelled = false
     setState(prev => ({
@@ -440,7 +442,7 @@ export function CoreProvider({
     })()
 
     return () => { cancelled = true }
-  }, [activeTaskId, clearLiveTracks])
+  }, [activeTaskId, clearLiveTracks, tasksReady])
 
   // ── HTTP 轮询 ──
   useEffect(() => {
@@ -477,13 +479,17 @@ export function CoreProvider({
       const taskDevices = new Set(activeTaskDeviceIdsRef.current)
       const received = msg.tracks.length
 
-      let visibleTracks = msg.tracks
+      let visibleTracks: typeof msg.tracks = []
       let notice = ''
 
-      if (ready && currentTaskId) {
+      if (!ready) {
+        return
+      }
+      if (!currentTaskId) {
+        notice = '当前无激活任务，航迹显示未启用'
+      } else {
         visibleTracks = msg.tracks.filter(t => {
           if (t.taskId === currentTaskId) return true
-          // 兼容期 fallback：后端未写 taskId 时按任务设备列表匹配
           if (!t.taskId && t.deviceId && taskDevices.has(t.deviceId)) {
             taskIdFallbackWarnCountRef.current += 1
             if (import.meta.env.DEV && taskIdFallbackWarnCountRef.current <= 3) {
@@ -493,11 +499,6 @@ export function CoreProvider({
           }
           return false
         })
-      } else if (ready && !currentTaskId) {
-        visibleTracks = msg.tracks
-        if (received > 0) {
-          notice = '当前无激活任务，实时航迹未按任务过滤'
-        }
       }
 
       if (import.meta.env.DEV && received > 0) {

@@ -44,7 +44,7 @@ bool ConfigManager::loadConfigDir(const QString& hint)
     return false;
 }
 
-QJsonObject ConfigManager::getConfig(const QString& name)
+QJsonObject ConfigManager::getConfig(const QString& name) const
 {
     // 检查缓存
     auto it = m_cache.constFind(name);

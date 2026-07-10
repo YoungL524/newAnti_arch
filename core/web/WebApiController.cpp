@@ -115,20 +115,36 @@ void WebApiController::registerRestRoutes()
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("throttled"), true}};
 
             const QJsonArray ids = body[QStringLiteral("deviceIds")].toArray();
+
+            if (work) {
+                if (!m_taskService || !m_taskService->getActiveTask().has_value()) {
+                    return QJsonObject{
+                        {QStringLiteral("ok"), false},
+                        {QStringLiteral("error"), QStringLiteral("请先创建并激活任务")}};
+                }
+                for (const auto& v : ids) {
+                    const QString id = v.toString();
+                    if (id.isEmpty())
+                        continue;
+                    if (!m_taskService->isDeviceInActiveTask(id)) {
+                        return QJsonObject{
+                            {QStringLiteral("ok"), false},
+                            {QStringLiteral("error"),
+                             QStringLiteral("所选设备不属于当前激活任务: %1").arg(id)}};
+                    }
+                }
+            }
+
             const auto resolution = resolveSingleControllerDeviceIds(ids);
             if (!ids.isEmpty() && !resolution.hasExecutableTarget)
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("不支持的设备 id")}};
 
-            if (work && m_taskService) {
-                QStringList bindIds;
-                if (!resolution.executedId.isEmpty())
-                    bindIds.append(resolution.executedId);
-                for (const auto& v : ids) {
-                    const QString id = v.toString();
-                    if (!id.isEmpty() && radarCpuDeviceIds().contains(id) && !bindIds.contains(id))
-                        bindIds.append(id);
-                }
-                m_taskService->mergeActiveTaskDevices(bindIds);
+            if (work && m_taskService && resolution.hasExecutableTarget
+                && !m_taskService->isDeviceInActiveTask(resolution.executedId)) {
+                return QJsonObject{
+                    {QStringLiteral("ok"), false},
+                    {QStringLiteral("error"),
+                     QStringLiteral("所选设备不属于当前激活任务: %1").arg(resolution.executedId)}};
             }
 
             const bool cmdAccepted = work ? m_wmc->requestWork() : m_wmc->requestStandby();

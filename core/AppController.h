@@ -255,6 +255,7 @@ private:
      * @brief 在 DeviceRegistry / TrackDisplayManager 就绪后接通航迹显示链路
      */
     void wireTrackDisplayPipeline();
+    void printStartupDiagnostics() const;
 
     void stopRuntime();
     /**

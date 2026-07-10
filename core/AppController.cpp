@@ -173,6 +173,8 @@ bool AppController::initialize()
     m_trackDisplayManager = std::make_unique<TrackDisplayManager>(this);
     wireTrackDisplayPipeline();
 
+    printStartupDiagnostics();
+
     qDebug() << QStringLiteral("[AppController] 初始化完成");
     return true;
 }
@@ -520,6 +522,43 @@ void AppController::wireTrackDisplayPipeline()
         m_trackDisplayManager->setTaskService(m_taskService.get());
 
     qDebug() << "[AppController] RadarDataProcessor → TrackDisplayManager 航迹显示链路已接通";
+}
+
+void AppController::printStartupDiagnostics() const
+{
+    qInfo() << "======== Startup Diagnostics ========";
+    qInfo() << "configDir:" << m_configManager.configDir();
+
+    const QJsonObject dbCfg = m_configManager.getConfig(QStringLiteral("database"));
+    const QString dbRel = dbCfg.value(QStringLiteral("database")).toString();
+    if (!dbRel.isEmpty())
+        qInfo() << "database:" << resolveDatabasePath(dbRel);
+
+    const QJsonObject epCfg = m_configManager.getConfig(QStringLiteral("endpoints"));
+    for (const QJsonValue& v : epCfg.value(QStringLiteral("endpoints")).toArray()) {
+        const QJsonObject ep = v.toObject();
+        qInfo() << "endpoint:" << ep.value(QStringLiteral("id")).toString()
+                << ep.value(QStringLiteral("localAddress")).toString()
+                << ep.value(QStringLiteral("localPort")).toInt();
+    }
+
+    if (m_deviceRegistry) {
+        for (const auto& d : m_deviceRegistry->list()) {
+            if (d.kind != DeviceKind::Radar)
+                continue;
+            const QString mapped = m_deviceRegistry->cachedDeviceIdForEndpoint(d.endpointId);
+            qInfo() << "device:" << d.id << "name:" << d.name
+                    << "endpointId:" << d.endpointId << "cache->" << mapped;
+        }
+    }
+
+    if (m_taskService) {
+        if (const auto ctx = m_taskService->getActiveTask())
+            qInfo() << "activeTask:" << ctx->id << "devices:" << ctx->deviceIds;
+        else
+            qInfo() << "activeTask: (none)";
+    }
+    qInfo() << "=====================================";
 }
 
 bool AppController::registerConfiguredEndpointSources(const QJsonObject& processorConfig)

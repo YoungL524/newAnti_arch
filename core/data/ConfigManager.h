@@ -47,7 +47,7 @@ public:
      * @return QJsonObject；文件不存在或解析失败时返回空对象
      * @note 首次加载后会缓存，后续调用直接返回缓存
      */
-    QJsonObject getConfig(const QString& name);
+    QJsonObject getConfig(const QString& name) const;
 
     /**
      * @brief 保存 JSON 配置到文件
@@ -86,5 +86,5 @@ private:
     QJsonObject loadJsonFile(const QString& filePath) const;
 
     QString m_configDir;                       ///< 配置目录绝对路径
-    QMap<QString, QJsonObject> m_cache;         ///< 已加载配置的缓存
+    mutable QMap<QString, QJsonObject> m_cache;         ///< 已加载配置的缓存
 };

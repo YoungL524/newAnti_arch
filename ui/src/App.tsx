@@ -282,16 +282,6 @@ export default function App() {
     return true
   }, [])
 
-  const ensureActiveTaskDevices = useCallback(async (deviceIds: string[]) => {
-    const tid = activeTaskIdRef.current
-    if (!tid || deviceIds.length === 0) return true
-    const task = tasksRef.current.find(t => t.id === tid)
-    if (!task) return true
-    const merged = [...new Set([...task.deviceIds, ...deviceIds])]
-    if (merged.length === task.deviceIds.length) return true
-    return syncTaskDevices(tid, merged)
-  }, [syncTaskDevices])
-
   return (
     <CoreProvider
       activeTaskId={activeTaskId}
@@ -299,7 +289,6 @@ export default function App() {
       tasksReady={tasksReady}
       devicesReady={devicesReady}
       defaultCheckedDeviceIds={defaultCheckedDeviceIds}
-      ensureActiveTaskDevices={ensureActiveTaskDevices}
     >
       <div className="h-screen flex flex-col overflow-hidden" style={{ background: 'var(--canvas)' }}>
         <div className="flex-1 flex overflow-hidden">
