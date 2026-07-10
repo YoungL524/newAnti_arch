@@ -1,4 +1,4 @@
-import type { ColumnDef, FilterValue, FilterType } from '../../lib/columns'
+import type { ColumnDef, FilterValue } from '../../lib/columns'
 import type { DeviceDataRow } from '../../lib/protocol'
 
 interface Props {

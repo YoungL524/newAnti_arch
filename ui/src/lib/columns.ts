@@ -3,7 +3,7 @@ import { DeviceType, type RadarTrack, type LevelSensorData, type OptoelectronicD
 export type FilterType = 'range' | 'text' | 'select'
 
 export interface ColumnDef<T = DeviceDataRow> {
-  key: string
+  key: keyof T & string
   header: string
   width?: string
   align?: 'left' | 'right' | 'center'
@@ -135,7 +135,7 @@ export const DEVICE_FORMATTERS: Record<DeviceType, Record<string, (v: any) => st
 export function applyFilters<T extends DeviceDataRow>(
   rows: T[],
   filters: Record<string, FilterValue>,
-  columns: ColumnDef<T>[],
+  _columns: ColumnDef<T>[],
 ): T[] {
   const active = Object.entries(filters).filter(([, v]) => {
     if (v.type === 'range') return v.min != null || v.max != null

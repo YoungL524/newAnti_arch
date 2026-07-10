@@ -354,7 +354,10 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                             color: formKind === k ? '#ffffff' : 'var(--secondary)',
                             borderColor: formKind === k ? 'var(--primaryContainer)' : 'var(--hairline)',
                           }}
-                          onClick={() => { setFormKind(k); setSubForm(prev => ({ ...prev, kind: k, brand: prev.brand })) }}
+                          onClick={() => {
+                            setFormKind(k)
+                            if (k !== 'radar') setSubForm(prev => ({ ...prev, kind: k, brand: prev.brand }))
+                          }}
                         >
                           {kindLabel(k)}
                         </button>
@@ -469,7 +472,7 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                         >
                           <option value="">关联雷达 (可选)</option>
                           {radarDevices.map(r => (
-                            <option key={r} value={r.id}>{r.name}</option>
+                            <option key={r.id} value={r.id}>{r.name}</option>
                           ))}
                         </select>
                       </>

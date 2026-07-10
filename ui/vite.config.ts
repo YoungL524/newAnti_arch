@@ -3,20 +3,20 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-    server: {
+  server: {
     port: 5173,
-    strictPort: true,
+    strictPort: false,
     proxy: {
       '/api': {
         target: 'http://localhost:8088',
         configure: (proxy) => {
-          proxy.on('error', (err: NodeJS.ErrnoException & { errors?: NodeJS.ErrnoException[] }) => {
-            const codes = err.code
+          proxy.on('error', (err: Error & { code?: string; errors?: Array<{ code?: string }> }) => {
+            const codes: string[] = err.code
               ? [err.code]
-              : (err.errors?.map(e => e.code).filter(Boolean) ?? [])
+              : (err.errors?.map((e) => e.code).filter((code): code is string => Boolean(code)) ?? [])
             const silent = new Set(['ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'ECONNABORTED'])
             const msg = err.message || ''
-            if (codes.some(c => c && silent.has(c))) return
+            if (codes.some((c) => silent.has(c))) return
             if (msg.includes('socket hang up')) return
             console.error('[vite] api proxy error:', err.message)
           })

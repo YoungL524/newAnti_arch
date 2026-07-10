@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { DeviceType, type RadarTrack, type DeviceDataRow } from '../lib/protocol'
+import { DeviceType, type DeviceDataRow } from '../lib/protocol'
 import { useCore } from './useCoreApi'
 
 export interface TrackDataResult {
