@@ -9,7 +9,7 @@ import { CoreProvider } from './hooks/useCoreApi'
 import { type AppDevice, type RadarDevice, type SubDevice } from './components/map/types'
 import DeviceEditDialog from './components/dialogs/DeviceEditDialog'
 import { fetchDevices, createDevice, deleteDeviceApi, updateDevice as apiUpdateDevice, radarToApiPayload, subToApiPayload, apiDeviceToRadar, apiDeviceToSub, type DeviceRegistryStatus } from './lib/devicesApi'
-import TaskCreateDialog from './components/dialogs/TaskCreateDialog'
+import TaskCreateDialog, { type TaskCreateResult } from './components/dialogs/TaskCreateDialog'
 import type { Task } from './lib/taskTypes'
 import {
   fetchTasksFromBackend,
@@ -148,30 +148,34 @@ export default function App() {
     return true
   }, [tasksBackend])
 
-  const createTask = useCallback(async (data: Omit<Task, 'id' | 'createdAt' | 'status'>) => {
+  const createTask = useCallback(async (data: Omit<Task, 'id' | 'createdAt' | 'status'>): Promise<TaskCreateResult> => {
     if (!tasksBackend) {
       const task: Task = { ...data, id: `task_${Date.now()}`, status: 'active', createdAt: Date.now() }
       setTasks(prev => [...prev, task])
       setActiveTaskId(task.id)
       setViewTaskRunId(task.id)
       setShowTaskDialog(false)
-      return
+      return { ok: true }
     }
     const created = await createTaskApi(taskToApiPayload(data))
     if (!created.ok || !created.data?.task) {
       console.warn('[tasks] 创建失败:', created.error)
-      return
+      return { ok: false, error: created.error || '任务创建失败' }
     }
     const activated = await activateTaskApi(created.data.task.id)
     if (!activated.ok || !activated.data?.task) {
       console.warn('[tasks] 激活失败:', activated.error)
-      return
+      const draftTask = apiTaskToTask(created.data.task)
+      setTasks(prev => prev.some(t => t.id === draftTask.id) ? prev.map(t => t.id === draftTask.id ? draftTask : t) : [...prev, draftTask])
+      setViewTaskRunId(draftTask.id)
+      return { ok: false, error: `任务已创建为草稿，但激活失败：${activated.error || '请确认任务已绑定可控雷达'}` }
     }
     const task = apiTaskToTask(activated.data.task)
-    setTasks(prev => [...prev, task])
+    setTasks(prev => prev.some(t => t.id === task.id) ? prev.map(t => t.id === task.id ? task : t) : [...prev, task])
     setActiveTaskId(task.id)
     setViewTaskRunId(task.id)
     setShowTaskDialog(false)
+    return { ok: true }
   }, [tasksBackend])
 
   const completeTask = useCallback(async () => {
@@ -388,6 +392,7 @@ export default function App() {
 
       {showTaskDialog && (
         <TaskCreateDialog
+          radarDevices={devices}
           onCreate={createTask}
           onCancel={() => setShowTaskDialog(false)}
         />

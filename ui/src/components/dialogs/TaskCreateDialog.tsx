@@ -1,9 +1,16 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Task } from '../../lib/taskTypes'
+import type { RadarDevice } from '../map/types'
+
+export interface TaskCreateResult {
+  ok: boolean
+  error?: string
+}
 
 interface Props {
-  onCreate: (data: Omit<Task, 'id' | 'createdAt' | 'status'>) => void | Promise<void>
+  radarDevices: RadarDevice[]
+  onCreate: (data: Omit<Task, 'id' | 'createdAt' | 'status'>) => Promise<TaskCreateResult>
   onCancel: () => void
 }
 
@@ -26,16 +33,48 @@ const labelStyle: React.CSSProperties = {
   fontWeight: 500,
 }
 
-export default function TaskCreateDialog({ onCreate, onCancel }: Props) {
+export default function TaskCreateDialog({ radarDevices, onCreate, onCancel }: Props) {
+  const controllableDeviceIds = radarDevices
+    .filter(device => device.backendManaged && device.endpointId)
+    .map(device => device.id)
   const [name, setName] = useState('')
   const [operator, setOperator] = useState('')
   const [desc, setDesc] = useState('')
+  const [deviceIds, setDeviceIds] = useState<string[]>(controllableDeviceIds)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
 
-  const valid = name.trim().length > 0
+  useEffect(() => {
+    setDeviceIds(prev => {
+      if (prev.length > 0) return prev.filter(id => controllableDeviceIds.includes(id))
+      return controllableDeviceIds
+    })
+  }, [controllableDeviceIds.join('|')])
 
-  const handleCreate = () => {
+  const valid = name.trim().length > 0 && deviceIds.length > 0 && !submitting
+
+  const toggleDevice = (id: string) => {
+    setError('')
+    setDeviceIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id])
+  }
+
+  const handleCreate = async () => {
     if (!valid) return
-    onCreate({ name: name.trim(), description: desc.trim(), operator: operator.trim(), deviceIds: [] })
+    setSubmitting(true)
+    setError('')
+    try {
+      const result = await onCreate({
+        name: name.trim(),
+        description: desc.trim(),
+        operator: operator.trim(),
+        deviceIds,
+      })
+      if (!result.ok) setError(result.error || '任务创建失败')
+    } catch (e: any) {
+      setError(e?.message || '任务创建失败')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return createPortal(
@@ -103,6 +142,52 @@ export default function TaskCreateDialog({ onCreate, onCancel }: Props) {
             />
           </div>
 
+          <div>
+            <div style={labelStyle}>绑定雷达</div>
+            <div className="space-y-1.5">
+              {radarDevices.length === 0 ? (
+                <div className="text-[11px]" style={{ color: 'var(--secondary)' }}>
+                  暂无后端设备，请先在设备台账中添加雷达
+                </div>
+              ) : radarDevices.map(device => {
+                const controllable = Boolean(device.backendManaged && device.endpointId)
+                const checked = deviceIds.includes(device.id)
+                return (
+                  <label
+                    key={device.id}
+                    className="flex items-center justify-between gap-3 rounded px-2 py-1.5"
+                    style={{
+                      border: '1px solid var(--hairline)',
+                      opacity: controllable ? 1 : 0.55,
+                      cursor: controllable ? 'pointer' : 'not-allowed',
+                    }}
+                  >
+                    <span className="flex items-center gap-2 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={!controllable || submitting}
+                        onChange={() => toggleDevice(device.id)}
+                      />
+                      <span className="truncate text-[11px]" style={{ color: 'var(--ink)' }}>
+                        {device.name}
+                      </span>
+                    </span>
+                    <span className="text-[10px] shrink-0" style={{ color: 'var(--secondary)' }}>
+                      {device.endpointId || '未绑定端点'}
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
+          </div>
+
+          {error && (
+            <div className="rounded px-3 py-2 text-[11px]"
+              style={{ background: 'rgba(185, 28, 28, 0.08)', color: '#991b1b' }}>
+              {error}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -112,6 +197,7 @@ export default function TaskCreateDialog({ onCreate, onCancel }: Props) {
             className="px-4 py-1.5 rounded text-[11px] font-medium border-none cursor-pointer transition-colors"
             style={{ background: 'transparent', color: 'var(--onSurfaceVariant)' }}
             onClick={onCancel}
+            disabled={submitting}
           >
             取消
           </button>
@@ -125,7 +211,7 @@ export default function TaskCreateDialog({ onCreate, onCancel }: Props) {
             disabled={!valid}
             onClick={handleCreate}
           >
-            确认创建
+            {submitting ? '创建中...' : '确认创建'}
           </button>
         </div>
       </div>
