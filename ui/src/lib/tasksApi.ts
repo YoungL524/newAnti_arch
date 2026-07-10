@@ -57,6 +57,7 @@ export function apiTaskToTask(item: ApiTask): Task {
     status: mapStatus(item.status),
     deviceIds: item.deviceIds ?? [],
     createdAt: item.createdAt,
+    activatedAt: item.activatedAt || undefined,
     completedAt: item.completedAt || undefined,
   }
 }

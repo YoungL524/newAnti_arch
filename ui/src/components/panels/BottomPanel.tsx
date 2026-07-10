@@ -60,7 +60,7 @@ export default function BottomPanel({ allDevices }: { allDevices: AppDevice[] })
   const [collapsed, setCollapsed] = useState(false)
   const [tab, setTab] = useState<'activity' | 'track'>('activity')
   const [filter, setFilter] = useState<LogLevel>('ALL')
-  const { logEntries, systemEvents, historyLoading, historyError } = useCore()
+  const { logEntries, systemEvents, historyLoading, historyError, historyViewNotice } = useCore()
   const logEndRef = useRef<HTMLDivElement>(null)
 
   // 按级别筛选
@@ -141,10 +141,10 @@ export default function BottomPanel({ allDevices }: { allDevices: AppDevice[] })
         <div className="flex-1 flex flex-col overflow-hidden">
           {tab === 'activity' ? (
             <div className="flex-1 overflow-y-auto">
-              {(historyLoading || historyError) && (
+              {(historyViewNotice || historyLoading || historyError) && (
                 <div className="px-5 py-1.5 text-[10px] shrink-0"
-                  style={{ color: historyError ? 'var(--error)' : '#9ca3af', borderBottom: '1px solid rgba(229,231,226,0.3)' }}>
-                  {historyLoading ? '正在加载任务历史数据…' : historyError}
+                  style={{ color: historyError ? 'var(--error)' : historyViewNotice ? '#b45309' : '#9ca3af', borderBottom: '1px solid rgba(229,231,226,0.3)' }}>
+                  {historyLoading ? '正在加载任务历史数据…' : historyError || historyViewNotice}
                 </div>
               )}
               {systemEvents.length > 0 && (

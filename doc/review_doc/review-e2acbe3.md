@@ -30,7 +30,6 @@ QString taskId;
 ```
 
 但 `TrackDisplayPoint` 只有：
-
 ```cpp
 QString deviceId;
 ```

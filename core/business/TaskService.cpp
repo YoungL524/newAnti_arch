@@ -444,12 +444,39 @@ bool TaskService::archive(const QString& id)
     return true;
 }
 
+bool TaskService::hasRunData(const QString& id) const
+{
+    if (!m_store || id.isEmpty()) return false;
+
+    const auto trackRows = m_store->query(
+        QStringLiteral("SELECT 1 FROM tracks WHERE task_id = ? LIMIT 1"), {id});
+    if (!trackRows.isEmpty()) return true;
+
+    const auto eventRows = m_store->query(
+        QStringLiteral("SELECT 1 FROM system_events WHERE task_id = ? LIMIT 1"), {id});
+    return !eventRows.isEmpty();
+}
+
 bool TaskService::remove(const QString& id)
 {
     clearError();
     if (!m_store) return false;
-    if (!get(id).has_value()) {
+    const auto task = get(id);
+    if (!task.has_value()) {
         setError(QStringLiteral("任务不存在"));
+        return false;
+    }
+
+    if (task->status == QString::fromUtf8(task::kStatusActive)) {
+        setError(QStringLiteral("进行中的任务无法删除"));
+        return false;
+    }
+    if (hasRunData(id)) {
+        setError(QStringLiteral("任务含历史数据，无法删除，请归档"));
+        return false;
+    }
+    if (task->status != QString::fromUtf8(task::kStatusDraft) || task->activatedAt > 0) {
+        setError(QStringLiteral("仅未执行的草稿任务可删除"));
         return false;
     }
 

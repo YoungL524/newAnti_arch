@@ -72,6 +72,7 @@ public:
     bool complete(const QString& id);
     bool archive(const QString& id);
     bool remove(const QString& id);
+    bool hasRunData(const QString& id) const;
 
 private:
     task::TaskInfo rowToTask(const QVariantMap& row) const;

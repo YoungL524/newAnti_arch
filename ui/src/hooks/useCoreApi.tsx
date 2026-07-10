@@ -45,6 +45,8 @@ interface CoreState {
   systemEvents: SystemEvent[]
   historyLoading: boolean
   historyError: string
+  historyViewNotice: string
+  isHistoryView: boolean
   trackRate: number
   logEntries: LogEntry[]
   liveTracksNotice: string
@@ -60,6 +62,7 @@ const defaultState: CoreState = {
   connected: false, acquisition: false, state: 'Unknown', commandPending: false,
   devices: [], checkedDeviceIds: [], noSelectionHint: false, commandError: '', interactionError: '',
   tracks: [], trackRate: 0, historyTracks: [], systemEvents: [], historyLoading: false, historyError: '',
+  historyViewNotice: '', isHistoryView: false,
   logEntries: [], liveTracksNotice: '',
   setCheckedDevices: () => {}, dismissNoSelectionHint: () => {}, dismissCommandError: () => {}, dismissInteractionError: () => {}, toggleAcquisition: () => {},
   setTrackInteraction: async () => false,
@@ -82,6 +85,8 @@ function computeAggregate(devices: DeviceState[]): { acquisition: boolean; state
 export function CoreProvider({
   children,
   activeTaskId = null,
+  viewTaskRunId = null,
+  historyViewNotice = '',
   activeTaskDeviceIds = [],
   tasksReady = false,
   devicesReady = false,
@@ -89,6 +94,8 @@ export function CoreProvider({
 }: {
   children: ReactNode
   activeTaskId?: string | null
+  viewTaskRunId?: string | null
+  historyViewNotice?: string
   activeTaskDeviceIds?: string[]
   tasksReady?: boolean
   devicesReady?: boolean
@@ -117,6 +124,7 @@ export function CoreProvider({
   activeTaskIdRef.current = activeTaskId ?? null
   activeTaskDeviceIdsRef.current = activeTaskDeviceIds
   tasksReadyRef.current = tasksReady
+  const isHistoryView = !!viewTaskRunId && viewTaskRunId !== activeTaskId
 
   const applyPendingInteractions = useCallback((list: RadarTrack[]): RadarTrack[] => {
     const pending = pendingInteractionRef.current
@@ -392,17 +400,13 @@ export function CoreProvider({
     }
   }, [refreshStatus])
 
-  // ── 任务切换：清空实时层，加载历史航迹与系统事件 ──
+  // ── active task 切换：仅清空实时航迹层 ──
   useEffect(() => {
     clearLiveTracks()
 
     if (!activeTaskId) {
       setState(prev => ({
         ...prev,
-        historyTracks: [],
-        systemEvents: [],
-        historyLoading: false,
-        historyError: '',
         liveTracksNotice: tasksReady ? '当前无激活任务，航迹显示未启用' : '',
         tracks: [],
         trackRate: 0,
@@ -411,6 +415,24 @@ export function CoreProvider({
     }
 
     setState(prev => ({ ...prev, liveTracksNotice: '' }))
+  }, [activeTaskId, clearLiveTracks, tasksReady])
+
+  // ── viewTaskRunId：加载历史航迹与系统事件（不影响实时采集）──
+  useEffect(() => {
+    const historyTaskId = viewTaskRunId ?? activeTaskId
+
+    if (!historyTaskId) {
+      setState(prev => ({
+        ...prev,
+        historyTracks: [],
+        systemEvents: [],
+        historyLoading: false,
+        historyError: '',
+        historyViewNotice: '',
+        isHistoryView: false,
+      }))
+      return
+    }
 
     let cancelled = false
     setState(prev => ({
@@ -419,12 +441,14 @@ export function CoreProvider({
       systemEvents: [],
       historyLoading: true,
       historyError: '',
+      historyViewNotice,
+      isHistoryView,
     }))
 
     ;(async () => {
       const [tracksRes, eventsRes] = await Promise.all([
-        fetchTrackHistory({ taskId: activeTaskId, limit: 1000, order: 'asc' }),
-        fetchSystemEvents({ taskId: activeTaskId, limit: 200 }),
+        fetchTrackHistory({ taskId: historyTaskId, limit: 1000, order: 'asc' }),
+        fetchSystemEvents({ taskId: historyTaskId, limit: 200 }),
       ])
       if (cancelled) return
 
@@ -438,11 +462,13 @@ export function CoreProvider({
         systemEvents: eventsRes.ok ? eventsRes.events : [],
         historyLoading: false,
         historyError: errors.join('；'),
+        historyViewNotice,
+        isHistoryView,
       }))
     })()
 
     return () => { cancelled = true }
-  }, [activeTaskId, clearLiveTracks, tasksReady])
+  }, [viewTaskRunId, activeTaskId, historyViewNotice, isHistoryView, tasksReady])
 
   // ── HTTP 轮询 ──
   useEffect(() => {

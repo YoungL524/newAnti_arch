@@ -32,6 +32,7 @@ export default function App() {
 
   const [tasks, setTasks] = useState<Task[]>([])
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
+  const [viewTaskRunId, setViewTaskRunId] = useState<string | null>(null)
   const [tasksReady, setTasksReady] = useState(false)
   const [tasksBackend, setTasksBackend] = useState(true)
   const [showTaskDialog, setShowTaskDialog] = useState(false)
@@ -73,6 +74,10 @@ export default function App() {
       .then(({ ok, tasks: loaded, activeTaskId: activeId }) => {
         setTasks(loaded)
         setActiveTaskId(activeId)
+        setViewTaskRunId(prev => {
+          if (prev && loaded.some(t => t.id === prev)) return prev
+          return activeId
+        })
         setTasksBackend(ok)
       })
       .catch(() => setTasksBackend(false))
@@ -89,6 +94,23 @@ export default function App() {
   }, [reloadBackendData, deviceRegistryStatus, tasksBackend])
 
   const activeTask = useMemo(() => tasks.find(t => t.id === activeTaskId) ?? null, [tasks, activeTaskId])
+  const viewTask = useMemo(() => tasks.find(t => t.id === viewTaskRunId) ?? null, [tasks, viewTaskRunId])
+  const historyViewNotice = useMemo(() => {
+    if (!viewTaskRunId || viewTaskRunId === activeTaskId) return ''
+    return viewTask ? `正在查看历史执行记录：${viewTask.name}` : '正在查看历史执行记录'
+  }, [viewTaskRunId, activeTaskId, viewTask])
+
+  const canDeleteTask = useCallback((t: Task) =>
+    t.status === 'draft' && !t.activatedAt && t.id !== activeTaskId,
+  [activeTaskId])
+
+  const viewTaskRun = useCallback((taskId: string) => {
+    setViewTaskRunId(taskId)
+  }, [])
+
+  const returnToActiveView = useCallback(() => {
+    setViewTaskRunId(activeTaskIdRef.current)
+  }, [])
 
   const taskDeviceIds = useMemo(() => new Set(activeTask?.deviceIds ?? []), [activeTask])
   const activeTaskDeviceIdList = useMemo(() => activeTask?.deviceIds ?? [], [activeTask])
@@ -131,6 +153,7 @@ export default function App() {
       const task: Task = { ...data, id: `task_${Date.now()}`, status: 'active', createdAt: Date.now() }
       setTasks(prev => [...prev, task])
       setActiveTaskId(task.id)
+      setViewTaskRunId(task.id)
       setShowTaskDialog(false)
       return
     }
@@ -147,6 +170,7 @@ export default function App() {
     const task = apiTaskToTask(activated.data.task)
     setTasks(prev => [...prev, task])
     setActiveTaskId(task.id)
+    setViewTaskRunId(task.id)
     setShowTaskDialog(false)
   }, [tasksBackend])
 
@@ -165,6 +189,7 @@ export default function App() {
         t.id === id ? { ...t, status: 'completed' as const, completedAt: Date.now() } : t))
     }
     setActiveTaskId(null)
+    setViewTaskRunId(id)
   }, [tasksBackend])
 
   const archiveTask = useCallback(async (taskId: string) => {
@@ -179,7 +204,10 @@ export default function App() {
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'archived' as const } : t))
     }
     if (activeTaskIdRef.current === taskId) setActiveTaskId(null)
-  }, [tasksBackend])
+    if (viewTaskRunId === taskId) {
+      setViewTaskRunId(activeTaskIdRef.current === taskId ? null : activeTaskIdRef.current)
+    }
+  }, [tasksBackend, viewTaskRunId])
 
   const deleteTask = useCallback(async (taskId: string) => {
     if (tasksBackend) {
@@ -188,7 +216,10 @@ export default function App() {
     }
     setTasks(prev => prev.filter(t => t.id !== taskId))
     if (activeTaskIdRef.current === taskId) setActiveTaskId(null)
-  }, [tasksBackend])
+    if (viewTaskRunId === taskId) {
+      setViewTaskRunId(activeTaskIdRef.current === taskId ? null : activeTaskIdRef.current)
+    }
+  }, [tasksBackend, viewTaskRunId])
 
   const addDevice = useCallback(async (d: Omit<RadarDevice, 'id'>) => {
     const r = await createDevice(radarToApiPayload('', d as RadarDevice))
@@ -285,6 +316,8 @@ export default function App() {
   return (
     <CoreProvider
       activeTaskId={activeTaskId}
+      viewTaskRunId={viewTaskRunId}
+      historyViewNotice={historyViewNotice}
       activeTaskDeviceIds={activeTaskDeviceIdList}
       tasksReady={tasksReady}
       devicesReady={devicesReady}
@@ -303,6 +336,7 @@ export default function App() {
               onRemoveSubDevice={removeSubDevice}
               onEditDevice={setEditingDevice}
               activeTask={activeTask}
+              viewTaskRunId={viewTaskRunId}
               tasks={tasks}
               deviceRegistryStatus={deviceRegistryStatus}
               deviceListEmpty={visibleDeviceListEmpty}
@@ -310,11 +344,14 @@ export default function App() {
               onCompleteTask={completeTask}
               onArchiveTask={archiveTask}
               onDeleteTask={deleteTask}
+              onViewTaskRun={viewTaskRun}
+              onReturnToActiveView={returnToActiveView}
+              canDeleteTask={canDeleteTask}
             />
           )}
 
           <main className="flex-1 flex flex-col relative overflow-hidden" style={{ background: 'var(--surfaceDim)' }}>
-            <TitleBar activeTask={activeTask} backendStatus={backendStatus} />
+            <TitleBar activeTask={activeTask} viewTask={viewTask} isHistoryView={!!viewTaskRunId && viewTaskRunId !== activeTaskId} backendStatus={backendStatus} />
             <div className="flex-1 relative overflow-hidden">
               <MapRadarView devices={activeTask ? taskDevices : devices} />
 
@@ -351,7 +388,6 @@ export default function App() {
 
       {showTaskDialog && (
         <TaskCreateDialog
-          tasks={tasks}
           onCreate={createTask}
           onCancel={() => setShowTaskDialog(false)}
         />

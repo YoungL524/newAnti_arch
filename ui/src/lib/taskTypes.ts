@@ -10,6 +10,7 @@ export interface Task {
   geofence?: { lng: number; lat: number }[]
   alertRule?: string
   createdAt: number
+  activatedAt?: number
   completedAt?: number
 }
 

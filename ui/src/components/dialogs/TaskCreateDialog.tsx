@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom'
 import type { Task } from '../../lib/taskTypes'
 
 interface Props {
-  tasks: Task[]
   onCreate: (data: Omit<Task, 'id' | 'createdAt' | 'status'>) => void | Promise<void>
   onCancel: () => void
 }
@@ -27,20 +26,16 @@ const labelStyle: React.CSSProperties = {
   fontWeight: 500,
 }
 
-export default function TaskCreateDialog({ tasks, onCreate, onCancel }: Props) {
+export default function TaskCreateDialog({ onCreate, onCancel }: Props) {
   const [name, setName] = useState('')
   const [operator, setOperator] = useState('')
   const [desc, setDesc] = useState('')
-  const [copyFrom, setCopyFrom] = useState<string | null>(null)
 
   const valid = name.trim().length > 0
 
   const handleCreate = () => {
     if (!valid) return
-    const deviceIds = copyFrom
-      ? (tasks.find(t => t.id === copyFrom)?.deviceIds ?? [])
-      : []
-    onCreate({ name: name.trim(), description: desc.trim(), operator: operator.trim(), deviceIds })
+    onCreate({ name: name.trim(), description: desc.trim(), operator: operator.trim(), deviceIds: [] })
   }
 
   return createPortal(
@@ -108,44 +103,6 @@ export default function TaskCreateDialog({ tasks, onCreate, onCancel }: Props) {
             />
           </div>
 
-          {tasks.length > 0 && (
-            <div>
-              <div style={labelStyle}>部署模板</div>
-              <div className="flex items-center gap-2">
-                <label className="text-[11px] flex items-center gap-1 cursor-pointer"
-                  style={{ color: 'var(--secondary)' }}>
-                  <input
-                    type="radio"
-                    name="template"
-                    checked={copyFrom === null}
-                    onChange={() => setCopyFrom(null)}
-                  />
-                  空白任务
-                </label>
-                <label className="text-[11px] flex items-center gap-1 cursor-pointer"
-                  style={{ color: 'var(--secondary)' }}>
-                  <input
-                    type="radio"
-                    name="template"
-                    checked={copyFrom !== null}
-                    onChange={() => setCopyFrom(tasks[0]?.id ?? null)}
-                  />
-                  从已有任务复制设备
-                </label>
-                {copyFrom !== null && (
-                  <select
-                    style={{ ...inputStyle, width: 'auto', padding: '2px 6px', fontSize: 10 }}
-                    value={copyFrom}
-                    onChange={(e) => setCopyFrom(e.target.value)}
-                  >
-                    {tasks.map(t => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
-                  </select>
-                )}
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Footer */}

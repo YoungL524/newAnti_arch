@@ -5,8 +5,10 @@ const STATUS_LABEL: Record<string, string> = {
   draft: '草稿', active: '进行中', completed: '已完成', archived: '已归档',
 }
 
-export default function TitleBar({ activeTask, backendStatus }: {
+export default function TitleBar({ activeTask, viewTask, isHistoryView, backendStatus }: {
   activeTask: Task | null
+  viewTask: Task | null
+  isHistoryView: boolean
   backendStatus: 'loading' | 'online' | 'offline'
 }) {
   const { connected, acquisition, state, commandPending, checkedDeviceIds, devices, noSelectionHint, commandError, interactionError, dismissNoSelectionHint, dismissCommandError, dismissInteractionError, toggleAcquisition } = useCore()
@@ -55,7 +57,16 @@ export default function TitleBar({ activeTask, backendStatus }: {
           </span>
         </div>
 
-        {activeTask && (
+        {isHistoryView && viewTask ? (
+          <div className="flex items-center gap-2 text-[11px]">
+            <span style={{ color: 'var(--secondary)' }}>历史查看:</span>
+            <span className="font-semibold" style={{ color: 'var(--ink)' }}>{viewTask.name}</span>
+            <span className="text-[9px] px-1.5 py-px rounded-full font-medium"
+              style={{ background: 'rgba(234,179,8,0.12)', color: '#b45309' }}>
+              历史模式
+            </span>
+          </div>
+        ) : activeTask ? (
           <div className="flex items-center gap-2 text-[11px]">
             <span style={{ color: 'var(--secondary)' }}>任务:</span>
             <span className="font-semibold" style={{ color: 'var(--ink)' }}>{activeTask.name}</span>
@@ -64,7 +75,7 @@ export default function TitleBar({ activeTask, backendStatus }: {
               {STATUS_LABEL[activeTask.status]}
             </span>
           </div>
-        )}
+        ) : null}
 
         {/* Device count badge */}
         {devices.length > 0 && (

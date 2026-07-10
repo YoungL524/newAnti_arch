@@ -26,6 +26,7 @@ interface SidebarProps {
   onRemoveSubDevice: (id: string) => Promise<boolean>
   onEditDevice: (d: AppDevice) => void
   activeTask: Task | null
+  viewTaskRunId: string | null
   tasks: Task[]
   deviceRegistryStatus: DeviceRegistryStatus
   deviceListEmpty: boolean
@@ -33,6 +34,9 @@ interface SidebarProps {
   onCompleteTask: () => void
   onArchiveTask: (taskId: string) => void
   onDeleteTask: (taskId: string) => void
+  onViewTaskRun: (taskId: string) => void
+  onReturnToActiveView: () => void
+  canDeleteTask: (task: Task) => boolean
 }
 
 type FormKind = 'radar' | 'opto' | 'level' | 'gps'
@@ -87,7 +91,7 @@ const STATUS_META: Record<string, { icon: string; label: string }> = {
   archived: { icon: 'archive', label: '已归档' },
 }
 
-export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevice, onUpdateDevice, onAddSubDevice, onRemoveSubDevice, onEditDevice, activeTask, tasks, deviceRegistryStatus, deviceListEmpty, onNewTask, onCompleteTask, onArchiveTask, onDeleteTask }: SidebarProps) {
+export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevice, onUpdateDevice, onAddSubDevice, onRemoveSubDevice, onEditDevice, activeTask, viewTaskRunId, tasks, deviceRegistryStatus, deviceListEmpty, onNewTask, onCompleteTask, onArchiveTask, onDeleteTask, onViewTaskRun, onReturnToActiveView, canDeleteTask }: SidebarProps) {
   const [activeNav, setActiveNav] = useState('devices')
   const [formExpanded, setFormExpanded] = useState(false)
   const [formKind, setFormKind] = useState<FormKind>('radar')
@@ -95,6 +99,11 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
   const [subForm, setSubForm] = useState<Omit<SubDevice, 'id'>>({ name: '', kind: 'opto', brand: 'YHF', linkedRadarId: '' })
 
   const radarDevices = useMemo(() => allDevices.filter(isRadar), [allDevices])
+  const historyTasks = useMemo(
+    () => tasks.filter(t => t.id !== activeTask?.id),
+    [tasks, activeTask],
+  )
+  const isHistoryView = !!viewTaskRunId && viewTaskRunId !== activeTask?.id
   const { devices: deviceStates, checkedDeviceIds, noSelectionHint, acquisition, state: globalState, setCheckedDevices } = useCore()
 
   // Collapse add form when backend unavailable
@@ -519,27 +528,83 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <span className="material-symbols-outlined !text-[18px]" style={{ color: 'var(--primaryContainer)' }}>archive</span>
-                  <span className="text-[11px] font-semibold" style={{ color: 'var(--ink)', fontFamily: "'Inter', sans-serif" }}>日志归档</span>
+                  <span className="text-[11px] font-semibold" style={{ color: 'var(--ink)', fontFamily: "'Inter', sans-serif" }}>任务执行记录</span>
                 </div>
-                {tasks.length === 0 ? (
-                  <p className="text-[10px]" style={{ color: 'var(--secondary)' }}>暂无任务记录，创建任务并完成后将在此归档。</p>
-                ) : (
-                  <div className="space-y-0.5">
-                    {tasks.map(t => (
-                      <div key={t.id}
-                        className="flex items-center gap-2 px-2 py-1.5 rounded-md"
-                        style={{ background: t.id === activeTask?.id ? 'var(--emeraldSubtle)' : 'transparent' }}>
-                        <span className="material-symbols-outlined !text-[14px]" style={{ color: 'var(--secondary)' }}>
-                          {STATUS_META[t.status]?.icon ?? 'radio_button_unchecked'}
+
+                <div>
+                  <p className="text-[9px] uppercase tracking-[0.18em] mb-1.5 opacity-80 font-semibold"
+                    style={{ color: 'var(--outline)', fontFamily: "'Inter', sans-serif" }}>
+                    当前执行
+                  </p>
+                  {activeTask ? (
+                    <div className="space-y-1">
+                      <div
+                        className="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer"
+                        style={{
+                          background: viewTaskRunId === activeTask.id ? 'var(--emeraldSubtle)' : 'transparent',
+                        }}
+                        onClick={() => onViewTaskRun(activeTask.id)}
+                      >
+                        <span className="material-symbols-outlined !text-[14px]" style={{ color: 'var(--primaryContainer)' }}>
+                          {STATUS_META[activeTask.status]?.icon ?? 'radio_button_checked'}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <div className="text-[10px] font-semibold truncate" style={{ color: 'var(--ink)' }}>{t.name}</div>
+                          <div className="text-[10px] font-semibold truncate" style={{ color: 'var(--ink)' }}>{activeTask.name}</div>
                           <div className="text-[8px]" style={{ color: 'var(--secondary)' }}>
-                            {STATUS_META[t.status]?.label} &middot; {t.operator || '未指定'} &middot; {t.deviceIds.length} 设备
+                            {STATUS_META[activeTask.status]?.label} &middot; {activeTask.operator || '未指定'} &middot; {activeTask.deviceIds.length} 设备
                           </div>
                         </div>
-                        {t.id !== activeTask?.id && (
-                          <>
+                        <span className="text-[8px] px-1 py-px rounded-full font-medium"
+                          style={{ background: 'rgba(6,78,59,0.08)', color: 'var(--primaryContainer)' }}>
+                          当前
+                        </span>
+                      </div>
+                      {activeTask.status === 'active' && (
+                        <p className="text-[9px] px-1 leading-relaxed" style={{ color: 'var(--secondary)' }}>
+                          重启 core 后将自动恢复未完成的进行中任务，无需每次新建。
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-[10px] px-1" style={{ color: 'var(--secondary)' }}>当前无进行中的任务。</p>
+                  )}
+                </div>
+
+                {isHistoryView && activeTask && (
+                  <button
+                    className="w-full py-1.5 rounded text-[10px] font-semibold border cursor-pointer"
+                    style={{ borderColor: 'var(--primaryContainer)', color: 'var(--primaryContainer)', background: 'transparent' }}
+                    onClick={onReturnToActiveView}
+                  >
+                    返回当前执行
+                  </button>
+                )}
+
+                <div>
+                  <p className="text-[9px] uppercase tracking-[0.18em] mb-1.5 opacity-80 font-semibold"
+                    style={{ color: 'var(--outline)', fontFamily: "'Inter', sans-serif" }}>
+                    历史执行记录
+                  </p>
+                  {historyTasks.length === 0 ? (
+                    <p className="text-[10px] px-1" style={{ color: 'var(--secondary)' }}>暂无历史记录，任务完成后将在此显示。</p>
+                  ) : (
+                    <div className="space-y-0.5">
+                      {historyTasks.map(t => (
+                        <div key={t.id}
+                          className="flex items-center gap-2 px-2 py-1.5 rounded-md cursor-pointer transition-colors hover:bg-black/[0.03]"
+                          style={{ background: t.id === viewTaskRunId ? 'var(--emeraldSubtle)' : 'transparent' }}
+                          onClick={() => onViewTaskRun(t.id)}
+                        >
+                          <span className="material-symbols-outlined !text-[14px]" style={{ color: 'var(--secondary)' }}>
+                            {STATUS_META[t.status]?.icon ?? 'radio_button_unchecked'}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[10px] font-semibold truncate" style={{ color: 'var(--ink)' }}>{t.name}</div>
+                            <div className="text-[8px]" style={{ color: 'var(--secondary)' }}>
+                              {STATUS_META[t.status]?.label} &middot; {t.operator || '未指定'} &middot; {t.deviceIds.length} 设备
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
                             {t.status === 'completed' && (
                               <button
                                 className="px-1 py-0.5 rounded text-[8px] font-semibold border cursor-pointer"
@@ -547,24 +612,20 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                                 onClick={() => onArchiveTask(t.id)}
                               >归档</button>
                             )}
-                            <button
-                              className="px-1 py-0.5 rounded text-[8px] font-semibold border cursor-pointer hover:bg-red-50"
-                              style={{ borderColor: 'transparent', color: 'var(--secondary)', background: 'transparent' }}
-                              onClick={() => onDeleteTask(t.id)}
-                              title="删除任务"
-                            >×</button>
-                          </>
-                        )}
-                        {t.id === activeTask?.id && (
-                          <span className="text-[8px] px-1 py-px rounded-full font-medium"
-                            style={{ background: 'rgba(6,78,59,0.08)', color: 'var(--primaryContainer)' }}>
-                            当前
-                          </span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
+                            {canDeleteTask(t) && (
+                              <button
+                                className="px-1 py-0.5 rounded text-[8px] font-semibold border cursor-pointer hover:bg-red-50"
+                                style={{ borderColor: 'transparent', color: 'var(--secondary)', background: 'transparent' }}
+                                onClick={() => onDeleteTask(t.id)}
+                                title="删除草稿任务"
+                              >×</button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
