@@ -3,12 +3,13 @@ import { DeviceType, type RadarTrack, type LevelSensorData, type OptoelectronicD
 export type FilterType = 'range' | 'text' | 'select'
 
 export interface ColumnDef<T = DeviceDataRow> {
-  key: keyof T & string
+  key: string
   header: string
   width?: string
   align?: 'left' | 'right' | 'center'
   filterable?: boolean
   filterType?: FilterType
+  accessor?: (row: T) => unknown
 }
 
 export type FilterValue =
