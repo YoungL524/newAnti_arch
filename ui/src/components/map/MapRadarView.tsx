@@ -32,8 +32,19 @@ function markNode(AMap: any, device: RadarDevice) {
   })
 }
 
-export default function MapRadarView({ devices }: { devices: RadarDevice[] }) {
-  const { acquisition, devices: deviceStates, checkedDeviceIds, historyTracks, liveTracksNotice, historyViewNotice } = useCore()
+interface Props {
+  devices: RadarDevice[]
+  idleActionLabel?: string
+  idleActionPending?: boolean
+  idleActionError?: string
+  onIdleAction?: () => void
+}
+
+export default function MapRadarView({ devices, idleActionLabel, idleActionPending = false, idleActionError = '', onIdleAction }: Props) {
+  const {
+    acquisition, devices: deviceStates, checkedDeviceIds, historyTracks,
+    historyLoading, historyError, isHistoryView, liveTracksNotice, historyViewNotice,
+  } = useCore()
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const mapInstanceRef = useRef<any>(null)
@@ -136,7 +147,7 @@ export default function MapRadarView({ devices }: { devices: RadarDevice[] }) {
 
       {ready && (
         <>
-          {devices.length > 0 && checkedDeviceIds.length === 0 && (
+          {!isHistoryView && devices.length > 0 && checkedDeviceIds.length === 0 && (
             <div
               className="absolute left-1/2 top-20 z-30 -translate-x-1/2 px-3 py-1.5 rounded-lg text-[11px] shadow-md"
               style={{ background: 'rgba(255,255,255,0.95)', color: '#92400e', border: '1px solid rgba(251,191,36,0.5)' }}
@@ -152,12 +163,30 @@ export default function MapRadarView({ devices }: { devices: RadarDevice[] }) {
               {historyViewNotice}
             </div>
           )}
-          {liveTracksNotice && (
+          {liveTracksNotice && !isHistoryView && (
             <div
-              className="absolute left-1/2 top-32 z-30 -translate-x-1/2 px-3 py-1.5 rounded-lg text-[11px] shadow-md"
+              className="absolute left-1/2 top-20 z-30 -translate-x-1/2 px-3 py-2 rounded-lg text-[11px] shadow-md flex items-center gap-3"
               style={{ background: 'rgba(255,255,255,0.95)', color: 'var(--secondary)', border: '1px solid var(--hairline)' }}
             >
-              {liveTracksNotice}
+              <span>{idleActionError || liveTracksNotice}</span>
+              {onIdleAction && idleActionLabel && (
+                <button
+                  className="px-2.5 py-1 rounded border-none text-[10px] font-semibold text-white cursor-pointer disabled:opacity-50"
+                  style={{ background: idleActionError ? '#991b1b' : 'var(--primaryContainer)' }}
+                  onClick={onIdleAction}
+                  disabled={idleActionPending}
+                >
+                  {idleActionPending ? '启动中...' : idleActionLabel}
+                </button>
+              )}
+            </div>
+          )}
+          {isHistoryView && !historyLoading && (historyError || historyTracks.length === 0) && (
+            <div
+              className="absolute left-1/2 top-32 z-30 -translate-x-1/2 px-3 py-1.5 rounded-lg text-[11px] shadow-md"
+              style={{ background: 'rgba(255,255,255,0.95)', color: historyError ? 'var(--error)' : 'var(--secondary)', border: '1px solid var(--hairline)' }}
+            >
+              {historyError || '该任务没有归档航迹数据'}
             </div>
           )}
           {/* PPI overlays — 仅勾选的设备扫描 */}
@@ -171,13 +200,13 @@ export default function MapRadarView({ devices }: { devices: RadarDevice[] }) {
                 mapInstance={mapInstanceRef.current}
                 mapClass={mapRef.current}
                 connected={true}
-                acquiring={checked && acquisition}
+                acquiring={checked && acquisition && !isHistoryView}
                 hasFault={hasFault}
               />
             )
           })}
           {/* 历史航迹层（淡色，与实时层分离） */}
-          {devices.filter(d => checkedDeviceIds.includes(d.id)).map(d => (
+          {isHistoryView && devices.filter(d => checkedDeviceIds.includes(d.id)).map(d => (
             <HistoryTrackLayer
               key={`history-${d.id}`}
               device={d}
@@ -187,7 +216,7 @@ export default function MapRadarView({ devices }: { devices: RadarDevice[] }) {
             />
           ))}
           {/* 实时航迹层 */}
-          {devices.filter(d => checkedDeviceIds.includes(d.id)).map(d => (
+          {!isHistoryView && devices.filter(d => checkedDeviceIds.includes(d.id)).map(d => (
             <TrackLayer
               key={`track-${d.id}`}
               device={d}
@@ -195,7 +224,7 @@ export default function MapRadarView({ devices }: { devices: RadarDevice[] }) {
               mapClass={mapRef.current}
             />
           ))}
-          <SelectedTracksPanel />
+          {!isHistoryView && <SelectedTracksPanel />}
 
           {/* Floating Map Controls */}
           <div className="absolute right-4 top-16 flex flex-col gap-2 z-10">

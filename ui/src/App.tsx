@@ -15,6 +15,7 @@ import {
   fetchTasksFromBackend,
   createTaskApi,
   activateTaskApi,
+  rerunTaskApi,
   completeTaskApi,
   archiveTaskApi,
   deleteTaskApi,
@@ -36,6 +37,8 @@ export default function App() {
   const [tasksReady, setTasksReady] = useState(false)
   const [tasksBackend, setTasksBackend] = useState(true)
   const [showTaskDialog, setShowTaskDialog] = useState(false)
+  const [taskActionPendingId, setTaskActionPendingId] = useState<string | null>(null)
+  const [taskActionError, setTaskActionError] = useState('')
   const tasksRef = useRef<Task[]>([])
   const activeTaskIdRef = useRef<string | null>(null)
 
@@ -95,13 +98,18 @@ export default function App() {
 
   const activeTask = useMemo(() => tasks.find(t => t.id === activeTaskId) ?? null, [tasks, activeTaskId])
   const viewTask = useMemo(() => tasks.find(t => t.id === viewTaskRunId) ?? null, [tasks, viewTaskRunId])
+  const isHistoryView = !!viewTaskRunId && viewTaskRunId !== activeTaskId
+  const displayTask = isHistoryView ? viewTask : activeTask
+  const lastReusableTask = useMemo(() =>
+    tasks.find(t => t.status === 'completed' || t.status === 'archived') ?? null,
+  [tasks])
   const historyViewNotice = useMemo(() => {
     if (!viewTaskRunId || viewTaskRunId === activeTaskId) return ''
     return viewTask ? `正在查看历史执行记录：${viewTask.name}` : '正在查看历史执行记录'
   }, [viewTaskRunId, activeTaskId, viewTask])
 
   const canDeleteTask = useCallback((t: Task) =>
-    t.status === 'draft' && !t.activatedAt && t.id !== activeTaskId,
+    ((t.status === 'draft' && !t.activatedAt) || t.status === 'archived') && t.id !== activeTaskId,
   [activeTaskId])
 
   const viewTaskRun = useCallback((taskId: string) => {
@@ -112,27 +120,26 @@ export default function App() {
     setViewTaskRunId(activeTaskIdRef.current)
   }, [])
 
-  const taskDeviceIds = useMemo(() => new Set(activeTask?.deviceIds ?? []), [activeTask])
+  const displayTaskDeviceIds = useMemo(() => new Set(displayTask?.deviceIds ?? []), [displayTask])
   const activeTaskDeviceIdList = useMemo(() => activeTask?.deviceIds ?? [], [activeTask])
-  const taskDevices = useMemo(() =>
-    activeTask ? devices.filter(d => taskDeviceIds.has(d.id)) : devices,
-  [devices, activeTask, taskDeviceIds])
-  const taskSubDevices = useMemo(() =>
-    activeTask ? subDevices.filter(s => taskDeviceIds.has(s.id)) : subDevices,
-  [subDevices, activeTask, taskDeviceIds])
-  const allTaskDevices = useMemo(() => [...taskDevices, ...taskSubDevices], [taskDevices, taskSubDevices])
   const allDevices = useMemo(() => [...devices, ...subDevices], [devices, subDevices])
-  const visibleDevices = activeTask ? allTaskDevices : allDevices
+  const displayTaskDevices = useMemo(() =>
+    displayTask ? allDevices.filter(d => displayTaskDeviceIds.has(d.id)) : allDevices,
+  [allDevices, displayTask, displayTaskDeviceIds])
+  const displayRadarDevices = useMemo(() =>
+    displayTask ? devices.filter(d => displayTaskDeviceIds.has(d.id)) : devices,
+  [devices, displayTask, displayTaskDeviceIds])
+  const visibleDevices = displayTask ? displayTaskDevices : allDevices
   const visibleDeviceListEmpty = visibleDevices.length === 0
   const devicesReady = deviceRegistryStatus !== 'loading'
 
   const defaultCheckedDeviceIds = useMemo(() => {
     const controllable = devices.filter(d => d.backendManaged && d.endpointId)
-    if (activeTask && activeTask.deviceIds.length > 0) {
-      return controllable.filter(d => activeTask.deviceIds.includes(d.id)).map(d => d.id)
+    if (displayTask && displayTask.deviceIds.length > 0) {
+      return controllable.filter(d => displayTask.deviceIds.includes(d.id)).map(d => d.id)
     }
     return controllable.map(d => d.id)
-  }, [devices, activeTask])
+  }, [devices, displayTask])
 
   const syncTaskDevices = useCallback(async (taskId: string, deviceIds: string[]) => {
     if (!tasksBackend) {
@@ -149,6 +156,7 @@ export default function App() {
   }, [tasksBackend])
 
   const createTask = useCallback(async (data: Omit<Task, 'id' | 'createdAt' | 'status'>): Promise<TaskCreateResult> => {
+    setTaskActionError('')
     if (!tasksBackend) {
       const task: Task = { ...data, id: `task_${Date.now()}`, status: 'active', createdAt: Date.now() }
       setTasks(prev => [...prev, task])
@@ -178,6 +186,43 @@ export default function App() {
     return { ok: true }
   }, [tasksBackend])
 
+  const rerunTask = useCallback(async (sourceTaskId: string) => {
+    if (activeTaskIdRef.current || taskActionPendingId) return
+    setTaskActionPendingId(sourceTaskId)
+    setTaskActionError('')
+    try {
+      if (!tasksBackend) {
+        const source = tasksRef.current.find(t => t.id === sourceTaskId)
+        if (!source) throw new Error('历史任务不存在')
+        const task: Task = {
+          ...source,
+          id: `task_${Date.now()}`,
+          status: 'active',
+          createdAt: Date.now(),
+          activatedAt: Date.now(),
+          completedAt: undefined,
+          archivedAt: undefined,
+        }
+        setTasks(prev => [task, ...prev])
+        setActiveTaskId(task.id)
+        setViewTaskRunId(task.id)
+        return
+      }
+
+      const r = await rerunTaskApi(sourceTaskId)
+      if (!r.ok || !r.data?.task)
+        throw new Error(r.error || '再次执行任务失败')
+      const task = apiTaskToTask(r.data.task)
+      setTasks(prev => [task, ...prev.filter(t => t.id !== task.id)])
+      setActiveTaskId(task.id)
+      setViewTaskRunId(task.id)
+    } catch (e: any) {
+      setTaskActionError(e?.message || '再次执行任务失败')
+    } finally {
+      setTaskActionPendingId(null)
+    }
+  }, [tasksBackend, taskActionPendingId])
+
   const completeTask = useCallback(async () => {
     const id = activeTaskIdRef.current
     if (!id) return
@@ -197,9 +242,10 @@ export default function App() {
   }, [tasksBackend])
 
   const archiveTask = useCallback(async (taskId: string) => {
+    setTaskActionError('')
     if (tasksBackend) {
       const r = await archiveTaskApi(taskId)
-      if (!r.ok) { console.warn('[tasks] 归档失败:', r.error); return }
+      if (!r.ok) { setTaskActionError(r.error || '归档失败'); return }
       if (r.data?.task) {
         const updated = apiTaskToTask(r.data.task)
         setTasks(prev => prev.map(t => t.id === taskId ? updated : t))
@@ -214,9 +260,13 @@ export default function App() {
   }, [tasksBackend, viewTaskRunId])
 
   const deleteTask = useCallback(async (taskId: string) => {
+    const task = tasksRef.current.find(t => t.id === taskId)
+    if (task?.status === 'archived'
+        && !window.confirm(`永久删除“${task.name}”及其全部历史航迹和事件？此操作不可恢复。`)) return
+    setTaskActionError('')
     if (tasksBackend) {
       const r = await deleteTaskApi(taskId)
-      if (!r.ok) { console.warn('[tasks] 删除失败:', r.error); return }
+      if (!r.ok) { setTaskActionError(r.error || '删除失败'); return }
     }
     setTasks(prev => prev.filter(t => t.id !== taskId))
     if (activeTaskIdRef.current === taskId) setActiveTaskId(null)
@@ -348,16 +398,29 @@ export default function App() {
               onCompleteTask={completeTask}
               onArchiveTask={archiveTask}
               onDeleteTask={deleteTask}
+              onRerunTask={rerunTask}
               onViewTaskRun={viewTaskRun}
               onReturnToActiveView={returnToActiveView}
               canDeleteTask={canDeleteTask}
+              taskActionPendingId={taskActionPendingId}
+              taskActionError={taskActionError}
             />
           )}
 
           <main className="flex-1 flex flex-col relative overflow-hidden" style={{ background: 'var(--surfaceDim)' }}>
-            <TitleBar activeTask={activeTask} viewTask={viewTask} isHistoryView={!!viewTaskRunId && viewTaskRunId !== activeTaskId} backendStatus={backendStatus} />
+            <TitleBar activeTask={activeTask} viewTask={viewTask} isHistoryView={isHistoryView} backendStatus={backendStatus} />
             <div className="flex-1 relative overflow-hidden">
-              <MapRadarView devices={activeTask ? taskDevices : devices} />
+              <MapRadarView
+                devices={displayRadarDevices}
+                idleActionLabel={!activeTask && !isHistoryView
+                  ? (lastReusableTask ? '再次执行上次任务' : '新建任务')
+                  : undefined}
+                idleActionPending={!!taskActionPendingId}
+                idleActionError={taskActionError}
+                onIdleAction={!activeTask && !isHistoryView
+                  ? (lastReusableTask ? () => rerunTask(lastReusableTask.id) : () => setShowTaskDialog(true))
+                  : undefined}
+              />
 
               {!sidebarOpen && (
                 <button

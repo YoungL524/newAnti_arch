@@ -153,6 +153,12 @@ void WebApiController::registerRestRoutes()
                                    {QStringLiteral("error"), QStringLiteral("命令被拒绝：状态转换中")}};
 
             lastMs = now;
+            if (m_taskService) {
+                m_taskService->appendActiveTaskEvent(
+                    QStringLiteral("operation"),
+                    work ? QStringLiteral("开始采集") : QStringLiteral("停止采集"),
+                    resolution.executedId);
+            }
             return buildSingleControllerCommandResponse(
                 resolution.executedId, resolution.rejectedDeviceIds, true);
         };
@@ -456,11 +462,18 @@ void WebApiController::connectWebPush()
     });
 
     // Logger → WS 日志推送
-    Logger::instance().setExternalCallback([ws](const LogRecord& rec) {
+    auto* taskService = m_taskService;
+    Logger::instance().setExternalCallback([ws, taskService](const LogRecord& rec) {
         if (rec.level == QStringLiteral("DEBUG")) return;
         QJsonObject m = rec.toJson();
         m[QStringLiteral("type")] = QStringLiteral("log");
-        QMetaObject::invokeMethod(ws, [ws, m]() { ws->broadcast(m); }, Qt::QueuedConnection);
+        QMetaObject::invokeMethod(ws, [ws, taskService, rec, m]() {
+            if (taskService && !rec.taskId.isEmpty()) {
+                taskService->appendTaskLog(rec.taskId, rec.deviceId, rec.level,
+                                           rec.message, rec.timestampMs);
+            }
+            ws->broadcast(m);
+        }, Qt::QueuedConnection);
     });
 
     // WS 定时状态推送

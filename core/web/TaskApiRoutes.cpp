@@ -132,6 +132,12 @@ void TaskApiRoutes::registerRoutes(web::WebService* ws, TaskService* taskService
         bool ok = false;
         if (action == QStringLiteral("activate"))
             ok = taskService->activate(id);
+        else if (action == QStringLiteral("rerun")) {
+            const auto rerunTask = taskService->rerun(id);
+            if (!rerunTask.has_value())
+                return fail(taskError(taskService, QStringLiteral("再次执行任务失败")));
+            return okTask(rerunTask.value());
+        }
         else if (action == QStringLiteral("complete"))
             ok = taskService->complete(id);
         else if (action == QStringLiteral("archive"))

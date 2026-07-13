@@ -69,16 +69,32 @@ public:
     /// Draft -> Active only. Tasks are one-shot: Completed/Archived cannot re-activate;
     /// use create + activate or a future clone/reopen for re-execution.
     bool activate(const QString& id);
+    /// Completed/Archived -> new Active execution. The source record remains immutable.
+    std::optional<task::TaskInfo> rerun(const QString& id);
     bool complete(const QString& id);
     bool archive(const QString& id);
     bool remove(const QString& id);
     bool hasRunData(const QString& id) const;
+    /// Persist an operator/runtime event against the current active task.
+    bool appendActiveTaskEvent(const QString& category,
+                               const QString& detail,
+                               const QString& deviceId = {});
+    bool appendTaskLog(const QString& taskId,
+                       const QString& deviceId,
+                       const QString& level,
+                       const QString& message,
+                       qint64 timestampMs);
 
 private:
     task::TaskInfo rowToTask(const QVariantMap& row) const;
     bool saveDeviceIds(const QString& taskId, const QStringList& deviceIds);
     bool validateDeviceIds(const QStringList& deviceIds);
+    bool hasControllableRadar(const QStringList& deviceIds) const;
     bool isTerminalStatus(const QString& status) const;
+    bool appendTaskEvent(const QString& taskId,
+                         const QString& category,
+                         const QString& detail,
+                         const QString& deviceId = {});
     void clearError();
     void setError(const QString& msg);
 

@@ -125,6 +125,36 @@ void registerRoutes(web::WebService* ws, DataStore* store)
         r[QStringLiteral("events")] = arr;
         return r;
     });
+
+    ws->handleGet(QStringLiteral("/api/task-logs"), [store](const QJsonObject&, const QString& queryString) {
+        if (!store->isConnected())
+            return fail(QStringLiteral("数据库未连接"));
+
+        QUrlQuery query(queryString);
+        const QString taskId = query.queryItemValue(QStringLiteral("taskId"));
+        if (taskId.isEmpty())
+            return fail(QStringLiteral("taskId 不能为空"));
+
+        const int limit = clampEventLimit(query.queryItemValue(QStringLiteral("limit")));
+        QJsonArray arr;
+        const auto rows = store->query(
+            QStringLiteral("SELECT task_id, device_id, ts_ms, level, message "
+                           "FROM task_logs WHERE task_id = ? ORDER BY ts_ms ASC LIMIT ?"),
+            {taskId, limit});
+        for (const auto& row : rows) {
+            QJsonObject j;
+            j[QStringLiteral("taskId")] = row.value(QStringLiteral("task_id")).toString();
+            const QString deviceId = row.value(QStringLiteral("device_id")).toString();
+            if (!deviceId.isEmpty())
+                j[QStringLiteral("deviceId")] = deviceId;
+            j[QStringLiteral("timestamp")] = row.value(QStringLiteral("ts_ms")).toLongLong();
+            j[QStringLiteral("level")] = row.value(QStringLiteral("level")).toString();
+            j[QStringLiteral("message")] = row.value(QStringLiteral("message")).toString();
+            arr.append(j);
+        }
+
+        return QJsonObject{{QStringLiteral("ok"), true}, {QStringLiteral("logs"), arr}};
+    });
 }
 
 } // namespace SystemEventApiRoutes

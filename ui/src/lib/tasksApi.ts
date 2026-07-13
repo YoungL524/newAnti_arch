@@ -59,6 +59,7 @@ export function apiTaskToTask(item: ApiTask): Task {
     createdAt: item.createdAt,
     activatedAt: item.activatedAt || undefined,
     completedAt: item.completedAt || undefined,
+    archivedAt: item.archivedAt || undefined,
   }
 }
 
@@ -101,6 +102,10 @@ export async function createTaskApi(payload: Record<string, unknown>): Promise<A
 
 export async function activateTaskApi(id: string): Promise<ApiResult<TaskResponseData>> {
   return apiCall(`${BASE}/${encodeURIComponent(id)}/activate`, { method: 'POST' })
+}
+
+export async function rerunTaskApi(id: string): Promise<ApiResult<TaskResponseData>> {
+  return apiCall(`${BASE}/${encodeURIComponent(id)}/rerun`, { method: 'POST' })
 }
 
 export async function completeTaskApi(id: string): Promise<ApiResult<TaskResponseData>> {

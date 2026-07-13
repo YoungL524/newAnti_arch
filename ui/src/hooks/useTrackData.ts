@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { DeviceType, type DeviceDataRow } from '../lib/protocol'
+import { DeviceType, type DeviceDataRow, type RadarTrack } from '../lib/protocol'
 import { useCore } from './useCoreApi'
 
 export interface TrackDataResult {
@@ -9,22 +9,42 @@ export interface TrackDataResult {
   sourceLabel: string
 }
 
-export function useTrackData(deviceType: DeviceType, sourceLabel: string): TrackDataResult {
-  const { tracks, acquisition } = useCore()
+export function useTrackData(deviceType: DeviceType, sourceId: string, sourceLabel: string): TrackDataResult {
+  const { tracks, historyTracks, isHistoryView, acquisition } = useCore()
   const [rows, setRows] = useState<DeviceDataRow[]>([])
 
   useEffect(() => {
-    if (deviceType === DeviceType.RADAR && tracks.length > 0) {
-      setRows(tracks as DeviceDataRow[])
+    if (deviceType !== DeviceType.RADAR) {
+      setRows([])
+      return
     }
-  }, [tracks, deviceType])
+    if (isHistoryView) {
+      const historicalRows: RadarTrack[] = historyTracks
+        .filter(point => point.deviceId === sourceId)
+        .map(point => ({
+          batchId: point.targetId,
+          deviceId: point.deviceId,
+          trackId: point.targetId,
+          slantRange: point.range,
+          azimuth: point.azimuth * 180 / Math.PI,
+          elevation: point.elevation * 180 / Math.PI,
+          altitude: point.altitude,
+          radialSpeed: point.radialSpeed,
+          amplitude: 0,
+          snr: 0,
+          extrapolateFlag: 0,
+          targetType: point.targetId,
+          signalId: 0,
+          sceneNum: point.sceneNum,
+          timestamp: point.tsMs,
+        }))
+      setRows(historicalRows)
+      return
+    }
+    setRows(tracks.filter(track => track.deviceId === sourceId))
+  }, [tracks, historyTracks, isHistoryView, deviceType, sourceId])
 
-  // Reset when device type or source changes
-  useEffect(() => {
-    setRows([])
-  }, [deviceType, sourceLabel])
-
-  const isLive = deviceType === DeviceType.RADAR && acquisition && tracks.length > 0
+  const isLive = !isHistoryView && deviceType === DeviceType.RADAR && acquisition && rows.length > 0
 
   return { rows, deviceType, isLive, sourceLabel }
 }

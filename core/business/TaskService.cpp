@@ -83,7 +83,21 @@ bool TaskService::ensureSchema()
         "  PRIMARY KEY(task_id, device_id),"
         "  FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE"
         ")");
-    return m_store->execute(tasksSql) && m_store->execute(taskDevicesSql);
+    const QString taskLogsSql = QStringLiteral(
+        "CREATE TABLE IF NOT EXISTS task_logs ("
+        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  task_id TEXT NOT NULL,"
+        "  device_id TEXT,"
+        "  ts_ms INTEGER NOT NULL,"
+        "  level TEXT NOT NULL,"
+        "  message TEXT NOT NULL,"
+        "  FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE"
+        ")");
+    return m_store->execute(tasksSql)
+        && m_store->execute(taskDevicesSql)
+        && m_store->execute(taskLogsSql)
+        && m_store->execute(QStringLiteral(
+            "CREATE INDEX IF NOT EXISTS idx_task_logs_task_ts ON task_logs(task_id, ts_ms)"));
 }
 
 task::TaskInfo TaskService::rowToTask(const QVariantMap& row) const
@@ -207,6 +221,66 @@ bool TaskService::validateDeviceIds(const QStringList& deviceIds)
     return true;
 }
 
+bool TaskService::hasControllableRadar(const QStringList& deviceIds) const
+{
+    if (!m_deviceReg)
+        return false;
+    for (const auto& devId : deviceIds) {
+        const auto dev = m_deviceReg->get(devId);
+        if (dev.has_value() && dev->kind == DeviceKind::Radar && !dev->endpointId.isEmpty())
+            return true;
+    }
+    return false;
+}
+
+bool TaskService::appendTaskEvent(const QString& taskId,
+                                  const QString& category,
+                                  const QString& detail,
+                                  const QString& deviceId)
+{
+    if (!m_store || taskId.isEmpty() || !m_store->tableExists(QStringLiteral("system_events")))
+        return false;
+
+    QVariantMap row;
+    row.insert(QStringLiteral("ts_ms"), QDateTime::currentMSecsSinceEpoch());
+    row.insert(QStringLiteral("category"), category);
+    row.insert(QStringLiteral("source"), QStringLiteral("TaskService"));
+    row.insert(QStringLiteral("detail"), detail);
+    row.insert(QStringLiteral("task_id"), taskId);
+    if (!deviceId.isEmpty())
+        row.insert(QStringLiteral("device_id"), deviceId);
+    return m_store->insert(QStringLiteral("system_events"), row);
+}
+
+bool TaskService::appendActiveTaskEvent(const QString& category,
+                                        const QString& detail,
+                                        const QString& deviceId)
+{
+    if (m_activeTaskCache.taskId.isEmpty())
+        return false;
+    return appendTaskEvent(m_activeTaskCache.taskId, category, detail, deviceId);
+}
+
+bool TaskService::appendTaskLog(const QString& taskId,
+                                const QString& deviceId,
+                                const QString& level,
+                                const QString& message,
+                                qint64 timestampMs)
+{
+    if (!m_store || taskId.isEmpty() || message.isEmpty())
+        return false;
+
+    QVariantMap row;
+    row.insert(QStringLiteral("task_id"), taskId);
+    if (!deviceId.isEmpty())
+        row.insert(QStringLiteral("device_id"), deviceId);
+    row.insert(QStringLiteral("ts_ms"), timestampMs > 0
+        ? timestampMs : QDateTime::currentMSecsSinceEpoch());
+    row.insert(QStringLiteral("level"), level);
+    row.insert(QStringLiteral("message"), message);
+    return m_store->insert(QStringLiteral("task_logs"), row);
+}
+
 bool TaskService::saveDeviceIds(const QString& taskId, const QStringList& deviceIds)
 {
     if (!m_store) return false;
@@ -261,7 +335,9 @@ std::optional<task::TaskInfo> TaskService::create(task::TaskInfo task)
             m_store->rollbackTransaction();
             return std::nullopt;
         }
-        return get(task.id);
+        auto created = get(task.id);
+        appendTaskEvent(task.id, QStringLiteral("task"), QStringLiteral("任务已创建"));
+        return created;
     }
 
     m_store->rollbackTransaction();
@@ -352,22 +428,13 @@ bool TaskService::activate(const QString& id)
         return false;
     }
 
-    bool hasControllable = false;
-    if (m_deviceReg) {
-        for (const auto& devId : t->deviceIds) {
-            const auto dev = m_deviceReg->get(devId);
-            if (dev.has_value() && dev->kind == DeviceKind::Radar && !dev->endpointId.isEmpty()) {
-                hasControllable = true;
-                break;
-            }
-        }
-    }
-    if (!hasControllable) {
+    if (!hasControllableRadar(t->deviceIds)) {
         setError(QStringLiteral("激活任务前请至少绑定一个已绑定端点的雷达设备"));
         return false;
     }
 
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const auto previousActive = activeTask();
     if (!m_store->beginTransaction()) {
         setError(QStringLiteral("无法开始事务"));
         return false;
@@ -385,6 +452,11 @@ bool TaskService::activate(const QString& id)
 
     if (ok && m_store->commitTransaction()) {
         refreshActiveTaskCache();
+        if (previousActive.has_value() && previousActive->id != id) {
+            appendTaskEvent(previousActive->id, QStringLiteral("task"),
+                            QStringLiteral("切换任务，原任务自动完成"));
+        }
+        appendTaskEvent(id, QStringLiteral("task"), QStringLiteral("任务已激活"));
         qDebug() << "[TaskService] task activated:" << id
                  << "devices:" << m_activeTaskCache.deviceIds.values();
         return true;
@@ -393,6 +465,52 @@ bool TaskService::activate(const QString& id)
     m_store->rollbackTransaction();
     setError(QStringLiteral("激活任务失败"));
     return false;
+}
+
+std::optional<task::TaskInfo> TaskService::rerun(const QString& id)
+{
+    clearError();
+    const auto source = get(id);
+    if (!source.has_value()) {
+        setError(QStringLiteral("任务不存在"));
+        return std::nullopt;
+    }
+    if (source->status != QString::fromUtf8(task::kStatusCompleted)
+        && source->status != QString::fromUtf8(task::kStatusArchived)) {
+        setError(QStringLiteral("仅已完成或已归档任务可以再次执行"));
+        return std::nullopt;
+    }
+    if (getActiveTask().has_value()) {
+        setError(QStringLiteral("已有进行中的任务，请先完成当前任务"));
+        return std::nullopt;
+    }
+    if (!hasControllableRadar(source->deviceIds)) {
+        setError(QStringLiteral("原任务已无可控雷达，请检查设备及端点绑定"));
+        return std::nullopt;
+    }
+
+    task::TaskInfo next = source.value();
+    next.id.clear();
+    next.status = QString::fromUtf8(task::kStatusDraft);
+    next.createdAt = 0;
+    next.activatedAt = 0;
+    next.completedAt = 0;
+    next.archivedAt = 0;
+
+    const auto created = create(next);
+    if (!created.has_value())
+        return std::nullopt;
+
+    if (!activate(created->id)) {
+        const QString activateError = m_lastError;
+        remove(created->id);
+        setError(activateError);
+        return std::nullopt;
+    }
+
+    appendTaskEvent(created->id, QStringLiteral("task"),
+                    QStringLiteral("按历史任务 %1 的完整配置再次执行").arg(id));
+    return get(created->id);
 }
 
 bool TaskService::complete(const QString& id)
@@ -416,6 +534,7 @@ bool TaskService::complete(const QString& id)
         return false;
     }
     refreshActiveTaskCache();
+    appendTaskEvent(id, QStringLiteral("task"), QStringLiteral("任务已完成"));
     return true;
 }
 
@@ -441,6 +560,7 @@ bool TaskService::archive(const QString& id)
         return false;
     }
     refreshActiveTaskCache();
+    appendTaskEvent(id, QStringLiteral("task"), QStringLiteral("任务已归档"));
     return true;
 }
 
@@ -454,7 +574,11 @@ bool TaskService::hasRunData(const QString& id) const
 
     const auto eventRows = m_store->query(
         QStringLiteral("SELECT 1 FROM system_events WHERE task_id = ? LIMIT 1"), {id});
-    return !eventRows.isEmpty();
+    if (!eventRows.isEmpty()) return true;
+
+    const auto logRows = m_store->query(
+        QStringLiteral("SELECT 1 FROM task_logs WHERE task_id = ? LIMIT 1"), {id});
+    return !logRows.isEmpty();
 }
 
 bool TaskService::remove(const QString& id)
@@ -471,12 +595,11 @@ bool TaskService::remove(const QString& id)
         setError(QStringLiteral("进行中的任务无法删除"));
         return false;
     }
-    if (hasRunData(id)) {
-        setError(QStringLiteral("任务含历史数据，无法删除，请归档"));
-        return false;
-    }
-    if (task->status != QString::fromUtf8(task::kStatusDraft) || task->activatedAt > 0) {
-        setError(QStringLiteral("仅未执行的草稿任务可删除"));
+    const bool isDraft = task->status == QString::fromUtf8(task::kStatusDraft)
+                         && task->activatedAt <= 0;
+    const bool isArchived = task->status == QString::fromUtf8(task::kStatusArchived);
+    if (!isDraft && !isArchived) {
+        setError(QStringLiteral("请先完成并归档任务，再执行永久删除"));
         return false;
     }
 
@@ -485,7 +608,15 @@ bool TaskService::remove(const QString& id)
         return false;
     }
 
-    bool ok = m_store->execute(QStringLiteral("DELETE FROM task_devices WHERE task_id = ?"), {id});
+    bool ok = true;
+    if (isArchived)
+        ok = m_store->execute(QStringLiteral("DELETE FROM tracks WHERE task_id = ?"), {id});
+    if (ok)
+        ok = m_store->execute(QStringLiteral("DELETE FROM system_events WHERE task_id = ?"), {id});
+    if (ok)
+        ok = m_store->execute(QStringLiteral("DELETE FROM task_logs WHERE task_id = ?"), {id});
+    if (ok)
+        ok = m_store->execute(QStringLiteral("DELETE FROM task_devices WHERE task_id = ?"), {id});
     if (ok)
         ok = m_store->execute(QStringLiteral("DELETE FROM tasks WHERE id = ?"), {id});
 

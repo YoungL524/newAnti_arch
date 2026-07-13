@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { StatusResponse, LogsResponse, WsMessage, RadarTrack, DeviceStatus, LogEntry } from '../lib/protocol'
 import { fetchTrackHistory, type TrackHistoryPoint } from '../lib/tracksApi'
 import { fetchSystemEvents, type SystemEvent } from '../lib/systemEventsApi'
+import { fetchTaskLogs } from '../lib/taskLogsApi'
 
 interface CommandResponse {
   ok: boolean
@@ -43,6 +44,7 @@ interface CoreState {
   tracks: RadarTrack[]
   historyTracks: TrackHistoryPoint[]
   systemEvents: SystemEvent[]
+  historyLogs: LogEntry[]
   historyLoading: boolean
   historyError: string
   historyViewNotice: string
@@ -61,7 +63,7 @@ interface CoreState {
 const defaultState: CoreState = {
   connected: false, acquisition: false, state: 'Unknown', commandPending: false,
   devices: [], checkedDeviceIds: [], noSelectionHint: false, commandError: '', interactionError: '',
-  tracks: [], trackRate: 0, historyTracks: [], systemEvents: [], historyLoading: false, historyError: '',
+  tracks: [], trackRate: 0, historyTracks: [], systemEvents: [], historyLogs: [], historyLoading: false, historyError: '',
   historyViewNotice: '', isHistoryView: false,
   logEntries: [], liveTracksNotice: '',
   setCheckedDevices: () => {}, dismissNoSelectionHint: () => {}, dismissCommandError: () => {}, dismissInteractionError: () => {}, toggleAcquisition: () => {},
@@ -125,6 +127,7 @@ export function CoreProvider({
   activeTaskDeviceIdsRef.current = activeTaskDeviceIds
   tasksReadyRef.current = tasksReady
   const isHistoryView = !!viewTaskRunId && viewTaskRunId !== activeTaskId
+  const selectionContextId = viewTaskRunId ?? activeTaskId
 
   const applyPendingInteractions = useCallback((list: RadarTrack[]): RadarTrack[] => {
     const pending = pendingInteractionRef.current
@@ -160,15 +163,15 @@ export function CoreProvider({
     setState(prev => ({ ...prev, checkedDeviceIds: ids, noSelectionHint: false, liveTracksNotice: '' }))
   }, [])
 
-  // 首次设备/任务就绪或 activeTask 切换时，初始化勾选设备（不覆盖用户手动选择，任务切换除外）
+  // 首次就绪或当前/历史任务切换时，按对应任务设备初始化勾选项。
   useEffect(() => {
-    if (!devicesReady || !tasksReady || defaultCheckedDeviceIds.length === 0) return
+    if (!devicesReady || !tasksReady) return
 
     const taskSwitched = prevActiveTaskIdForCheckRef.current !== undefined
-      && prevActiveTaskIdForCheckRef.current !== activeTaskId
-    prevActiveTaskIdForCheckRef.current = activeTaskId
+      && prevActiveTaskIdForCheckRef.current !== selectionContextId
+    prevActiveTaskIdForCheckRef.current = selectionContextId
 
-    const initKey = `${activeTaskId ?? ''}|${defaultCheckedDeviceIds.join(',')}`
+    const initKey = `${selectionContextId ?? ''}|${defaultCheckedDeviceIds.join(',')}`
     const firstInit = checkedRef.current.length === 0
     const shouldInit = taskSwitched || firstInit
     if (!shouldInit) return
@@ -179,7 +182,7 @@ export function CoreProvider({
     if (taskSwitched) checkedUserOverrideRef.current = false
     checkedRef.current = defaultCheckedDeviceIds
     setState(prev => ({ ...prev, checkedDeviceIds: defaultCheckedDeviceIds, noSelectionHint: false }))
-  }, [activeTaskId, defaultCheckedDeviceIds, devicesReady, tasksReady])
+  }, [selectionContextId, defaultCheckedDeviceIds, devicesReady, tasksReady])
 
   const dismissNoSelectionHint = useCallback(() => {
     setState(prev => ({ ...prev, noSelectionHint: false }))
@@ -426,6 +429,7 @@ export function CoreProvider({
         ...prev,
         historyTracks: [],
         systemEvents: [],
+        historyLogs: [],
         historyLoading: false,
         historyError: '',
         historyViewNotice: '',
@@ -439,6 +443,7 @@ export function CoreProvider({
       ...prev,
       historyTracks: [],
       systemEvents: [],
+      historyLogs: [],
       historyLoading: true,
       historyError: '',
       historyViewNotice,
@@ -446,20 +451,23 @@ export function CoreProvider({
     }))
 
     ;(async () => {
-      const [tracksRes, eventsRes] = await Promise.all([
+      const [tracksRes, eventsRes, logsRes] = await Promise.all([
         fetchTrackHistory({ taskId: historyTaskId, limit: 1000, order: 'asc' }),
         fetchSystemEvents({ taskId: historyTaskId, limit: 200 }),
+        fetchTaskLogs(historyTaskId),
       ])
       if (cancelled) return
 
       const errors: string[] = []
       if (!tracksRes.ok) errors.push(tracksRes.error ?? '历史航迹加载失败')
       if (!eventsRes.ok) errors.push(eventsRes.error ?? '系统事件加载失败')
+      if (!logsRes.ok) errors.push(logsRes.error ?? '任务日志加载失败')
 
       setState(prev => ({
         ...prev,
         historyTracks: tracksRes.ok ? tracksRes.tracks : [],
         systemEvents: eventsRes.ok ? eventsRes.events : [],
+        historyLogs: logsRes.ok ? (logsRes.logs ?? []) : [],
         historyLoading: false,
         historyError: errors.join('；'),
         historyViewNotice,

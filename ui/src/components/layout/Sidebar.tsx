@@ -34,9 +34,12 @@ interface SidebarProps {
   onCompleteTask: () => void
   onArchiveTask: (taskId: string) => void
   onDeleteTask: (taskId: string) => void
+  onRerunTask: (taskId: string) => void
   onViewTaskRun: (taskId: string) => void
   onReturnToActiveView: () => void
   canDeleteTask: (task: Task) => boolean
+  taskActionPendingId: string | null
+  taskActionError: string
 }
 
 type FormKind = 'radar' | 'opto' | 'level' | 'gps'
@@ -91,7 +94,14 @@ const STATUS_META: Record<string, { icon: string; label: string }> = {
   archived: { icon: 'archive', label: '已归档' },
 }
 
-export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevice, onUpdateDevice, onAddSubDevice, onRemoveSubDevice, onEditDevice, activeTask, viewTaskRunId, tasks, deviceRegistryStatus, deviceListEmpty, onNewTask, onCompleteTask, onArchiveTask, onDeleteTask, onViewTaskRun, onReturnToActiveView, canDeleteTask }: SidebarProps) {
+function formatTaskTime(task: Task) {
+  const timestamp = task.activatedAt ?? task.createdAt
+  return new Date(timestamp).toLocaleString('zh-CN', {
+    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+  })
+}
+
+export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevice, onUpdateDevice, onAddSubDevice, onRemoveSubDevice, onEditDevice, activeTask, viewTaskRunId, tasks, deviceRegistryStatus, deviceListEmpty, onNewTask, onCompleteTask, onArchiveTask, onDeleteTask, onRerunTask, onViewTaskRun, onReturnToActiveView, canDeleteTask, taskActionPendingId, taskActionError }: SidebarProps) {
   const [activeNav, setActiveNav] = useState('devices')
   const [formExpanded, setFormExpanded] = useState(false)
   const [formKind, setFormKind] = useState<FormKind>('radar')
@@ -534,6 +544,12 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                   <span className="text-[11px] font-semibold" style={{ color: 'var(--ink)', fontFamily: "'Inter', sans-serif" }}>任务执行记录</span>
                 </div>
 
+                {taskActionError && (
+                  <div className="px-2 py-1.5 rounded text-[10px]" style={{ background: 'rgba(185,28,28,0.08)', color: '#991b1b' }}>
+                    {taskActionError}
+                  </div>
+                )}
+
                 <div>
                   <p className="text-[9px] uppercase tracking-[0.18em] mb-1.5 opacity-80 font-semibold"
                     style={{ color: 'var(--outline)', fontFamily: "'Inter', sans-serif" }}>
@@ -569,7 +585,9 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                       )}
                     </div>
                   ) : (
-                    <p className="text-[10px] px-1" style={{ color: 'var(--secondary)' }}>当前无进行中的任务。</p>
+                    <p className="text-[10px] px-1 leading-relaxed" style={{ color: 'var(--secondary)' }}>
+                      当前无进行中的任务，可从历史记录再次执行完整配置。
+                    </p>
                   )}
                 </div>
 
@@ -604,10 +622,22 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                           <div className="flex-1 min-w-0">
                             <div className="text-[10px] font-semibold truncate" style={{ color: 'var(--ink)' }}>{t.name}</div>
                             <div className="text-[8px]" style={{ color: 'var(--secondary)' }}>
-                              {STATUS_META[t.status]?.label} &middot; {t.operator || '未指定'} &middot; {t.deviceIds.length} 设备
+                              {STATUS_META[t.status]?.label} &middot; {formatTaskTime(t)} &middot; {t.deviceIds.length} 设备
                             </div>
                           </div>
                           <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                            {!activeTask && (t.status === 'completed' || t.status === 'archived') && (
+                              <button
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] font-semibold border cursor-pointer disabled:opacity-50"
+                                style={{ borderColor: 'var(--primaryContainer)', color: 'var(--primaryContainer)', background: 'transparent' }}
+                                onClick={() => onRerunTask(t.id)}
+                                disabled={taskActionPendingId !== null}
+                                title="复制完整任务配置并开始新的执行记录"
+                              >
+                                <span className="material-symbols-outlined !text-[11px]">play_arrow</span>
+                                {taskActionPendingId === t.id ? '启动中' : '再次执行'}
+                              </button>
+                            )}
                             {t.status === 'completed' && (
                               <button
                                 className="px-1 py-0.5 rounded text-[8px] font-semibold border cursor-pointer"
@@ -617,11 +647,11 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                             )}
                             {canDeleteTask(t) && (
                               <button
-                                className="px-1 py-0.5 rounded text-[8px] font-semibold border cursor-pointer hover:bg-red-50"
+                                className="inline-flex items-center justify-center p-0.5 rounded border cursor-pointer hover:bg-red-50"
                                 style={{ borderColor: 'transparent', color: 'var(--secondary)', background: 'transparent' }}
                                 onClick={() => onDeleteTask(t.id)}
-                                title="删除草稿任务"
-                              >×</button>
+                                title={t.status === 'archived' ? '永久删除归档及其数据' : '删除草稿任务'}
+                              ><span className="material-symbols-outlined !text-[13px]">delete</span></button>
                             )}
                           </div>
                         </div>

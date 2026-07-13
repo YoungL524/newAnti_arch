@@ -12,6 +12,7 @@ export interface Task {
   createdAt: number
   activatedAt?: number
   completedAt?: number
+  archivedAt?: number
 }
 
 export const TASK_STORAGE_KEY = 'dcmp_tasks'

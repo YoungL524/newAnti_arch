@@ -33,7 +33,11 @@ function DataTableTab({ allDevices }: { allDevices: AppDevice[] }) {
     })
   }, [allDevices])
   const current = useMemo(() => options.find(o => o.value === selectedValue) ?? options[0], [selectedValue, options])
-  const { rows, deviceType, isLive } = useTrackData(current.deviceType, current.label)
+  const { rows, deviceType, isLive } = useTrackData(
+    current?.deviceType ?? DeviceType.UNKNOWN,
+    current?.value ?? '',
+    current?.label ?? '',
+  )
   if (options.length === 0) {
     return (
       <div className="flex flex-col flex-1 overflow-hidden">
@@ -60,13 +64,30 @@ export default function BottomPanel({ allDevices }: { allDevices: AppDevice[] })
   const [collapsed, setCollapsed] = useState(false)
   const [tab, setTab] = useState<'activity' | 'track'>('activity')
   const [filter, setFilter] = useState<LogLevel>('ALL')
-  const { logEntries, systemEvents, historyLoading, historyError, historyViewNotice } = useCore()
+  const { logEntries, systemEvents, historyLogs, historyLoading, historyError, historyViewNotice, isHistoryView } = useCore()
   const logEndRef = useRef<HTMLDivElement>(null)
 
   // 按级别筛选
+  const baseLogs = useMemo(() => {
+    if (!isHistoryView) return logEntries
+    const eventLogs = systemEvents.map(event => {
+      const category = event.category.toLowerCase()
+      const level = category.includes('error') ? 'ERROR'
+        : category.includes('warn') ? 'WARN' : 'INFO'
+      return {
+        level,
+        message: event.detail || event.source,
+        timestamp: event.tsMs,
+        taskId: event.taskId,
+        deviceId: event.deviceId,
+      }
+    })
+    return [...historyLogs, ...eventLogs].sort((a, b) => a.timestamp - b.timestamp)
+  }, [isHistoryView, logEntries, systemEvents, historyLogs])
+
   const logs = useMemo(() =>
-    filter === 'ALL' ? logEntries : logEntries.filter(l => l.level === filter),
-  [logEntries, filter])
+    filter === 'ALL' ? baseLogs : baseLogs.filter(l => l.level === filter),
+  [baseLogs, filter])
 
   // 自动滚到底部
   useEffect(() => {
@@ -100,7 +121,9 @@ export default function BottomPanel({ allDevices }: { allDevices: AppDevice[] })
               }}
               onClick={() => setTab(key)}
             >
-              {key === 'activity' ? '活动日志' : '数据表格'}
+              {key === 'activity'
+                ? (isHistoryView ? '任务日志' : '活动日志')
+                : (isHistoryView ? '历史数据' : '数据表格')}
             </button>
           ))}
           {/* 日志级别筛选 */}
@@ -147,7 +170,7 @@ export default function BottomPanel({ allDevices }: { allDevices: AppDevice[] })
                   {historyLoading ? '正在加载任务历史数据…' : historyError || historyViewNotice}
                 </div>
               )}
-              {systemEvents.length > 0 && (
+              {!isHistoryView && systemEvents.length > 0 && (
                 <div className="px-5 py-2 shrink-0" style={{ borderBottom: '1px solid rgba(229,231,226,0.35)' }}>
                   <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: '#9ca3af' }}>
                     任务事件 · {systemEvents.length}
@@ -167,7 +190,9 @@ export default function BottomPanel({ allDevices }: { allDevices: AppDevice[] })
               )}
               {logs.length === 0 ? (
                 <div className="flex items-center justify-center h-full text-[11px]" style={{ color: '#9ca3af' }}>
-                  {logEntries.length === 0 ? '等待后端日志...' : '无匹配日志'}
+                  {isHistoryView
+                    ? (historyLoading ? '正在加载任务日志...' : baseLogs.length === 0 ? '该任务没有归档日志或事件' : '无匹配日志')
+                    : logEntries.length === 0 ? '等待后端日志...' : '无匹配日志'}
                 </div>
               ) : (
                 <table className="w-full text-left border-separate" style={{ borderSpacing: '0 1px' }}>
