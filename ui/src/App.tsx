@@ -35,7 +35,7 @@ export default function App() {
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null)
   const [viewTaskRunId, setViewTaskRunId] = useState<string | null>(null)
   const [tasksReady, setTasksReady] = useState(false)
-  const [tasksBackend, setTasksBackend] = useState(true)
+  const [tasksBackend, setTasksBackend] = useState(false)
   const [showTaskDialog, setShowTaskDialog] = useState(false)
   const [taskActionPendingId, setTaskActionPendingId] = useState<string | null>(null)
   const [taskActionError, setTaskActionError] = useState('')
@@ -58,8 +58,6 @@ export default function App() {
     fetchDevices()
       .then(({ ok, radars, subs }) => {
         if (!ok) {
-          setDevices([])
-          setSubDevices([])
           setDeviceRegistryStatus('unavailable')
           return
         }
@@ -68,20 +66,22 @@ export default function App() {
         setDeviceRegistryStatus('available')
       })
       .catch(() => {
-        setDevices([])
-        setSubDevices([])
         setDeviceRegistryStatus('unavailable')
       })
 
     fetchTasksFromBackend()
       .then(({ ok, tasks: loaded, activeTaskId: activeId }) => {
+        if (!ok) {
+          setTasksBackend(false)
+          return
+        }
         setTasks(loaded)
         setActiveTaskId(activeId)
         setViewTaskRunId(prev => {
           if (prev && loaded.some(t => t.id === prev)) return prev
           return activeId
         })
-        setTasksBackend(ok)
+        setTasksBackend(true)
       })
       .catch(() => setTasksBackend(false))
       .finally(() => setTasksReady(true))
@@ -143,11 +143,16 @@ export default function App() {
 
   const syncTaskDevices = useCallback(async (taskId: string, deviceIds: string[]) => {
     if (!tasksBackend) {
-      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, deviceIds } : t))
-      return true
+      setTaskActionError('核心服务未连接，无法修改任务设备')
+      return false
     }
     const r = await updateTaskApi(taskId, { deviceIds })
-    if (!r.ok) { console.warn('[tasks] 更新任务设备失败:', r.error); return false }
+    if (!r.ok) {
+      const error = r.error || '更新任务设备失败'
+      console.warn('[tasks] 更新任务设备失败:', error)
+      setTaskActionError(error)
+      return false
+    }
     if (r.data?.task) {
       const updated = apiTaskToTask(r.data.task)
       setTasks(prev => prev.map(t => t.id === taskId ? updated : t))
@@ -158,12 +163,10 @@ export default function App() {
   const createTask = useCallback(async (data: Omit<Task, 'id' | 'createdAt' | 'status'>): Promise<TaskCreateResult> => {
     setTaskActionError('')
     if (!tasksBackend) {
-      const task: Task = { ...data, id: `task_${Date.now()}`, status: 'active', createdAt: Date.now() }
-      setTasks(prev => [...prev, task])
-      setActiveTaskId(task.id)
-      setViewTaskRunId(task.id)
-      setShowTaskDialog(false)
-      return { ok: true }
+      return { ok: false, error: '核心服务未连接，无法创建任务' }
+    }
+    if (activeTaskIdRef.current) {
+      return { ok: false, error: '已有进行中的任务，请先完成当前任务' }
     }
     const created = await createTaskApi(taskToApiPayload(data))
     if (!created.ok || !created.data?.task) {
@@ -175,7 +178,6 @@ export default function App() {
       console.warn('[tasks] 激活失败:', activated.error)
       const draftTask = apiTaskToTask(created.data.task)
       setTasks(prev => prev.some(t => t.id === draftTask.id) ? prev.map(t => t.id === draftTask.id ? draftTask : t) : [...prev, draftTask])
-      setViewTaskRunId(draftTask.id)
       return { ok: false, error: `任务已创建为草稿，但激活失败：${activated.error || '请确认任务已绑定可控雷达'}` }
     }
     const task = apiTaskToTask(activated.data.task)
@@ -192,21 +194,7 @@ export default function App() {
     setTaskActionError('')
     try {
       if (!tasksBackend) {
-        const source = tasksRef.current.find(t => t.id === sourceTaskId)
-        if (!source) throw new Error('历史任务不存在')
-        const task: Task = {
-          ...source,
-          id: `task_${Date.now()}`,
-          status: 'active',
-          createdAt: Date.now(),
-          activatedAt: Date.now(),
-          completedAt: undefined,
-          archivedAt: undefined,
-        }
-        setTasks(prev => [task, ...prev])
-        setActiveTaskId(task.id)
-        setViewTaskRunId(task.id)
-        return
+        throw new Error('核心服务未连接，无法再次执行任务')
       }
 
       const r = await rerunTaskApi(sourceTaskId)
@@ -226,16 +214,19 @@ export default function App() {
   const completeTask = useCallback(async () => {
     const id = activeTaskIdRef.current
     if (!id) return
-    if (tasksBackend) {
-      const r = await completeTaskApi(id)
-      if (!r.ok) { console.warn('[tasks] 完成任务失败:', r.error); return }
-      if (r.data?.task) {
-        const updated = apiTaskToTask(r.data.task)
-        setTasks(prev => prev.map(t => t.id === id ? updated : t))
-      }
-    } else {
-      setTasks(prev => prev.map(t =>
-        t.id === id ? { ...t, status: 'completed' as const, completedAt: Date.now() } : t))
+    setTaskActionError('')
+    if (!tasksBackend) {
+      setTaskActionError('核心服务未连接，无法完成任务')
+      return
+    }
+    const r = await completeTaskApi(id)
+    if (!r.ok) {
+      setTaskActionError(r.error || '完成任务失败')
+      return
+    }
+    if (r.data?.task) {
+      const updated = apiTaskToTask(r.data.task)
+      setTasks(prev => prev.map(t => t.id === id ? updated : t))
     }
     setActiveTaskId(null)
     setViewTaskRunId(id)
@@ -243,15 +234,15 @@ export default function App() {
 
   const archiveTask = useCallback(async (taskId: string) => {
     setTaskActionError('')
-    if (tasksBackend) {
-      const r = await archiveTaskApi(taskId)
-      if (!r.ok) { setTaskActionError(r.error || '归档失败'); return }
-      if (r.data?.task) {
-        const updated = apiTaskToTask(r.data.task)
-        setTasks(prev => prev.map(t => t.id === taskId ? updated : t))
-      }
-    } else {
-      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'archived' as const } : t))
+    if (!tasksBackend) {
+      setTaskActionError('核心服务未连接，无法归档任务')
+      return
+    }
+    const r = await archiveTaskApi(taskId)
+    if (!r.ok) { setTaskActionError(r.error || '归档失败'); return }
+    if (r.data?.task) {
+      const updated = apiTaskToTask(r.data.task)
+      setTasks(prev => prev.map(t => t.id === taskId ? updated : t))
     }
     if (activeTaskIdRef.current === taskId) setActiveTaskId(null)
     if (viewTaskRunId === taskId) {
@@ -264,10 +255,12 @@ export default function App() {
     if (task?.status === 'archived'
         && !window.confirm(`永久删除“${task.name}”及其全部历史航迹和事件？此操作不可恢复。`)) return
     setTaskActionError('')
-    if (tasksBackend) {
-      const r = await deleteTaskApi(taskId)
-      if (!r.ok) { setTaskActionError(r.error || '删除失败'); return }
+    if (!tasksBackend) {
+      setTaskActionError('核心服务未连接，无法删除任务')
+      return
     }
+    const r = await deleteTaskApi(taskId)
+    if (!r.ok) { setTaskActionError(r.error || '删除失败'); return }
     setTasks(prev => prev.filter(t => t.id !== taskId))
     if (activeTaskIdRef.current === taskId) setActiveTaskId(null)
     if (viewTaskRunId === taskId) {
@@ -300,13 +293,11 @@ export default function App() {
     const r = await deleteDeviceApi(id)
     if (!r.ok) { console.warn('[devices] 删除失败:', r.error); return false }
     setDevices(prev => prev.filter(d => d.id !== id))
-    setSubDevices(prev => prev.filter(s => s.linkedRadarId !== id))
-    for (const t of tasksRef.current) {
-      if (t.deviceIds.includes(id))
-        await syncTaskDevices(t.id, t.deviceIds.filter(did => did !== id))
-    }
+    setTasks(prev => prev.map(t => t.deviceIds.includes(id)
+      ? { ...t, deviceIds: t.deviceIds.filter(deviceId => deviceId !== id) }
+      : t))
     return true
-  }, [syncTaskDevices])
+  }, [])
 
   const addSubDevice = useCallback(async (d: Omit<SubDevice, 'id'>) => {
     const r = await createDevice(subToApiPayload('', d as SubDevice))
@@ -328,12 +319,11 @@ export default function App() {
     const r = await deleteDeviceApi(id)
     if (!r.ok) { console.warn('[devices] 删除子设备失败:', r.error); return false }
     setSubDevices(prev => prev.filter(s => s.id !== id))
-    for (const t of tasksRef.current) {
-      if (t.deviceIds.includes(id))
-        await syncTaskDevices(t.id, t.deviceIds.filter(did => did !== id))
-    }
+    setTasks(prev => prev.map(t => t.deviceIds.includes(id)
+      ? { ...t, deviceIds: t.deviceIds.filter(deviceId => deviceId !== id) }
+      : t))
     return true
-  }, [syncTaskDevices])
+  }, [])
 
   const [editingDevice, setEditingDevice] = useState<AppDevice | null>(null)
 

@@ -79,7 +79,7 @@ void TrackDisplayWebBridge::pushSnapshot(const TrackDisplaySnapshot& snap)
     QJsonArray tracks;
     for (const auto& dp : snap.tracks) {
         QJsonObject t;
-        t[QStringLiteral("trackId")]     = static_cast<int>(dp.trackId);
+        t[QStringLiteral("trackId")]     = static_cast<qint64>(dp.trackId);
         t[QStringLiteral("deviceId")]    = dp.deviceId;
         t[QStringLiteral("taskId")]      = dp.taskId;
         t[QStringLiteral("timestamp")]   = dp.timestamp;
@@ -88,7 +88,7 @@ void TrackDisplayWebBridge::pushSnapshot(const TrackDisplaySnapshot& snap)
         t[QStringLiteral("elevation")]   = dp.elevation;
         t[QStringLiteral("radialSpeed")] = dp.radialSpeed;
         t[QStringLiteral("altitude")]    = dp.altitude;
-        t[QStringLiteral("pointIndex")]  = static_cast<int>(dp.pointIndex);
+        t[QStringLiteral("pointIndex")]  = static_cast<qint64>(dp.pointIndex);
         // 实时层不需要 x/y/z/rcs；style 仅绿点段下发，interaction 仅非默认时下发
         if (dp.pointIndex >= 3) {
             QJsonObject style;

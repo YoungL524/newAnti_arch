@@ -105,3 +105,34 @@ set_target_properties(tst_HttpParser PROPERTIES
 
 add_test(NAME HttpParser
          COMMAND tst_HttpParser)
+
+# ----- TaskService / DeviceRegistry 领域约束测试 -----
+add_executable(tst_TaskService
+    tst_TaskService.cpp
+    ${CMAKE_SOURCE_DIR}/core/business/TaskService.cpp
+    ${CMAKE_SOURCE_DIR}/core/business/TaskService.h
+    ${CMAKE_SOURCE_DIR}/core/business/DeviceRegistry.cpp
+    ${CMAKE_SOURCE_DIR}/core/business/DeviceRegistry.h
+    ${CMAKE_SOURCE_DIR}/core/data/DataStore.cpp
+    ${CMAKE_SOURCE_DIR}/core/data/DataStore.h
+)
+
+target_include_directories(tst_TaskService PRIVATE
+    ${CMAKE_SOURCE_DIR}/core
+    ${CMAKE_SOURCE_DIR}/core/business
+    ${CMAKE_SOURCE_DIR}/core/data
+)
+
+target_link_libraries(tst_TaskService PRIVATE
+    Qt5::Core
+    Qt5::Sql
+    Qt5::Test
+)
+
+set_target_properties(tst_TaskService PROPERTIES
+    WIN32_EXECUTABLE OFF
+    MACOSX_BUNDLE OFF
+)
+
+add_test(NAME TaskService
+         COMMAND tst_TaskService)

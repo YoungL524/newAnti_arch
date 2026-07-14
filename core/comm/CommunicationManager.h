@@ -20,7 +20,7 @@ public:
 
     bool sendTo(const QString& endpointId, const QString& targetKey, const QByteArray& data);
 
-    void startAll();
+    bool startAll();
     void stopAll();
 
     int endpointCount() const { return m_endpoints.size(); }

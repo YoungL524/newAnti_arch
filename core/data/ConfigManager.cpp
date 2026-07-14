@@ -6,6 +6,7 @@
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QDebug>
+#include <QSaveFile>
 
 bool ConfigManager::loadConfigDir(const QString& hint)
 {
@@ -67,15 +68,19 @@ bool ConfigManager::saveConfig(const QString& name, const QJsonObject& config)
 {
     QString filePath = configFilePath(name);
 
-    QFile file(filePath);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    QSaveFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly)) {
         qWarning() << QStringLiteral("[ConfigManager] 无法写入: %1").arg(filePath);
         return false;
     }
 
     QJsonDocument doc(config);
-    file.write(doc.toJson(QJsonDocument::Indented));
-    file.close();
+    const QByteArray content = doc.toJson(QJsonDocument::Indented);
+    if (file.write(content) != content.size() || !file.commit()) {
+        qWarning() << QStringLiteral("[ConfigManager] 原子写入失败: %1 - %2")
+                         .arg(filePath, file.errorString());
+        return false;
+    }
 
     // 更新缓存
     m_cache.insert(name, config);

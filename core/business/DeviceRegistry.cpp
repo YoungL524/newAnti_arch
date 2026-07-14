@@ -6,8 +6,24 @@
 
 static const QString kTable = QStringLiteral("devices");
 
+static QString activeTaskIdForDevice(DataStore* store, const QString& deviceId)
+{
+    if (!store || deviceId.isEmpty()
+        || !store->tableExists(QStringLiteral("tasks"))
+        || !store->tableExists(QStringLiteral("task_devices"))) {
+        return {};
+    }
+    const auto rows = store->query(
+        QStringLiteral("SELECT t.id FROM task_devices td "
+                       "JOIN tasks t ON t.id = td.task_id "
+                       "WHERE td.device_id = ? AND t.status = 'Active' LIMIT 1"),
+        {deviceId});
+    return rows.isEmpty() ? QString() : rows.first().value(QStringLiteral("id")).toString();
+}
+
 static bool migrateEndpointBinding(DataStore* store, const QString& endpointId, const QString& keepDeviceId,
-                                   QStringList* migratedOut = nullptr)
+                                   QStringList* migratedOut = nullptr,
+                                   QString* errorOut = nullptr)
 {
     QStringList migrated;
     if (!store || endpointId.isEmpty()) {
@@ -19,6 +35,15 @@ static bool migrateEndpointBinding(DataStore* store, const QString& endpointId, 
         {endpointId, keepDeviceId});
     for (const auto& row : rows) {
         const QString id = row.value(QStringLiteral("id")).toString();
+        const QString activeTaskId = activeTaskIdForDevice(store, id);
+        if (!activeTaskId.isEmpty()) {
+            if (migratedOut) migratedOut->clear();
+            if (errorOut) {
+                *errorOut = QStringLiteral("端点 %1 正被活动任务 %2 的设备 %3 使用，不能迁移")
+                                .arg(endpointId, activeTaskId, id);
+            }
+            return false;
+        }
         migrated.append(id);
         qDebug() << "[DeviceRegistry] endpointId" << endpointId
                  << "从设备" << id << "迁移到" << keepDeviceId;
@@ -66,9 +91,19 @@ static bool dedupeLegacyEndpointBindings(DataStore* store)
         }
 
         if (!radars.isEmpty()) {
-            keepId = radars.first().value(QStringLiteral("id")).toString();
-            for (int i = 1; i < radars.size(); ++i)
-                toClear.append(radars[i].value(QStringLiteral("id")).toString());
+            int keepIndex = 0;
+            for (int i = 0; i < radars.size(); ++i) {
+                const QString candidateId = radars[i].value(QStringLiteral("id")).toString();
+                if (!activeTaskIdForDevice(store, candidateId).isEmpty()) {
+                    keepIndex = i;
+                    break;
+                }
+            }
+            keepId = radars[keepIndex].value(QStringLiteral("id")).toString();
+            for (int i = 0; i < radars.size(); ++i) {
+                if (i != keepIndex)
+                    toClear.append(radars[i].value(QStringLiteral("id")).toString());
+            }
         } else {
             for (const auto& dev : allBound)
                 toClear.append(dev.value(QStringLiteral("id")).toString());
@@ -305,16 +340,23 @@ bool DeviceRegistry::validateDeviceWrite(const DeviceInfo& dev)
 }
 
 bool DeviceRegistry::create(const DeviceInfo& dev) {
-    if (!m_store) return false;
-    if (!validateDeviceWrite(dev))
+    m_lastError.clear();
+    if (!m_store) {
+        m_lastError = QStringLiteral("设备存储未初始化");
         return false;
+    }
+    if (!validateDeviceWrite(dev)) {
+        m_lastError = QStringLiteral("设备字段不符合写入约束");
+        return false;
+    }
     m_lastMigratedDeviceIds.clear();
     if (!m_store->beginTransaction())
         return false;
 
     bool ok = true;
     if (!dev.endpointId.isEmpty() && dev.kind == DeviceKind::Radar)
-        ok = migrateEndpointBinding(m_store, dev.endpointId, dev.id, &m_lastMigratedDeviceIds);
+        ok = migrateEndpointBinding(m_store, dev.endpointId, dev.id,
+                                    &m_lastMigratedDeviceIds, &m_lastError);
 
     DeviceInfo d = dev;
     qint64 now = QDateTime::currentMSecsSinceEpoch();
@@ -328,6 +370,8 @@ bool DeviceRegistry::create(const DeviceInfo& dev) {
         return true;
     }
     m_store->rollbackTransaction();
+    if (m_lastError.isEmpty())
+        m_lastError = QStringLiteral("创建设备失败");
     return false;
 }
 
@@ -347,19 +391,41 @@ std::optional<DeviceInfo> DeviceRegistry::createAssigningId(DeviceInfo dev)
 }
 
 bool DeviceRegistry::update(const DeviceInfo& dev) {
-    if (!m_store) return false;
-    if (!get(dev.id).has_value()) return false;
-    if (!validateDeviceWrite(dev))
+    m_lastError.clear();
+    if (!m_store) {
+        m_lastError = QStringLiteral("设备存储未初始化");
         return false;
+    }
+    const auto existing = get(dev.id);
+    if (!existing.has_value()) {
+        m_lastError = QStringLiteral("设备不存在");
+        return false;
+    }
+    if (!validateDeviceWrite(dev)) {
+        m_lastError = QStringLiteral("设备字段不符合写入约束");
+        return false;
+    }
+    if (existing->kind == DeviceKind::Radar && !existing->endpointId.isEmpty()
+        && dev.endpointId.isEmpty()) {
+        const QString activeTaskId = activeTaskIdForDevice(m_store, dev.id);
+        if (!activeTaskId.isEmpty()) {
+            m_lastError = QStringLiteral("设备正被活动任务 %1 使用，不能解除通信端点")
+                              .arg(activeTaskId);
+            return false;
+        }
+    }
     m_lastMigratedDeviceIds.clear();
     if (!m_store->beginTransaction())
         return false;
 
     bool ok = true;
     if (!dev.endpointId.isEmpty() && dev.kind == DeviceKind::Radar)
-        ok = migrateEndpointBinding(m_store, dev.endpointId, dev.id, &m_lastMigratedDeviceIds);
+        ok = migrateEndpointBinding(m_store, dev.endpointId, dev.id,
+                                    &m_lastMigratedDeviceIds, &m_lastError);
 
     DeviceInfo d = dev;
+    d.createdAt = existing->createdAt;
+    d.status = existing->status;
     d.updatedAt = QDateTime::currentMSecsSinceEpoch();
     auto vm = d.toVariantMap();
     QStringList setClauses;
@@ -381,14 +447,53 @@ bool DeviceRegistry::update(const DeviceInfo& dev) {
         return true;
     }
     m_store->rollbackTransaction();
+    if (m_lastError.isEmpty())
+        m_lastError = QStringLiteral("更新设备失败");
     return false;
 }
 
 bool DeviceRegistry::remove(const QString& id) {
-    if (!m_store) return false;
-    if (!get(id).has_value()) return false;  // device not found
-    if (!m_store->beginTransaction())
+    m_lastError.clear();
+    if (!m_store) {
+        m_lastError = QStringLiteral("设备存储未初始化");
         return false;
+    }
+    const auto existing = get(id);
+    if (!existing.has_value()) {
+        m_lastError = QStringLiteral("设备不存在");
+        return false;
+    }
+
+    if (existing->kind == DeviceKind::Radar) {
+        const auto linked = m_store->query(
+            QStringLiteral("SELECT id FROM devices WHERE linked_radar_id = ? LIMIT 1"), {id});
+        if (!linked.isEmpty()) {
+            m_lastError = QStringLiteral("雷达仍有关联子设备 %1，请先解除或删除子设备")
+                              .arg(linked.first().value(QStringLiteral("id")).toString());
+            return false;
+        }
+    }
+
+    if (m_store->tableExists(QStringLiteral("tasks"))
+        && m_store->tableExists(QStringLiteral("task_devices"))) {
+        const auto references = m_store->query(
+            QStringLiteral("SELECT t.id, t.status FROM task_devices td "
+                           "JOIN tasks t ON t.id = td.task_id WHERE td.device_id = ?"),
+            {id});
+        for (const auto& reference : references) {
+            const QString status = reference.value(QStringLiteral("status")).toString();
+            if (status != QStringLiteral("Draft")) {
+                m_lastError = QStringLiteral("设备已被任务 %1 引用（状态 %2），不能硬删除")
+                                  .arg(reference.value(QStringLiteral("id")).toString(), status);
+                return false;
+            }
+        }
+    }
+
+    if (!m_store->beginTransaction()) {
+        m_lastError = QStringLiteral("无法开始删除事务");
+        return false;
+    }
     bool ok = m_store->execute(
                   QStringLiteral("DELETE FROM task_devices WHERE device_id = ?"), {id})
               && m_store->execute(
@@ -396,11 +501,13 @@ bool DeviceRegistry::remove(const QString& id) {
     if (ok) {
         if (!m_store->commitTransaction()) {
             m_store->rollbackTransaction();
+            m_lastError = QStringLiteral("删除事务提交失败");
             return false;
         }
         refreshEndpointCache();
         return true;
     }
     m_store->rollbackTransaction();
+    m_lastError = QStringLiteral("删除设备失败");
     return false;
 }

@@ -192,7 +192,7 @@ void WebApiController::registerRestRoutes()
     // 航迹交互命令：校验 REST 请求后发布 TrackInteractionCommand 到总线。
     // 成功响应 ok/accepted/mode=queued 仅表示命令已入队，不代表 Manager 已应用；
     // 最终 interaction 状态以 WebSocket tracks snapshot 为准（见 05-核心流程 §2）。
-    auto handleTrackInteraction = [](const QString& suffix, const QJsonObject& body) -> std::optional<QJsonObject> {
+    auto handleTrackInteraction = [this](const QString& suffix, const QJsonObject& body) -> std::optional<QJsonObject> {
         const auto parts = suffix.split(QChar('/'), Qt::SkipEmptyParts);
         if (parts.size() != 4
          || parts[1] != QStringLiteral("tracks")
@@ -214,7 +214,16 @@ void WebApiController::registerRestRoutes()
         const bool trackingEnabled = body.value(QStringLiteral("trackingEnabled")).toBool();
         const uint32_t trackId = static_cast<uint32_t>(trackId64);
 
+        if (!m_taskService)
+            return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("任务服务未初始化")}};
+        const auto activeTask = m_taskService->getActiveTask();
+        if (!activeTask.has_value())
+            return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("当前无激活任务")}};
+        if (!m_taskService->isDeviceInActiveTask(deviceId))
+            return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("设备不属于当前激活任务")}};
+
         auto cmd = std::make_shared<TrackInteractionCommand>();
+        cmd->taskId = activeTask->id;
         cmd->deviceId = deviceId;
         cmd->trackId = trackId;
         cmd->selected = selected;
@@ -227,6 +236,7 @@ void WebApiController::registerRestRoutes()
         }
 
         QJsonObject interaction;
+        interaction[QStringLiteral("taskId")] = activeTask->id;
         interaction[QStringLiteral("deviceId")] = deviceId;
         interaction[QStringLiteral("trackId")] = static_cast<qint64>(trackId);
         interaction[QStringLiteral("selected")] = selected;
@@ -314,7 +324,9 @@ void WebApiController::registerRestRoutes()
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), err}};
             auto created = m_deviceReg->createAssigningId(d);
             if (!created.has_value())
-                return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("创建设备失败")}};
+                return QJsonObject{{QStringLiteral("ok"), false},
+                                   {QStringLiteral("error"), m_deviceReg->lastError().isEmpty()
+                                        ? QStringLiteral("创建设备失败") : m_deviceReg->lastError()}};
             QJsonObject r;
             r[QStringLiteral("ok")] = true;
             r[QStringLiteral("device")] = deviceInfoToJson(created.value());
@@ -354,7 +366,9 @@ void WebApiController::registerRestRoutes()
                     for (const auto& id : migrated) arr.append(id);
                     r[QStringLiteral("migratedDeviceIds")] = arr;
                 }
-            }
+            } else
+                r[QStringLiteral("error")] = m_deviceReg->lastError().isEmpty()
+                    ? QStringLiteral("更新设备失败") : m_deviceReg->lastError();
             return r;
         });
 
@@ -364,7 +378,11 @@ void WebApiController::registerRestRoutes()
             if (!m_deviceReg->get(suffix).has_value())
                 return QJsonObject{{QStringLiteral("ok"), false}, {QStringLiteral("error"), QStringLiteral("设备不存在")}};
             bool ok = m_deviceReg->remove(suffix);
-            return QJsonObject{{QStringLiteral("ok"), ok}};
+            QJsonObject result{{QStringLiteral("ok"), ok}};
+            if (!ok)
+                result[QStringLiteral("error")] = m_deviceReg->lastError().isEmpty()
+                    ? QStringLiteral("删除设备失败") : m_deviceReg->lastError();
+            return result;
         });
     }
 

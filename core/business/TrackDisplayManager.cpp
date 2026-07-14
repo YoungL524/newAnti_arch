@@ -10,6 +10,7 @@
 #include <memory>
 
 static constexpr int kMaxSnapshotPoints = 600;
+static constexpr int kMaxCachedPointsAcrossTracks = 50000;
 static constexpr int kSnapshotIntervalMs = 1000;
 static constexpr qint64 kTrackStaleMs = 5000;
 
@@ -57,8 +58,16 @@ void TrackDisplayManager::stop()
 void TrackDisplayManager::clear()
 {
     m_timer->stop();
+    resetCacheState();
+}
+
+void TrackDisplayManager::resetCacheState()
+{
     m_caches.clear();
     m_interactions.clear();
+    m_pointOrder.clear();
+    m_nextPointSequence = 0;
+    m_cachedPointCount = 0;
 }
 
 void TrackDisplayManager::setTaskService(TaskService* taskService)
@@ -82,8 +91,7 @@ void TrackDisplayManager::syncActiveTaskContext()
         return;
     m_activeTaskId = activeId;
     m_activeDeviceIds = activeDevices;
-    m_caches.clear();
-    m_interactions.clear();
+    resetCacheState();
 }
 
 bool TrackDisplayManager::isPointVisible(const TrackPoint& pt) const
@@ -110,12 +118,33 @@ void TrackDisplayManager::addPoint(const TrackPoint& pt)
         m_interactions[key] = TrackDisplayPoint::Interaction{};
 
     auto& cache = m_caches[key];
-    cache.points.append({scoped, cache.nextPointIndex++});
+    const uint64_t sequence = m_nextPointSequence++;
+    cache.points.push_back({scoped, cache.nextPointIndex++, sequence});
     cache.lastUpdateMs = scoped.timestampMs;
+    m_pointOrder.push_back({key, sequence});
+    ++m_cachedPointCount;
+    enforceGlobalCacheBudget();
 
-    if (cache.points.isEmpty()) {
-        m_caches.remove(key);
-        m_interactions.remove(key);
+}
+
+void TrackDisplayManager::enforceGlobalCacheBudget()
+{
+    while (m_cachedPointCount > kMaxCachedPointsAcrossTracks && !m_pointOrder.empty()) {
+        const PointOrderEntry oldest = m_pointOrder.front();
+        m_pointOrder.pop_front();
+
+        auto cacheIt = m_caches.find(oldest.key);
+        if (cacheIt == m_caches.end() || cacheIt->points.empty()
+            || cacheIt->points.front().sequence != oldest.sequence) {
+            continue;
+        }
+
+        cacheIt->points.pop_front();
+        --m_cachedPointCount;
+        if (cacheIt->points.empty()) {
+            m_caches.erase(cacheIt);
+            m_interactions.remove(oldest.key);
+        }
     }
 }
 
@@ -127,8 +156,23 @@ void TrackDisplayManager::pruneStaleTracks(qint64 nowMs)
             toRemove.append(it.key());
     }
     for (const auto& key : toRemove) {
-        m_caches.remove(key);
+        auto cacheIt = m_caches.find(key);
+        if (cacheIt != m_caches.end()) {
+            m_cachedPointCount -= static_cast<int>(cacheIt->points.size());
+            m_caches.erase(cacheIt);
+        }
         m_interactions.remove(key);
+    }
+    if (!toRemove.isEmpty()) {
+        QSet<TrackKey> removed;
+        for (const auto& key : toRemove)
+            removed.insert(key);
+        std::deque<PointOrderEntry> kept;
+        for (const auto& entry : m_pointOrder) {
+            if (!removed.contains(entry.key))
+                kept.push_back(entry);
+        }
+        m_pointOrder.swap(kept);
     }
 }
 
@@ -171,6 +215,7 @@ TrackDisplaySnapshot TrackDisplayManager::snapshot(qint64 nowMs) const
         qint64 ts;
     };
     QVector<Candidate> candidates;
+    candidates.reserve(m_cachedPointCount);
 
     for (auto it = m_caches.begin(); it != m_caches.end(); ++it) {
         const auto& key = it.key();
@@ -205,10 +250,13 @@ TrackDisplaySnapshot TrackDisplayManager::snapshot(qint64 nowMs) const
         }
     }
 
-    std::sort(candidates.begin(), candidates.end(),
-              [](const Candidate& a, const Candidate& b) { return a.ts > b.ts; });
-    if (candidates.size() > kMaxSnapshotPoints)
+    if (candidates.size() > kMaxSnapshotPoints) {
+        std::nth_element(candidates.begin(),
+                         candidates.begin() + kMaxSnapshotPoints,
+                         candidates.end(),
+                         [](const Candidate& a, const Candidate& b) { return a.ts > b.ts; });
         candidates.resize(kMaxSnapshotPoints);
+    }
 
     std::sort(candidates.begin(), candidates.end(),
               [](const Candidate& a, const Candidate& b) { return a.ts < b.ts; });
@@ -220,14 +268,28 @@ TrackDisplaySnapshot TrackDisplayManager::snapshot(qint64 nowMs) const
 }
 
 void TrackDisplayManager::setInteraction(
-    const QString& deviceId, uint32_t trackId,
+    const QString& taskId, const QString& deviceId, uint32_t trackId,
     bool selected, bool trackingEnabled)
 {
+    syncActiveTaskContext();
+    if (taskId.isEmpty() || taskId != m_activeTaskId
+        || !m_activeDeviceIds.contains(deviceId)) {
+        qWarning() << "[TrackDisplayManager] 忽略非当前任务的航迹交互命令:"
+                   << taskId << deviceId << trackId;
+        return;
+    }
+
     TrackKey key{deviceId, trackId};
+    const auto cacheIt = m_caches.constFind(key);
+    if (cacheIt == m_caches.constEnd() || cacheIt->points.empty()) {
+        qWarning() << "[TrackDisplayManager] 忽略不存在航迹的交互命令:"
+                   << taskId << deviceId << trackId;
+        return;
+    }
+
     auto& interaction = m_interactions[key];
     interaction.selected = selected;
     interaction.trackingEnabled = trackingEnabled;
-    syncActiveTaskContext();
     deliverSnapshot(snapshot(QDateTime::currentMSecsSinceEpoch()));
 }
 
@@ -245,7 +307,7 @@ void TrackDisplayManager::onInteractionCommand(const BusEnvelope& env)
     QMetaObject::invokeMethod(this, [guard, cmdPtr]() {
         if (!guard || !guard->m_acceptCommands.load(std::memory_order_acquire))
             return;
-        guard->setInteraction(cmdPtr->deviceId, cmdPtr->trackId,
+        guard->setInteraction(cmdPtr->taskId, cmdPtr->deviceId, cmdPtr->trackId,
                               cmdPtr->selected, cmdPtr->trackingEnabled);
     }, Qt::QueuedConnection);
 }

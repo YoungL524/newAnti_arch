@@ -5,6 +5,7 @@
 #include <QtTest>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QTemporaryDir>
 #include "ConfigManager.h"
 
 class TestConfigManager : public QObject {
@@ -115,6 +116,21 @@ private slots:
         QJsonObject cfg;
         auto errors = ConfigManager::validateConfig("unknown", cfg);
         QVERIFY(errors.isEmpty());
+    }
+
+    void saveConfig_roundTripsThroughAtomicFile() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+
+        ConfigManager manager;
+        QVERIFY(manager.loadConfigDir(dir.path()));
+        QJsonObject cfg;
+        cfg["value"] = 42;
+        cfg["name"] = "atomic";
+
+        QVERIFY(manager.saveConfig("roundtrip", cfg));
+        manager.clearCache();
+        QCOMPARE(manager.getConfig("roundtrip"), cfg);
     }
 };
 

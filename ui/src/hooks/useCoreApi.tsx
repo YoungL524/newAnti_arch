@@ -122,7 +122,6 @@ export function CoreProvider({
   const checkedUserOverrideRef = useRef(false)
   const lastCheckedInitKeyRef = useRef('')
   const prevActiveTaskIdForCheckRef = useRef<string | null | undefined>(undefined)
-  const taskIdFallbackWarnCountRef = useRef(0)
   activeTaskIdRef.current = activeTaskId ?? null
   activeTaskDeviceIdsRef.current = activeTaskDeviceIds
   tasksReadyRef.current = tasksReady
@@ -199,6 +198,11 @@ export function CoreProvider({
   // REST 成功（mode=queued）仅表示命令已发布到总线；权威 interaction 状态以 WS snapshot 为准。
   // pendingInteractionRef 做乐观覆盖，待 snapshot 回推一致后清除。
   const setTrackInteraction = useCallback(async (deviceId: string, trackId: number, selected: boolean, trackingEnabled: boolean): Promise<boolean> => {
+    if (isHistoryView || !activeTaskIdRef.current) {
+      setState(prev => ({ ...prev, interactionError: '历史记录为只读，当前没有可操作的实时任务' }))
+      return false
+    }
+
     const key = `${deviceId}:${trackId}`
     const interaction = { selected, trackingEnabled }
     pendingInteractionRef.current.set(key, interaction)
@@ -213,22 +217,35 @@ export function CoreProvider({
       })
       const data = await safeJsonParse(res)
       if (!data?.ok) {
-        pendingInteractionRef.current.delete(key)
-        flushTracksToState()
+        if (pendingInteractionRef.current.get(key) === interaction) {
+          pendingInteractionRef.current.delete(key)
+          flushTracksToState()
+        }
         const msg = data?.error || `HTTP ${res.status}`
         console.warn('[interaction]', msg)
         setState(prev => ({ ...prev, interactionError: `航迹交互失败: ${msg}` }))
         return false
       }
+      window.setTimeout(() => {
+        if (pendingInteractionRef.current.get(key) !== interaction) return
+        pendingInteractionRef.current.delete(key)
+        flushTracksToState()
+        setState(prev => ({
+          ...prev,
+          interactionError: '航迹交互未收到实时快照确认，已撤销临时显示状态',
+        }))
+      }, 5000)
       return true
     } catch {
-      pendingInteractionRef.current.delete(key)
-      flushTracksToState()
+      if (pendingInteractionRef.current.get(key) === interaction) {
+        pendingInteractionRef.current.delete(key)
+        flushTracksToState()
+      }
       console.warn('[interaction]', '网络错误')
       setState(prev => ({ ...prev, interactionError: '航迹交互失败: 网络错误' }))
       return false
     }
-  }, [flushTracksToState])
+  }, [flushTracksToState, isHistoryView])
 
   // 同步 workingRef / stateRef 与 state
   useEffect(() => { workingRef.current = state.acquisition }, [state.acquisition])
@@ -452,7 +469,7 @@ export function CoreProvider({
 
     ;(async () => {
       const [tracksRes, eventsRes, logsRes] = await Promise.all([
-        fetchTrackHistory({ taskId: historyTaskId, limit: 1000, order: 'asc' }),
+        fetchTrackHistory({ taskId: historyTaskId, limit: 1000, order: 'desc' }),
         fetchSystemEvents({ taskId: historyTaskId, limit: 200 }),
         fetchTaskLogs(historyTaskId),
       ])
@@ -465,7 +482,9 @@ export function CoreProvider({
 
       setState(prev => ({
         ...prev,
-        historyTracks: tracksRes.ok ? tracksRes.tracks : [],
+        historyTracks: tracksRes.ok
+          ? [...tracksRes.tracks].sort((a, b) => a.tsMs - b.tsMs)
+          : [],
         systemEvents: eventsRes.ok ? eventsRes.events : [],
         historyLogs: logsRes.ok ? (logsRes.logs ?? []) : [],
         historyLoading: false,
@@ -522,17 +541,10 @@ export function CoreProvider({
       if (!currentTaskId) {
         notice = '当前无激活任务，航迹显示未启用'
       } else {
-        visibleTracks = msg.tracks.filter(t => {
-          if (t.taskId === currentTaskId) return true
-          if (!t.taskId && t.deviceId && taskDevices.has(t.deviceId)) {
-            taskIdFallbackWarnCountRef.current += 1
-            if (import.meta.env.DEV && taskIdFallbackWarnCountRef.current <= 3) {
-              console.warn('[tracks] taskId missing, fallback to deviceId', t.deviceId)
-            }
-            return true
-          }
-          return false
-        })
+        visibleTracks = msg.tracks.filter(t =>
+          t.taskId === currentTaskId
+          && typeof t.deviceId === 'string'
+          && taskDevices.has(t.deviceId))
       }
 
       if (import.meta.env.DEV && received > 0) {
@@ -571,9 +583,12 @@ export function CoreProvider({
           tr => tr.deviceId === devId && (tr.trackId ?? tr.batchId) === tid,
         )
         const pending = pendingInteractionRef.current.get(k)
-        if (head?.interaction && pending
-            && head.interaction.selected === pending.selected
-            && head.interaction.trackingEnabled === pending.trackingEnabled) {
+        const confirmed = head
+          ? (head.interaction ?? { selected: false, trackingEnabled: false })
+          : null
+        if (confirmed && pending
+            && confirmed.selected === pending.selected
+            && confirmed.trackingEnabled === pending.trackingEnabled) {
           pendingInteractionRef.current.delete(k)
         }
       }

@@ -13,8 +13,8 @@
 
 /**
  * @brief 系统总线实现类
- * @details 实现ISystemBus接口，作为数据高速公路的核心实现
- *          基于DDS发布订阅模式，提供高性能、线程安全的数据分发服务
+ * @details 实现ISystemBus接口，作为进程内数据分发核心。
+ *          借鉴 DDS 的发布订阅思想，但不实现 DDS 的发现、QoS 与线协议。
  *          支持基于数据源类型、分发目标和组合条件的灵活订阅机制
  */
 class SystemBus : public ISystemBus

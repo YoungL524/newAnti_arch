@@ -1,5 +1,4 @@
 import type { Task, TaskStatus } from './taskTypes'
-import { loadTasks, loadActiveTaskId } from './taskTypes'
 
 const BASE = '/api/tasks'
 
@@ -80,14 +79,19 @@ export function taskToApiPayload(data: {
 export async function fetchTasksFromBackend(): Promise<{ tasks: Task[]; activeTaskId: string | null } & ApiResult> {
   const listResult = await apiCall<TaskListData>(BASE)
   if (!listResult.ok || !listResult.data) {
-    return { ok: false, error: listResult.error, tasks: loadTasks(), activeTaskId: loadActiveTaskId() }
+    return { ok: false, error: listResult.error, tasks: [], activeTaskId: null }
+  }
+
+  const activeResult = await apiCall<ActiveTaskData>(`${BASE}/active`)
+  if (!activeResult.ok || !activeResult.data) {
+    return { ok: false, error: activeResult.error, tasks: [], activeTaskId: null }
   }
 
   const tasks = (listResult.data.tasks ?? []).map(apiTaskToTask)
-  const activeResult = await apiCall<ActiveTaskData>(`${BASE}/active`)
-  const activeTaskId = activeResult.ok && activeResult.data?.activeTaskId
-    ? activeResult.data.activeTaskId
-    : null
+  const activeTaskId = activeResult.data.activeTaskId ?? null
+  if (activeTaskId && activeResult.data.task && !tasks.some(task => task.id === activeTaskId)) {
+    tasks.unshift(apiTaskToTask(activeResult.data.task))
+  }
 
   return { ok: true, tasks, activeTaskId }
 }

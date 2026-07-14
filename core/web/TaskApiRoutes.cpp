@@ -97,8 +97,9 @@ void TaskApiRoutes::registerRoutes(web::WebService* ws, TaskService* taskService
         auto existing = taskService->get(suffix);
         if (!existing.has_value())
             return fail(QStringLiteral("任务不存在"));
-        if (existing->status == QString::fromUtf8(task::kStatusArchived))
-            return fail(QStringLiteral("invalid task status transition"));
+        if (existing->status == QString::fromUtf8(task::kStatusCompleted)
+            || existing->status == QString::fromUtf8(task::kStatusArchived))
+            return fail(QStringLiteral("已完成或已归档任务的执行配置不可修改"));
 
         task::TaskInfo t = existing.value();
         t.id = suffix;

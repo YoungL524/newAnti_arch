@@ -67,8 +67,8 @@ bool CommunicationManager::reloadEndpoints(const QVector<EndpointConfig>& config
             return false;
     }
 
-    if (openAfter)
-        startAll();
+    if (openAfter && !startAll())
+        return false;
     return true;
 }
 
@@ -87,16 +87,20 @@ bool CommunicationManager::sendTo(const QString& endpointId, const QString& targ
     return ep->send(targetKey, data);
 }
 
-void CommunicationManager::startAll()
+bool CommunicationManager::startAll()
 {
+    bool allOpened = true;
     for (auto it = m_endpoints.begin(); it != m_endpoints.end(); ++it) {
         if (!(*it)->isOpen()) {
             if (!(*it)->open()) {
                 qWarning() << QStringLiteral("[CommunicationManager] 端点 '%1' 打开失败").arg(it.key());
+                allOpened = false;
             }
         }
     }
-    qDebug() << QStringLiteral("[CommunicationManager] 所有端点已启动, 共 %1 个").arg(m_endpoints.size());
+    if (allOpened)
+        qDebug() << QStringLiteral("[CommunicationManager] 所有端点已启动, 共 %1 个").arg(m_endpoints.size());
+    return allOpened;
 }
 
 void CommunicationManager::stopAll()

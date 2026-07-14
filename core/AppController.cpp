@@ -847,14 +847,30 @@ bool AppController::updateEndpointsConfig(const QJsonObject& root, QString* erro
     if (configs.isEmpty())
         return setError(QStringLiteral("至少需要一个有效端点"));
 
-    if (!m_configManager.saveConfig(QStringLiteral("endpoints"), root))
-        return setError(QStringLiteral("写入 endpoints.json 失败"));
-
     if (!m_commManager)
         return setError(QStringLiteral("通信管理器未初始化"));
 
-    if (!m_commManager->reloadEndpoints(configs, m_running))
-        return setError(QStringLiteral("通信端点热重载失败"));
+    const QJsonObject previousRoot = endpointsConfigJson();
+    const QVector<EndpointConfig> previousConfigs =
+        EndpointConfigLoader::parseFromJsonObject(previousRoot);
+    auto rollbackRuntime = [this, &previousConfigs]() {
+        return !previousConfigs.isEmpty()
+            && m_commManager->reloadEndpoints(previousConfigs, m_running);
+    };
+
+    if (!m_commManager->reloadEndpoints(configs, m_running)) {
+        const bool restored = rollbackRuntime();
+        return setError(restored
+            ? QStringLiteral("通信端点热重载失败，已恢复原配置")
+            : QStringLiteral("通信端点热重载失败，且原配置恢复失败"));
+    }
+
+    if (!m_configManager.saveConfig(QStringLiteral("endpoints"), root)) {
+        const bool restored = rollbackRuntime();
+        return setError(restored
+            ? QStringLiteral("写入 endpoints.json 失败，运行时已恢复原配置")
+            : QStringLiteral("写入 endpoints.json 失败，且运行时原配置恢复失败"));
+    }
 
     qInfo().noquote() << QStringLiteral("[AppController] 端点配置已保存并重载，共 %1 个端点").arg(configs.size());
     return true;

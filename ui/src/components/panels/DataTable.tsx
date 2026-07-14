@@ -28,7 +28,7 @@ function renderCell(key: string, row: DeviceDataRow, deviceType: DeviceType): st
 }
 
 export default function DataTable({ deviceType, rows, isLive }: Props) {
-  const { setTrackInteraction } = useCore()
+  const { isHistoryView, setTrackInteraction } = useCore()
   const [filters, setFilters] = useState<Record<string, FilterValue>>({})
   const [filterOpen, setFilterOpen] = useState(false)
   const [userScrolled, setUserScrolled] = useState(false)
@@ -120,9 +120,8 @@ export default function DataTable({ deviceType, rows, isLive }: Props) {
               {columns.map((col) => (
                 <th
                   key={col.key}
-                  className="pt-1.5 pb-1.5 font-medium"
+                  className={`pt-1.5 pb-1.5 font-medium ${col.width ?? ''}`}
                   style={{
-                    width: col.width ? undefined : undefined,
                     textAlign: col.align ?? 'left',
                     paddingLeft: col.key === columns[0]?.key ? '1.25rem' : undefined,
                     paddingRight: col.key === columns[columns.length - 1]?.key ? '1.25rem' : undefined,
@@ -148,7 +147,7 @@ export default function DataTable({ deviceType, rows, isLive }: Props) {
                   className="group transition-colors hover:bg-stone-50"
                   style={{ borderTop: i > 0 ? '1px solid rgba(229,231,226,0.3)' : 'none' }}
                   onClick={() => {
-                    if (deviceType !== DeviceType.RADAR) return
+                    if (isHistoryView || deviceType !== DeviceType.RADAR) return
                     const track = row as RadarTrack
                     const deviceId = track.deviceId
                     const trackId = track.trackId

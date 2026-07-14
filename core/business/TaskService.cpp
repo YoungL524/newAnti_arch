@@ -58,7 +58,8 @@ void TaskService::setError(const QString& msg) { m_lastError = msg; }
 
 bool TaskService::isTerminalStatus(const QString& status) const
 {
-    return status == QString::fromUtf8(task::kStatusArchived);
+    return status == QString::fromUtf8(task::kStatusCompleted)
+        || status == QString::fromUtf8(task::kStatusArchived);
 }
 
 bool TaskService::ensureSchema()
@@ -93,11 +94,34 @@ bool TaskService::ensureSchema()
         "  message TEXT NOT NULL,"
         "  FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE"
         ")");
-    return m_store->execute(tasksSql)
-        && m_store->execute(taskDevicesSql)
-        && m_store->execute(taskLogsSql)
+    if (!m_store->execute(tasksSql)
+        || !m_store->execute(taskDevicesSql)
+        || !m_store->execute(taskLogsSql)) {
+        return false;
+    }
+
+    const auto activeRows = m_store->query(
+        QStringLiteral("SELECT id FROM tasks WHERE status = ? "
+                       "ORDER BY activated_at DESC, created_at DESC"),
+        {QString::fromUtf8(task::kStatusActive)});
+    if (activeRows.size() > 1) {
+        const QString keepId = activeRows.first().value(QStringLiteral("id")).toString();
+        qWarning() << "[TaskService] 检测到多个活动任务，仅保留" << keepId;
+        if (!m_store->execute(
+                QStringLiteral("UPDATE tasks SET status = ?, completed_at = ? "
+                               "WHERE status = ? AND id != ?"),
+                {QString::fromUtf8(task::kStatusCompleted),
+                 QDateTime::currentMSecsSinceEpoch(),
+                 QString::fromUtf8(task::kStatusActive), keepId})) {
+            return false;
+        }
+    }
+
+    return m_store->execute(QStringLiteral(
+               "CREATE INDEX IF NOT EXISTS idx_task_logs_task_ts ON task_logs(task_id, ts_ms)"))
         && m_store->execute(QStringLiteral(
-            "CREATE INDEX IF NOT EXISTS idx_task_logs_task_ts ON task_logs(task_id, ts_ms)"));
+               "CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_one_active "
+               "ON tasks(status) WHERE status = 'Active'"));
 }
 
 task::TaskInfo TaskService::rowToTask(const QVariantMap& row) const
@@ -349,17 +373,26 @@ bool TaskService::update(const task::TaskInfo& task)
 {
     clearError();
     if (!m_store || task.id.isEmpty()) return false;
+    if (task.name.trimmed().isEmpty()) {
+        setError(QStringLiteral("name 不能为空"));
+        return false;
+    }
     auto existing = get(task.id);
     if (!existing.has_value()) {
         setError(QStringLiteral("任务不存在"));
         return false;
     }
     if (isTerminalStatus(existing->status)) {
-        setError(QStringLiteral("invalid task status transition"));
+        setError(QStringLiteral("已完成或已归档任务的执行配置不可修改"));
         return false;
     }
     if (!validateDeviceIds(task.deviceIds))
         return false;
+    if (existing->status == QString::fromUtf8(task::kStatusActive)
+        && !hasControllableRadar(task.deviceIds)) {
+        setError(QStringLiteral("活动任务必须至少保留一个已绑定端点的雷达设备"));
+        return false;
+    }
 
     if (!m_store->beginTransaction()) {
         setError(QStringLiteral("无法开始事务"));
@@ -367,13 +400,8 @@ bool TaskService::update(const task::TaskInfo& task)
     }
 
     bool ok = m_store->execute(
-        QStringLiteral("UPDATE tasks SET name = ?, description = ?, operator_name = ?, status = ?,"
-                       " activated_at = ?, completed_at = ?, archived_at = ? WHERE id = ?"),
-        {task.name, task.description, task.operatorName, task.status,
-         task.activatedAt > 0 ? task.activatedAt : QVariant(),
-         task.completedAt > 0 ? task.completedAt : QVariant(),
-         task.archivedAt > 0 ? task.archivedAt : QVariant(),
-         task.id});
+        QStringLiteral("UPDATE tasks SET name = ?, description = ?, operator_name = ? WHERE id = ?"),
+        {task.name, task.description, task.operatorName, task.id});
     if (ok)
         ok = saveDeviceIds(task.id, task.deviceIds);
 
@@ -397,7 +425,12 @@ bool TaskService::updateDevices(const QString& id, const QStringList& deviceIds)
         return false;
     }
     if (isTerminalStatus(t->status)) {
-        setError(QStringLiteral("invalid task status transition"));
+        setError(QStringLiteral("已完成或已归档任务的执行配置不可修改"));
+        return false;
+    }
+    if (t->status == QString::fromUtf8(task::kStatusActive)
+        && !hasControllableRadar(deviceIds)) {
+        setError(QStringLiteral("活动任务必须至少保留一个已绑定端点的雷达设备"));
         return false;
     }
     if (!m_store->beginTransaction()) {
@@ -424,7 +457,7 @@ bool TaskService::activate(const QString& id)
         return false;
     }
     if (t->status != QString::fromUtf8(task::kStatusDraft)) {
-        setError(QStringLiteral("invalid task status transition"));
+        setError(QStringLiteral("仅草稿任务可以激活"));
         return false;
     }
 
@@ -433,29 +466,24 @@ bool TaskService::activate(const QString& id)
         return false;
     }
 
-    const qint64 now = QDateTime::currentMSecsSinceEpoch();
     const auto previousActive = activeTask();
+    if (previousActive.has_value() && previousActive->id != id) {
+        setError(QStringLiteral("已有进行中的任务，请先完成当前任务"));
+        return false;
+    }
+
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
     if (!m_store->beginTransaction()) {
         setError(QStringLiteral("无法开始事务"));
         return false;
     }
 
-    bool ok = m_store->execute(
-        QStringLiteral("UPDATE tasks SET status = ?, completed_at = ? WHERE status = ? AND id != ?"),
-        {QString::fromUtf8(task::kStatusCompleted), now,
-         QString::fromUtf8(task::kStatusActive), id});
-    if (ok) {
-        ok = m_store->execute(
-            QStringLiteral("UPDATE tasks SET status = ?, activated_at = ?, completed_at = NULL WHERE id = ?"),
-            {QString::fromUtf8(task::kStatusActive), now, id});
-    }
+    const bool ok = m_store->execute(
+        QStringLiteral("UPDATE tasks SET status = ?, activated_at = ?, completed_at = NULL WHERE id = ?"),
+        {QString::fromUtf8(task::kStatusActive), now, id});
 
     if (ok && m_store->commitTransaction()) {
         refreshActiveTaskCache();
-        if (previousActive.has_value() && previousActive->id != id) {
-            appendTaskEvent(previousActive->id, QStringLiteral("task"),
-                            QStringLiteral("切换任务，原任务自动完成"));
-        }
         appendTaskEvent(id, QStringLiteral("task"), QStringLiteral("任务已激活"));
         qDebug() << "[TaskService] task activated:" << id
                  << "devices:" << m_activeTaskCache.deviceIds.values();
@@ -522,7 +550,7 @@ bool TaskService::complete(const QString& id)
         return false;
     }
     if (t->status != QString::fromUtf8(task::kStatusActive)) {
-        setError(QStringLiteral("invalid task status transition"));
+        setError(QStringLiteral("仅活动任务可以完成"));
         return false;
     }
 
@@ -548,7 +576,7 @@ bool TaskService::archive(const QString& id)
     }
     if (t->status != QString::fromUtf8(task::kStatusDraft)
         && t->status != QString::fromUtf8(task::kStatusCompleted)) {
-        setError(QStringLiteral("invalid task status transition"));
+        setError(QStringLiteral("仅草稿或已完成任务可以归档"));
         return false;
     }
 

@@ -7,6 +7,7 @@
 #include <QVector>
 #include <atomic>
 #include <cstdint>
+#include <deque>
 #include "TrackTypes.h"
 
 struct BusEnvelope;
@@ -29,26 +30,36 @@ public:
 private:
     void syncActiveTaskContext();
     bool isPointVisible(const TrackPoint& pt) const;
-    void setInteraction(const QString& deviceId, uint32_t trackId,
+    void setInteraction(const QString& taskId, const QString& deviceId, uint32_t trackId,
                         bool selected, bool trackingEnabled);
     void onInteractionCommand(const BusEnvelope& env);
     void applyStyle(TrackDisplayPoint& dp, uint32_t pointIndex,
                     const TrackDisplayPoint::Interaction& interaction) const;
     void pruneStaleTracks(qint64 nowMs);
+    void enforceGlobalCacheBudget();
+    void resetCacheState();
     void deliverSnapshot(TrackDisplaySnapshot&& snap);
 
     struct CachedPoint {
         TrackPoint point;
         uint32_t pointIndex = 0;
+        uint64_t sequence = 0;
     };
     struct TrackCache {
-        QVector<CachedPoint> points;
+        std::deque<CachedPoint> points;
         uint32_t nextPointIndex = 0;
         qint64 lastUpdateMs = 0;
+    };
+    struct PointOrderEntry {
+        TrackKey key;
+        uint64_t sequence = 0;
     };
 
     QHash<TrackKey, TrackCache> m_caches;
     QHash<TrackKey, TrackDisplayPoint::Interaction> m_interactions;
+    std::deque<PointOrderEntry> m_pointOrder;
+    uint64_t m_nextPointSequence = 0;
+    int m_cachedPointCount = 0;
     QTimer* m_timer = nullptr;
     uint32_t m_cmdSubId = 0;
     std::atomic_bool m_acceptCommands{false};

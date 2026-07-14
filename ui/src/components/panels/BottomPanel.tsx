@@ -24,7 +24,7 @@ function fmtTime(ts: number): string {
 }
 
 function DataTableTab({ allDevices }: { allDevices: AppDevice[] }) {
-  const [selectedValue, setSelectedValue] = useState('type_radar')
+  const [selectedValue, setSelectedValue] = useState('')
   const options: SelectorOption[] = useMemo(() => {
     return allDevices.map(d => {
       const dt = 'lng' in d ? DeviceType.RADAR : d.kind === 'opto' ? DeviceType.OPTOELECTRONIC
@@ -33,6 +33,15 @@ function DataTableTab({ allDevices }: { allDevices: AppDevice[] }) {
     })
   }, [allDevices])
   const current = useMemo(() => options.find(o => o.value === selectedValue) ?? options[0], [selectedValue, options])
+  useEffect(() => {
+    if (options.length === 0) {
+      if (selectedValue) setSelectedValue('')
+      return
+    }
+    if (!options.some(option => option.value === selectedValue)) {
+      setSelectedValue(options[0].value)
+    }
+  }, [options, selectedValue])
   const { rows, deviceType, isLive } = useTrackData(
     current?.deviceType ?? DeviceType.UNKNOWN,
     current?.value ?? '',
@@ -53,7 +62,7 @@ function DataTableTab({ allDevices }: { allDevices: AppDevice[] }) {
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
       <div className="flex items-center shrink-0 px-5 py-1" style={{ borderBottom: '1px solid rgba(229,231,226,0.35)' }}>
-        <DeviceTypeSelector options={options} value={selectedValue} onChange={(v) => setSelectedValue(v)} />
+        <DeviceTypeSelector options={options} value={current?.value ?? ''} onChange={(v) => setSelectedValue(v)} />
       </div>
       <DataTable deviceType={deviceType} rows={rows} isLive={isLive} />
     </div>

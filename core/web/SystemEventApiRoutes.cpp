@@ -138,8 +138,11 @@ void registerRoutes(web::WebService* ws, DataStore* store)
         const int limit = clampEventLimit(query.queryItemValue(QStringLiteral("limit")));
         QJsonArray arr;
         const auto rows = store->query(
-            QStringLiteral("SELECT task_id, device_id, ts_ms, level, message "
-                           "FROM task_logs WHERE task_id = ? ORDER BY ts_ms ASC LIMIT ?"),
+            QStringLiteral("SELECT task_id, device_id, ts_ms, level, message FROM ("
+                           "SELECT id, task_id, device_id, ts_ms, level, message "
+                           "FROM task_logs WHERE task_id = ? "
+                           "ORDER BY ts_ms DESC, id DESC LIMIT ?"
+                           ") recent ORDER BY ts_ms ASC, id ASC"),
             {taskId, limit});
         for (const auto& row : rows) {
             QJsonObject j;

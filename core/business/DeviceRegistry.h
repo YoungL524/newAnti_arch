@@ -68,6 +68,7 @@ public:
     std::optional<DeviceInfo> createAssigningId(DeviceInfo dev);
     bool update(const DeviceInfo& dev);
     bool remove(const QString& id);
+    QString lastError() const { return m_lastError; }
     /// 最近一次 create/update 因 endpoint 绑定迁移而解除绑定的设备 id（取后清空）
     QStringList takeLastMigratedDeviceIds();
 
@@ -78,4 +79,5 @@ private:
     DataStore* m_store = nullptr;
     QHash<QString, QString> m_endpointToDeviceId;
     QStringList m_lastMigratedDeviceIds;
+    QString m_lastError;
 };

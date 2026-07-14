@@ -80,6 +80,7 @@ struct TrackDisplaySnapshot {
  * @brief UI 航迹交互命令（WebApiController 发布，TrackDisplayManager 订阅）
  */
 struct TrackInteractionCommand {
+    QString taskId;
     QString deviceId;
     uint32_t trackId = 0;
     bool selected = false;
