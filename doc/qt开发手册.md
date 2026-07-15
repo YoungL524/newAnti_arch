@@ -1,347 +1,364 @@
-﻿# VSCode + Qt 开发手册
+# NewAntiDrone VSCode 跨平台开发手册
 
-> 本手册适用于 NewAntiDrone-newArch 项目，基于 Qt 5.14.2 + qmake 构建体系。
-> 覆盖 Windows (MinGW) 和 Linux (GCC) 两个平台。
+> 适用于当前 NewAntiDrone 项目，以 VSCode 为主要开发环境。后端使用 C++17、Qt 5.14+ 和 CMake 3.16+；前端使用 React、TypeScript 和 Vite。
 
----
+## 1. 支持状态
 
-## 1. 环境准备
+当前代码具备 Windows 和 Linux 的跨平台编译基础：网络、线程、文件、数据库、HTTP 和 WebSocket 均主要使用 Qt；Windows 控制台代码由 `Q_OS_WIN` 隔离。
 
-### 1.1 Windows
+需要区分以下两个结论：
 
-**必需软件：**
+- **具备跨平台基础**：代码和 CMake 没有发现明确的 Windows 独占编译障碍。
+- **尚未完成 Linux 生产验证**：当前仓库没有可证明 Linux 持续构建、运行和部署均通过的记录。
 
-| 软件 | 版本 | 用途 |
-|------|------|------|
-| Qt | 5.14.2 MinGW 73_64 | Qt 库 + qmake |
-| MinGW | 7.3.0 64-bit | C++ 编译器 |
-| VSCode / Windsurf | 最新 | 代码编辑器 |
+已知跨平台可靠性事项：
 
-**推荐 Qt 安装路径：** `D:\qt`（安装时勾选 MinGW 7.3.0 64-bit 和对应的 Qt 5.14.2 套件）
+1. Unix 信号处理函数目前直接调用 `QCoreApplication::quit()`，不满足严格的异步信号安全要求。
+2. core 退出时可能使用 `QThread::terminate()` 终止标准输入线程，属于强制终止，需在后续改为可协作退出。
+3. 数据存储当前以 SQLite 为实现基线；建表语句包含 SQLite 方言，不能据此宣称可直接切换 PostgreSQL 等数据库。
+4. Web 地图依赖高德地图 JS API，其可用性还取决于浏览器、网络、Key 和安全域名配置，与操作系统无关。
 
-**VSCode 必装扩展：**
-- **C/C++** (Microsoft) — IntelliSense + 调试
-- **C/C++ Extension Pack** — 附带 CMake 等工具（可选）
+在修复前两项并完成 Linux 构建、运行、退出和压力测试前，不应将项目标记为“Linux 生产就绪”。
 
-**环境变量（可选）：** 如果希望在任意终端使用 qmake/make，将以下路径加入系统 PATH：
-```
-D:\qt\5.14.2\mingw73_64\bin
-D:\qt\Tools\mingw730_64\bin
-```
+## 2. 构建体系
 
-> 项目的 `.vscode/tasks.json` 已内置完整 PATH，不加系统变量也能在 VSCode 内正常编译。
+项目的权威构建入口是根目录 `CMakeLists.txt`。仓库中的 `.pro` 文件和旧脚本仅作为历史遗留，不保证包含当前全部源文件和 Qt 模块，**不得作为正式构建与发布依据**。
 
-### 1.2 Linux (Ubuntu / Lubuntu)
+默认行为：
 
-```bash
-# 安装 Qt 开发包和构建工具
-sudo apt install qt5-default qtbase5-dev build-essential gdb
+- C++ 标准：C++17
+- 最低 CMake：3.16
+- 最低 Qt：5.14
+- 单配置生成器未指定类型时：Debug
+- `BUILD_TESTS`：默认开启
+- 可执行文件输出目录：`build/bin`
+- 构建时复制运行配置到：`build/bin/config`
+- 构建时创建数据目录：`build/bin/data`
 
-# 验证
-qmake --version
-g++ --version
-```
+## 3. 开发环境
 
-**VSCode 扩展：** 同 Windows，安装 C/C++ 扩展即可。
+### 3.1 Windows
 
----
+推荐安装：
 
-## 2. 项目结构
+- Qt 5.14.2 MinGW 64-bit（当前项目基线；也可评估兼容的更高 Qt 5 版本）
+- 与该 Qt 套件 ABI 匹配的 MinGW
+- CMake 3.16+
+- Ninja 或 MinGW Makefiles
+- Node.js 与 npm
+- VSCode
+- VSCode 扩展：C/C++、CMake Tools
 
-```
-NewAntiDrone-newArch/
-├── .vscode/                  # VSCode 配置（tasks, launch, settings）
-├── config/
-│   └── endpoints.json        # 端点配置（运行时读取）
-├── core/                     # 核心程序（NewAntiDrone_core.exe）
-│   ├── core.pro
-│   ├── main.cpp
-│   ├── AppController.h/cpp   # 总控制器
-│   ├── comm/                 # 通信层（UDP 端点、通信管理器）
-│   ├── protocol/             # 协议结构体（发送/接收）
-│   ├── bus/                  # 系统总线（线程安全队列）
-│   └── processor/            # 数据处理线程
-├── test_comm/                # 测试工具（test_comm.exe）
-│   ├── test_comm.pro
-│   ├── main.cpp
-│   ├── TestComm.h/cpp        # 测试业务逻辑
-│   └── StdinReader.h         # stdin 异步读取线程
-├── doc/                      # 设计文档
-├── vscode/                   # 本手册等参考资料
-├── NewAntiDrone.pro          # 顶层 subdirs 项目文件
-└── build.bat                 # Windows 一键编译脚本
-```
+Qt 和编译器安装路径由开发机决定，不应在文档或工程逻辑中依赖固定盘符。配置时通过 `CMAKE_PREFIX_PATH` 指向 Qt 套件目录。
 
----
+### 3.2 Ubuntu / Debian
 
-## 3. 编译
-
-### 3.1 VSCode 内编译（推荐）
-
-按 **Ctrl+Shift+B** 触发默认构建任务 `build-all`，自动执行：
-1. `qmake NewAntiDrone.pro CONFIG+=debug CONFIG+=console`（生成 Makefile）
-2. `mingw32-make -j8`（并行编译 core + test_comm）
-
-**可选构建任务（Ctrl+Shift+B 后选择）：**
-
-| 任务名 | 说明 |
-|--------|------|
-| `build-all` | 编译全部（默认） |
-| `build-core` | 仅编译 core |
-| `build-test_comm` | 仅编译 test_comm |
-| `clean-all` | 清理全部编译产物 |
-| `rebuild-all` | clean + build |
-
-### 3.2 终端手动编译
-
-**Windows (cmd):**
-```cmd
-cd /d E:\AFSIM\NewAntiDrone-newArch
-D:\qt\5.14.2\mingw73_64\bin\qmake.exe NewAntiDrone.pro CONFIG+=debug CONFIG+=console
-D:\qt\Tools\mingw730_64\bin\mingw32-make.exe -j8
-```
-
-**Linux:**
-```bash
-cd ~/NewAntiDrone-newArch
-qmake NewAntiDrone.pro CONFIG+=debug
-make -j$(nproc)
-```
-
-### 3.3 编译产物位置
-
-| 平台 | core | test_comm |
-|------|------|-----------|
-| Windows Debug | `core/debug/NewAntiDrone_core.exe` | `test_comm/debug/test_comm.exe` |
-| Windows Release | `core/release/NewAntiDrone_core.exe` | `test_comm/release/test_comm.exe` |
-| Linux | `core/NewAntiDrone_core` | `test_comm/test_comm` |
-
----
-
-## 4. 运行与调试
-
-### 4.1 VSCode 运行配置
-
-点击左侧 **Run and Debug**（Ctrl+Shift+D），选择配置：
-
-| 配置名 | 说明 |
-|--------|------|
-| **Debug Core** | 调试 core（可设断点） |
-| **Run Core (no debug)** | 直接运行 core |
-| **Debug TestComm** | 调试 test_comm |
-| **Run TestComm (no debug)** | 直接运行 test_comm |
-
-> 所有配置均设置为 `externalConsole: true`，会弹出独立 cmd 窗口运行。
-> 这样中文显示正常，且两个程序可以**同时运行**互不干扰。
-
-### 4.2 同时运行两个程序
-
-1. 选择 **Debug Core** 或 **Run Core**，按 F5 启动
-2. 不要停止，切换到 **Debug TestComm** 或 **Run TestComm**，再按 F5
-3. 两个程序各自在独立窗口运行，互相通信
-
-### 4.3 运行时配置文件
-
-程序启动时会读取 `config/endpoints.json`，**工作目录**（cwd）设为项目根目录，所以路径 `config/endpoints.json` 能被正确找到。
-
-如果提示找不到配置文件，检查 launch.json 中的 `cwd` 是否设为 `${workspaceFolder}`。
-
-### 4.4 Linux 运行
+以下命令是 Qt 5 环境的参考安装方式，具体包名以发行版版本为准：
 
 ```bash
-cd ~/NewAntiDrone-newArch
-
-# 运行 core
-./core/NewAntiDrone_core
-
-# 另开终端运行 test_comm
-./test_comm/test_comm
+sudo apt update
+sudo apt install \
+  build-essential cmake ninja-build gdb \
+  qtbase5-dev qtbase5-dev-tools libqt5websockets5-dev libqt5sql5-sqlite
 ```
 
----
+前端还需安装受支持的 Node.js LTS 和 npm。`qt5-default` 在较新的 Ubuntu/Debian 中已经废弃，不应继续依赖。
 
-## 5. Linux 下的 VSCode 配置
+验证环境：
 
-项目自带的 `.vscode/` 配置是 Windows 专用路径。Linux 下需要调整：
-
-### 5.1 settings.json 差异
-
-```jsonc
-{
-  // Linux 不需要 utf8bom，系统默认就是 UTF-8
-  "files.encoding": "utf8",
-
-  "C_Cpp.default.compilerPath": "/usr/bin/g++",
-  "C_Cpp.default.intelliSenseMode": "gcc-x64",
-  "C_Cpp.default.cppStandard": "c++17",
-  "C_Cpp.default.includePath": [
-    "/usr/include/x86_64-linux-gnu/qt5",
-    "/usr/include/x86_64-linux-gnu/qt5/QtCore",
-    "/usr/include/x86_64-linux-gnu/qt5/QtNetwork",
-    "${workspaceFolder}/core",
-    "${workspaceFolder}/core/comm",
-    "${workspaceFolder}/core/bus",
-    "${workspaceFolder}/core/processor",
-    "${workspaceFolder}/core/protocol"
-  ]
-}
+```bash
+cmake --version
+c++ --version
+node --version
+npm --version
 ```
 
-### 5.2 tasks.json 差异
+## 4. 当前目录职责
 
-```jsonc
-{
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "qmake-all",
-      "type": "shell",
-      "command": "qmake",
-      "args": ["NewAntiDrone.pro", "CONFIG+=debug"],
-      "options": { "cwd": "${workspaceFolder}" },
-      "problemMatcher": []
-    },
-    {
-      "label": "build-all",
-      "type": "shell",
-      "command": "make",
-      "args": ["-j$(nproc)"],
-      "options": { "cwd": "${workspaceFolder}" },
-      "group": { "kind": "build", "isDefault": true },
-      "problemMatcher": ["$gcc"],
-      "dependsOn": "qmake-all"
-    }
-  ]
-}
+```text
+newAnti_arch-main/
+├── CMakeLists.txt            # C++ 权威构建入口
+├── config/                   # 端点、处理器、数据库运行配置
+├── core/
+│   ├── business/             # 任务、设备、运行参数、航迹显示业务
+│   ├── bus/                  # 系统总线及统一消息封装
+│   ├── comm/                 # 通信端点与通信管理
+│   ├── data/                 # 配置和 SQLite 数据访问
+│   ├── log/                  # 日志基础设施
+│   ├── processor/            # 协议处理、路由和周期发布
+│   ├── protocol/             # 设备协议结构
+│   └── web/                  # HTTP、WebSocket 与 API 路由
+├── test_comm/                # 通信与协议测试程序
+├── doc/test/src/             # CTest/Qt Test 单元测试
+├── ui/                       # React + TypeScript + Vite 前端
+└── doc/                      # 架构、业务、测试和开发文档
 ```
 
-### 5.3 launch.json 差异
+## 5. C++ 构建
 
-```jsonc
-{
-  "version": "0.2.0",
-  "configurations": [
-    {
-      "name": "Debug Core",
-      "type": "cppdbg",
-      "request": "launch",
-      "program": "${workspaceFolder}/core/NewAntiDrone_core",
-      "args": [],
-      "cwd": "${workspaceFolder}",
-      "externalConsole": true,
-      "MIMode": "gdb",
-      "miDebuggerPath": "/usr/bin/gdb",
-      "preLaunchTask": "build-all"
-    },
-    {
-      "name": "Debug TestComm",
-      "type": "cppdbg",
-      "request": "launch",
-      "program": "${workspaceFolder}/test_comm/test_comm",
-      "args": [],
-      "cwd": "${workspaceFolder}",
-      "externalConsole": true,
-      "MIMode": "gdb",
-      "miDebuggerPath": "/usr/bin/gdb",
-      "preLaunchTask": "build-all"
-    }
-  ]
-}
-```
+### 5.1 Windows MinGW
 
-> **提示：** 可以将 Windows 和 Linux 的 launch 配置都放在同一个 launch.json 里，
-> 分别命名为 "Debug Core (Win)" 和 "Debug Core (Linux)"，按需选择即可。
+在已配置 Qt 和 MinGW 环境的 PowerShell 中执行：
 
----
-
-## 6. 编码规范与注意事项
-
-### 6.1 文件编码（极其重要）
-
-| 文件类型 | 编码要求 | 原因 |
-|----------|----------|------|
-| `.h`, `.cpp`, `.md` | **UTF-8 with BOM** | MinGW 需要 BOM 才能正确识别 UTF-8 中文字符串 |
-| `.pro`, `.json` | **UTF-8 without BOM** | qmake 不支持 BOM，JSON 规范不推荐 BOM |
-
-**VSCode 设置已配置 `"files.encoding": "utf8bom"`**，新建/编辑 `.h`/`.cpp` 文件时会自动带 BOM。
-
-**注意：** 编辑 `.pro` 文件后，需检查是否被自动加了 BOM。如果 qmake 报 `Unexpected UTF-8 BOM`，说明 `.pro` 文件被加了 BOM，需手动移除。
-
-**批量检查 BOM 状态的 PowerShell 脚本：**
 ```powershell
-Get-ChildItem -Recurse -File -Include *.h,*.cpp,*.pro,*.json |
-  Where-Object { $_.FullName -notmatch 'debug|\.git' } |
-  ForEach-Object {
-    $b = [IO.File]::ReadAllBytes($_.FullName)
-    $bom = ($b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF)
-    "$([int]$bom) $($_.Name)"
+cmake -S . -B build -G "MinGW Makefiles" `
+  -DCMAKE_PREFIX_PATH="C:/Qt/Qt5.14.2/5.14.2/mingw73_64" `
+  -DCMAKE_BUILD_TYPE=Debug `
+  -DBUILD_TESTS=ON
+cmake --build build --parallel
+```
+
+使用 Ninja 时将生成器替换为 `Ninja`。Release 构建使用 `-DCMAKE_BUILD_TYPE=Release`。
+
+### 5.2 Linux GCC
+
+```bash
+cmake -S . -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DBUILD_TESTS=ON
+cmake --build build --parallel
+```
+
+如果 Qt 不在系统默认搜索路径，额外传入：
+
+```bash
+-DCMAKE_PREFIX_PATH=/path/to/Qt/5.14.x/gcc_64
+```
+
+### 5.3 构建产物
+
+| 程序   | Windows                           | Linux                         |
+| ---- | --------------------------------- | ----------------------------- |
+| core | `build/bin/NewAntiDrone_core.exe` | `build/bin/NewAntiDrone_core` |
+| 通信测试 | `build/bin/test_comm.exe`         | `build/bin/test_comm`         |
+
+多配置生成器（例如 Visual Studio）可能在 `Debug` 或 `Release` 子目录输出，实际位置以 CMake 构建日志为准。
+
+## 6. 前端构建与开发
+
+```bash
+cd ui
+npm install
+npm run build
+```
+
+生产前端产物位于 `ui/dist`。core 会从该目录提供静态页面，因此正式运行或联调生产页面前应先完成前端构建。
+
+前端开发模式：
+
+```bash
+cd ui
+npm run dev
+```
+
+- Vite 默认监听 `5173`；端口占用时会自动选择其他端口。
+- `/api` 代理到 `http://localhost:8088`。
+- `/ws` 代理到 `ws://localhost:8089`。
+- core 未启动或正在重启时，代理可能暂时出现 `ECONNREFUSED` 或 `ECONNRESET`；前端应允许后端恢复后重新连接。
+
+## 7. 配置与数据路径
+
+core 查找 `config` 目录的顺序为：
+
+1. 当前工作目录下的 `config`
+2. 可执行文件同级目录下的 `config`
+3. 可执行文件上一级目录下的 `config`
+
+CMake 会将以下文件复制到 `build/bin/config`：
+
+- `endpoints.json`
+- `processor.json`
+- `database.json`
+
+数据库中的相对路径以最终选中的配置目录的父目录为基准解析。日志写入可执行文件相邻数据目录中的 `data/logs`。部署或调试时不要仅复制可执行文件而遗漏配置、数据库和 UI 产物。
+
+## 8. 运行
+
+Windows：
+
+```powershell
+.\build\bin\NewAntiDrone_core.exe
+```
+
+Linux：
+
+```bash
+./build/bin/NewAntiDrone_core
+```
+
+通信测试程序在另一个终端运行：
+
+```powershell
+.\build\bin\test_comm.exe
+```
+
+或：
+
+```bash
+./build/bin/test_comm
+```
+
+core 的 HTTP 服务默认端口为 `8088`，WebSocket 服务默认端口为 `8089`。端口、UDP 地址以及设备协议参数应以当前配置文件和代码定义为准。
+
+## 9. 自动测试
+
+在开启 `BUILD_TESTS` 后执行：
+
+```bash
+ctest --test-dir build --output-on-failure
+```
+
+多配置生成器需要指定配置，例如：
+
+```powershell
+ctest --test-dir build -C Debug --output-on-failure
+```
+
+测试通过只能证明当前平台和当前配置；跨平台发布前应至少在 Windows 与目标 Linux 发行版分别执行构建、测试和运行验证。
+
+## 10. VSCode 开发流程
+
+VSCode 是当前项目的主要开发环境。仓库当前不依赖已提交的 `.vscode/tasks.json` 或 `.vscode/launch.json`；开发者应通过 CMake Tools 配置本机 Qt 和编译器，避免把个人 Qt 路径或盘符写入共享配置。
+
+### 10.1 推荐扩展
+
+- **C/C++**：代码补全、导航和 GDB 调试。
+- **CMake Tools**：配置、构建、测试及选择构建目标。
+- **ESLint**：前端规则检查；项目引入 ESLint 配置后启用。
+
+### 10.2 首次配置
+
+1. 用 VSCode 打开项目根目录，不要只打开 `core` 或 `ui` 子目录。
+2. 执行 `CMake: Select a Kit`，选择与 Qt 套件 ABI 匹配的编译器。
+3. 执行 `CMake: Configure`。
+4. 如果 Qt 不在默认搜索路径，在本机 CMake 配置中设置 `CMAKE_PREFIX_PATH`。
+5. 状态栏选择 `Debug` 或 `Release`，再执行 `CMake: Build`。
+
+Windows 使用 MinGW Qt 时必须选择对应版本的 MinGW Kit，不能选择 MSVC。Linux 通常选择系统 GCC 或 Clang，并确保安装的 Qt 开发包与编译器兼容。
+
+可在用户级或本地工作区配置中加入：
+
+```jsonc
+{
+  "cmake.sourceDirectory": "${workspaceFolder}",
+  "cmake.buildDirectory": "${workspaceFolder}/build",
+  "cmake.configureSettings": {
+    "BUILD_TESTS": true
   }
+}
 ```
 
-### 6.2 中文字符串
+Windows 的 Qt 路径属于本机配置，例如：
 
-所有中文字符串字面量**必须使用 `QStringLiteral()` 包装**：
-
-```cpp
-// 正确
-qDebug() << QStringLiteral("系统启动完成");
-
-// 错误 - 可能乱码
-qDebug() << "系统启动完成";
+```jsonc
+{
+  "cmake.configureSettings": {
+    "CMAKE_PREFIX_PATH": "C:/Qt/Qt5.14.2/5.14.2/mingw73_64",
+    "BUILD_TESTS": true
+  }
+}
 ```
 
-### 6.3 控制台中文输出
+这类带绝对路径的设置不应直接提交为团队公共配置。
 
-项目已在 `main.cpp` 中实现了 `consoleMessageHandler`：
-- **Windows cmd / PowerShell / VSCode Terminal：** 使用 `WriteConsoleW` 直接输出 Unicode
-- **Linux 终端：** 使用 `fwrite` + UTF-8（Linux 终端默认 UTF-8，无需特殊处理）
-- **Qt Creator 应用程序输出面板：** 走 `fwrite` + UTF-8 回退路径（需设置 Run in Terminal）
+### 10.3 构建与测试
 
-### 6.4 命名规范
+常用命令面板操作：
 
-- **所有 .exe / TARGET 名：** 有后缀统一使用**下划线 `_`**，禁止使用连字符 `-`
-  - `NewAntiDrone_core`（不是 `NewAntiDrone-core`）
-  - `test_comm`（不是 `test-comm`）
-- **源文件目录名：** 使用下划线（如 `test_comm/`）
-- **C++ 类名：** 大驼峰（如 `AppController`, `TestComm`）
-- **代码注释：** 所有代码必须有详细的中文 Doxygen 注释
+| VSCode 命令 | 用途 |
+| --- | --- |
+| `CMake: Configure` | 生成或刷新构建系统 |
+| `CMake: Build` | 构建当前项目 |
+| `CMake: Set Build Target` | 选择 core、test_comm 或其他目标 |
+| `CMake: Run Tests` | 执行 CTest 测试 |
+| `CMake: Delete Cache and Reconfigure` | Kit、Qt 路径或生成器改变后重新配置 |
 
----
+修改 CMake 文件、切换编译器或更换 Qt 套件后，应重新执行 Configure；普通 C++ 修改只需 Build。
 
-## 7. 常见问题
+### 10.4 调试 core
 
-### Q: Ctrl+Shift+B 编译报 "参数格式不正确 - /d"
-**A:** 终端配置冲突。检查 settings.json 中是否有 `cmd.exe /k chcp 65001` 的终端配置，改用 PowerShell 作为默认终端。
+CMake Tools 配置成功后：
 
-### Q: qmake 报 "Unexpected UTF-8 BOM"
-**A:** `.pro` 文件被加了 BOM。用 PowerShell 移除前 3 字节：
+1. 执行 `CMake: Set Debug Target`。
+2. 选择 `NewAntiDrone_core`。
+3. 执行 `CMake: Debug`，或使用状态栏调试按钮。
+
+程序路径通常为：
+
+- Windows：`${workspaceFolder}/build/bin/NewAntiDrone_core.exe`
+- Linux：`${workspaceFolder}/build/bin/NewAntiDrone_core`
+
+多配置生成器可能增加 `Debug` 或 `Release` 子目录，以 CMake Tools 识别的实际目标为准。启动时应确保工作目录能匹配第 7 节的配置查找规则；推荐将工作目录设为项目根目录或 `build/bin`。
+
+### 10.5 前端开发
+
+在 VSCode 集成终端中执行：
+
 ```powershell
-$f='path/to/file.pro'; $b=[IO.File]::ReadAllBytes($f); if($b[0]-eq 0xEF){[IO.File]::WriteAllBytes($f,$b[3..($b.Length-1)])}
+cd ui
+npm install
+npm run dev
 ```
 
-### Q: 编译成功但运行报 "找不到 Qt5Core.dll"
-**A:** Qt DLL 不在 PATH 中。launch.json 的 environment 已配置 Qt bin 路径。如果直接双击 exe 运行，需将 `D:\qt\5.14.2\mingw73_64\bin` 加入系统 PATH，或将 DLL 复制到 exe 同级目录。
+前端与 core 可分别运行在两个集成终端中。调试 React 页面时可使用浏览器开发者工具；core 断点仍由 CMake Tools/C++ 调试器负责。提交前至少执行：
 
-### Q: 断点不生效
-**A:** 确认编译时使用了 `CONFIG+=debug`（tasks.json 中已配置）。Release 模式下断点不可用。
+```powershell
+npm run build
+```
 
-### Q: Linux 下 qmake 找不到
-**A:** 运行 `sudo apt install qt5-default`。如果系统有多个 Qt 版本，用 `qtchooser` 选择。
+### 10.6 可选 launch 配置
 
-### Q: VSCode IntelliSense 报红但编译正常
-**A:** IntelliSense 的 includePath 可能缺少某些路径。检查 settings.json 中的 `C_Cpp.default.includePath` 是否包含所有需要的 Qt 头文件路径。
+通常优先使用 CMake Tools 直接调试目标。确需固定启动参数、环境变量或工作目录时，再创建 `.vscode/launch.json`；其中 `program` 应指向 CMake 实际产物，不要引用旧的 `core/debug` 或 qmake 输出目录。
 
----
+## 11. 编码规则
 
-## 8. 快捷操作速查
+- 源码、Markdown、CMake 和 JSON 统一使用 UTF-8。
+- UTF-8 BOM 不是 C++ 中文字符串可移植性的必要条件，不强制添加。
+- 编译器、终端和源文件编码应保持一致；Windows 控制台输出由项目日志实现处理。
+- `QStringLiteral()` 适用于编译期 Qt 字符串及减少运行时转换，但不是所有中文字符串都必须使用的跨平台规则。
+- JSON 必须保持合法格式，不写注释，不依赖 BOM。
+- 代码注释应解释边界、约束和非显然逻辑，不要求为每个声明添加冗余注释。
 
-| 操作 | 快捷键 | 说明 |
-|------|--------|------|
-| 编译全部 | `Ctrl+Shift+B` | qmake + make |
-| 运行/调试 | `F5` | 使用当前选中的 launch 配置 |
-| 切换 launch 配置 | 左下角下拉菜单 | Debug Core / TestComm 等 |
-| 停止运行 | `Shift+F5` | 终止当前调试会话 |
-| 打开终端 | `` Ctrl+` `` | 在 VSCode 内打开终端 |
-| 跳转到定义 | `F12` | 跳转到函数/类定义 |
-| 查找引用 | `Shift+F12` | 查找所有引用 |
-| 全局搜索 | `Ctrl+Shift+F` | 在项目中搜索文本 |
+## 12. 部署
+
+### 12.1 Windows
+
+`core/CMakeLists.txt` 会在找到 `windeployqt` 时自动部署 Qt DLL。若未找到，可在 Release 构建后手动执行：
+
+```powershell
+windeployqt .\build\bin\NewAntiDrone_core.exe
+```
+
+部署包还应包含运行配置、数据目录需求以及 `ui/dist`。不要依赖开发机 PATH 作为发布方案。
+
+### 12.2 Linux
+
+Linux 可选择安装系统 Qt 运行库、制作发行版软件包，或使用 AppImage 等方式打包。发布前需在目标发行版检查：
+
+- Qt Core、Gui、Network、Sql、WebSockets 插件和动态库
+- SQLite Qt 驱动是否可加载
+- 运行用户对配置、数据库和日志目录是否有权限
+- HTTP、WebSocket 和 UDP 端口是否可用
+- 无交互终端、服务管理器停止和异常信号下能否正确退出
+
+## 13. 常见问题
+
+### CMake 找不到 Qt5
+
+确认 Qt 套件与编译器 ABI 匹配，并设置 `CMAKE_PREFIX_PATH`。MinGW Qt 不能与 MSVC 编译器混用。
+
+### Windows 运行时缺少 Qt DLL
+
+运行 `windeployqt`，或确认构建后的自动部署步骤成功。仅把 Qt `bin` 加入 PATH 适合开发，不适合作为正式部署。
+
+### 找不到配置或数据库位置异常
+
+检查启动时的工作目录、可执行文件相对目录及 `build/bin/config`。优先查看日志中最终选中的配置路径。
+
+### UI 无法访问 API 或没有航迹
+
+确认 core 正在运行且 `8088/8089` 可访问；开发模式确认浏览器打开的是 Vite 实际输出的端口；随后检查任务运行上下文、设备端点和 UDP 配置。
+
+### Linux 编译成功但退出异常
+
+这是当前已知风险。应优先修复 Unix 信号转发和标准输入线程的协作退出，再进行服务化部署验证。
