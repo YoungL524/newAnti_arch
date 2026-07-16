@@ -12,6 +12,7 @@
 #include "ConfigManager.h"
 #include "DataStore.h"
 #include "LatencyStats.h"
+#include "PipelineLatencyMonitor.h"
 
 class RadarWorkModeController;
 class IWorkModeCommandSender;
@@ -266,6 +267,7 @@ private:
     void shutdown();
 
 private:
+    PipelineLatencyMonitor m_pipelineLatency;                       ///< 进程内分段时延聚合
     ConfigManager m_configManager;                          ///< 配置管理器（数据访问层）
     std::unique_ptr<DataStore> m_dataStore;                 ///< 数据存储（数据访问层）
     std::unique_ptr<CommunicationManager> m_commManager;    ///< 通信管理器

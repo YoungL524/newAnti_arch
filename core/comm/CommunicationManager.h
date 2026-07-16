@@ -34,8 +34,10 @@ signals:
      * @param endpointId 来源端点的 id
      * @param data       原始字节
      * @param receivedMs 数据到达时间戳（来自 Endpoint 的接收时刻）
+     * @param receivedSteadyNs 单调时钟接收时间，仅用于进程内耗时
      */
-    void dataReceived(const QString& endpointId, const QByteArray& data, qint64 receivedMs);
+    void dataReceived(const QString& endpointId, const QByteArray& data,
+                      qint64 receivedMs, qint64 receivedSteadyNs);
     void errorOccurred(const QString& endpointId, const QString& message);
 
 private:

@@ -23,10 +23,10 @@ signals:
     /**
      * @brief 收到原始数据
      * @param data       原始字节（UDP 报文）
-     * @param receivedMs 数据到达时间戳（currentMSecsSinceEpoch），
-     *                   在 readDatagram 后立即捕获，反映系统层接收时刻
+     * @param receivedMs 墙上时间，用于业务时间和日志关联
+     * @param receivedSteadyNs 单调时钟时间，用于进程内精确耗时计算
      */
-    void dataReceived(const QByteArray& data, qint64 receivedMs);
+    void dataReceived(const QByteArray& data, qint64 receivedMs, qint64 receivedSteadyNs);
     void errorOccurred(const QString& message);
 
 protected:

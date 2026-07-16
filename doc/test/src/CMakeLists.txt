@@ -136,3 +136,28 @@ set_target_properties(tst_TaskService PROPERTIES
 
 add_test(NAME TaskService
          COMMAND tst_TaskService)
+
+# ----- Pipeline latency aggregation tests -----
+add_executable(tst_PipelineLatencyMonitor
+    tst_PipelineLatencyMonitor.cpp
+    ${CMAKE_SOURCE_DIR}/core/metrics/PipelineLatencyMonitor.cpp
+    ${CMAKE_SOURCE_DIR}/core/metrics/PipelineLatencyMonitor.h
+)
+
+target_include_directories(tst_PipelineLatencyMonitor PRIVATE
+    ${CMAKE_SOURCE_DIR}/core
+    ${CMAKE_SOURCE_DIR}/core/metrics
+)
+
+target_link_libraries(tst_PipelineLatencyMonitor PRIVATE
+    Qt5::Core
+    Qt5::Test
+)
+
+set_target_properties(tst_PipelineLatencyMonitor PROPERTIES
+    WIN32_EXECUTABLE OFF
+    MACOSX_BUNDLE OFF
+)
+
+add_test(NAME PipelineLatencyMonitor
+         COMMAND tst_PipelineLatencyMonitor)

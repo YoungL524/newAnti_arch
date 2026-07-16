@@ -26,6 +26,8 @@ set(CORE_HEADERS
     data/DataStore.h
     log/Logger.h
     log/LogContext.h
+    metrics/MonotonicClock.h
+    metrics/PipelineLatencyMonitor.h
     business/IWorkModeCommandSender.h
     business/RadarWorkModeController.h
     business/BusWorkModeSender.h
@@ -51,6 +53,7 @@ set(CORE_SOURCES
     web/EndpointApiRoutes.cpp
     log/Logger.cpp
     log/LogContext.cpp
+    metrics/PipelineLatencyMonitor.cpp
     comm/Endpoint.cpp
     comm/UdpEndpoint.cpp
     comm/CommunicationManager.cpp
@@ -81,6 +84,7 @@ target_include_directories(NewAntiDrone_core PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/processor
     ${CMAKE_CURRENT_SOURCE_DIR}/data
     ${CMAKE_CURRENT_SOURCE_DIR}/log
+    ${CMAKE_CURRENT_SOURCE_DIR}/metrics
     ${CMAKE_CURRENT_SOURCE_DIR}/business
 )
 

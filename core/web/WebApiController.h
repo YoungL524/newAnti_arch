@@ -9,6 +9,7 @@
 #include "RuntimeSettingsTypes.h"
 
 #include "AppTypes.h"
+#include "metrics/PipelineLatencyMonitor.h"
 
 namespace web { class WebService; }
 class RadarWorkModeController;
@@ -27,6 +28,7 @@ class WebApiController : public QObject {
     Q_OBJECT
 public:
     using HealthProvider = std::function<AppHealth()>;
+    using LatencyProvider = std::function<PipelineLatencySnapshot()>;
 
     using RuntimeStatusProvider = std::function<DphStatus()>;
 
@@ -36,6 +38,7 @@ public:
                      RuntimeSettingsService* runtimeSettings,
                      RuntimeStatusProvider runtimeStatusProvider,
                      HealthProvider healthProvider,
+                     LatencyProvider latencyProvider,
                      TaskService* taskService = nullptr,
                      QObject* parent = nullptr);
     ~WebApiController() override;
@@ -72,6 +75,7 @@ private:
     RuntimeSettingsService*    m_runtimeSettings = nullptr;
     RuntimeStatusProvider      m_runtimeStatusProvider;
     HealthProvider             m_health;
+    LatencyProvider            m_latency;
     TaskService*               m_taskService = nullptr;
     qint64                     m_lastStartMs = 0;   ///< 上次开始采集时间戳（节流）
     qint64                     m_lastStopMs = 0;    ///< 上次停止采集时间戳（节流）

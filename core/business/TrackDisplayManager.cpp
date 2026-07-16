@@ -2,6 +2,8 @@
 #include "TaskService.h"
 #include "bus/BusEnvelope.h"
 #include "bus/SystemBus.h"
+#include "metrics/MonotonicClock.h"
+#include "metrics/PipelineLatencyMonitor.h"
 #include <QDateTime>
 #include <QDebug>
 #include <QMetaObject>
@@ -76,6 +78,11 @@ void TrackDisplayManager::setTaskService(TaskService* taskService)
     syncActiveTaskContext();
 }
 
+void TrackDisplayManager::setLatencyMonitor(PipelineLatencyMonitor* latencyMonitor)
+{
+    m_latencyMonitor = latencyMonitor;
+}
+
 void TrackDisplayManager::syncActiveTaskContext()
 {
     QString activeId;
@@ -105,6 +112,7 @@ bool TrackDisplayManager::isPointVisible(const TrackPoint& pt) const
 
 void TrackDisplayManager::addPoint(const TrackPoint& pt)
 {
+    const qint64 processingStartedNs = monotonicNowNs();
     syncActiveTaskContext();
 
     TrackPoint scoped = pt;
@@ -125,6 +133,15 @@ void TrackDisplayManager::addPoint(const TrackPoint& pt)
     ++m_cachedPointCount;
     enforceGlobalCacheBudget();
 
+    if (m_latencyMonitor) {
+        const qint64 processingCompletedNs = monotonicNowNs();
+        if (scoped.ingressSteadyNs > 0) {
+            m_latencyMonitor->recordNs(PipelineLatencyStage::IngressToDisplay,
+                                       processingCompletedNs - scoped.ingressSteadyNs);
+        }
+        m_latencyMonitor->recordNs(PipelineLatencyStage::DisplayProcessing,
+                                   processingCompletedNs - processingStartedNs);
+    }
 }
 
 void TrackDisplayManager::enforceGlobalCacheBudget()
@@ -206,6 +223,7 @@ void TrackDisplayManager::applyStyle(
 
 TrackDisplaySnapshot TrackDisplayManager::snapshot(qint64 nowMs) const
 {
+    const qint64 buildStartedNs = monotonicNowNs();
     Q_UNUSED(nowMs);
     TrackDisplaySnapshot snap;
     snap.timestamp = nowMs;
@@ -264,6 +282,12 @@ TrackDisplaySnapshot TrackDisplayManager::snapshot(qint64 nowMs) const
     for (auto& c : candidates)
         snap.tracks.append(std::move(c.dp));
 
+    snap.builtSteadyNs = monotonicNowNs();
+    if (m_latencyMonitor) {
+        m_latencyMonitor->recordNs(PipelineLatencyStage::SnapshotBuild,
+                                   snap.builtSteadyNs - buildStartedNs);
+    }
+
     return snap;
 }
 
@@ -314,6 +338,7 @@ void TrackDisplayManager::onInteractionCommand(const BusEnvelope& env)
 
 void TrackDisplayManager::deliverSnapshot(TrackDisplaySnapshot&& snap)
 {
+    snap.publishedSteadyNs = monotonicNowNs();
     auto shared = std::make_shared<TrackDisplaySnapshot>(std::move(snap));
     SystemBus::getInstance().publish(
         BusEnvelope::makeTrackDisplaySnapshot(std::move(shared)));

@@ -66,7 +66,7 @@
         <mxCell id="quality" value="工程约束" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;align=left;spacingLeft=10;verticalAlign=top;spacingTop=8;" vertex="1" parent="1">
           <mxGeometry x="640" y="705" width="550" height="70" as="geometry" />
         </mxCell>
-        <mxCell id="quality-text" value="固定 Core-Web DTO · 厂家协议不透传 Web · 高频显示路径可直连 · 业务事件走 SystemBus · 设备台账以后端 SQLite 为 source of truth" style="text;html=1;strokeColor=none;fillColor=none;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
+        <mxCell id="quality-text" value="固定 Core-Web DTO · 厂家协议不越过适配器 · 标准航迹与识别结果走 SystemBus · 显示/转发分流 · 存储日志旁路" style="text;html=1;strokeColor=none;fillColor=none;fontSize=11;align=left;spacingLeft=8;verticalAlign=top;" vertex="1" parent="1">
           <mxGeometry x="655" y="730" width="520" height="34" as="geometry" />
         </mxCell>
 

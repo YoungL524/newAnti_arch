@@ -36,10 +36,10 @@
         <mxCell id="cap-work" value="工作状态控制&#xa;开始采集 / 停止采集 / 状态反馈" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;fontStyle=1;" vertex="1" parent="core">
           <mxGeometry x="730" y="60" width="190" height="72" as="geometry" />
         </mxCell>
-        <mxCell id="cap-track" value="航迹显示数据管理&#xa;显示样式 / 选中 / 追踪使能 / 转发策略" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;" vertex="1" parent="core">
+        <mxCell id="cap-track" value="目标识别与航迹输出&#xa;识别（必经）/ 显示 / 对外转发" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=12;fontStyle=1;" vertex="1" parent="core">
           <mxGeometry x="960" y="60" width="190" height="72" as="geometry" />
         </mxCell>
-        <mxCell id="flow1" value="主业务流：设备准备 → 任务激活 → 参数下发 → 采集控制 → 航迹显示/转发" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffcc;strokeColor=#d6b656;fontSize=12;align=center;fontStyle=1;" vertex="1" parent="core">
+        <mxCell id="flow1" value="航迹主干：接收 → 标准化 → 目标识别；识别后只分为 UI 显示与对外转发两路" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffcc;strokeColor=#d6b656;fontSize=12;align=center;fontStyle=1;" vertex="1" parent="core">
           <mxGeometry x="160" y="175" width="860" height="44" as="geometry" />
         </mxCell>
         <mxCell id="e1" style="endArrow=block;html=1;strokeWidth=2;strokeColor=#82b366;" edge="1" source="cap-device" target="cap-task" parent="core"><mxGeometry relative="1" as="geometry" /></mxCell>
@@ -60,7 +60,7 @@
           <mxGeometry x="860" y="50" width="240" height="52" as="geometry" />
         </mxCell>
 
-        <mxCell id="boundary" value="边界：上位机不负责航迹起批 / 融合 / 消失判定 / 厂家协议透传 Web；上位机负责业务设备、任务上下文、运行参数、显示态和对外固定 DTO。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;align=left;spacingLeft=12;fontStyle=1;" vertex="1" parent="1">
+        <mxCell id="boundary" value="边界：上位机不负责航迹起批 / 融合 / 消失判定；目标识别为唯一必经处理；显示、转发、引导、存储和日志按模块边界装配。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=12;align=left;spacingLeft=12;fontStyle=1;" vertex="1" parent="1">
           <mxGeometry x="180" y="690" width="920" height="58" as="geometry" />
         </mxCell>
         <mxCell id="legend" value="业务架构只表达能力和边界，不表达代码类依赖。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11;align=center;" vertex="1" parent="1">

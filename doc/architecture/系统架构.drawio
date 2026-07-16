@@ -86,10 +86,10 @@
 <mxCell id="biz-proc" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#82B366;strokeWidth=1.5;" vertex="1" parent="1">
   <mxGeometry x="160" y="425" width="280" height="55" as="geometry"/>
 </mxCell>
-<mxCell id="biz-proc-t1" value="RadarDataProcessor" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#1A1A1A;fontFamily=Helvetica;fontStyle=1;fontSize=13;align=center;" vertex="1" parent="1">
+<mxCell id="biz-proc-t1" value="Protocol Adapter / Recognition" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#1A1A1A;fontFamily=Helvetica;fontStyle=1;fontSize=13;align=center;" vertex="1" parent="1">
   <mxGeometry x="160" y="432" width="280" height="20" as="geometry"/>
 </mxCell>
-<mxCell id="biz-proc-t2" value="协议解析 · 航迹处理" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#8A8A8A;fontFamily=Helvetica;fontSize=10;align=center;" vertex="1" parent="1">
+<mxCell id="biz-proc-t2" value="协议标准化 · 目标识别（必经）" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#8A8A8A;fontFamily=Helvetica;fontSize=10;align=center;" vertex="1" parent="1">
   <mxGeometry x="160" y="453" width="280" height="16" as="geometry"/>
 </mxCell>
 
@@ -192,13 +192,13 @@
 <mxCell id="note-title" value="设计原则" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#A88324;fontFamily=Helvetica;fontStyle=1;fontSize=14;align=left;" vertex="1" parent="1">
   <mxGeometry x="84" y="967" width="200" height="24" as="geometry"/>
 </mxCell>
-<mxCell id="note-body" value="• 前端只连 Server，不碰厂家协议&#xa;• 设备台账以 DeviceRegistry / SQLite 为唯一数据源（source of truth）&#xa;• 高频显示数据走直连性能通道，业务事件经 SystemBus 解耦&#xa;• config/*.json 管通信与装配，DataStore 管业务数据" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#444444;fontFamily=Helvetica;fontSize=12;align=left;spacing=4;" vertex="1" parent="1">
+<mxCell id="note-body" value="• 前端只连 Server，不碰厂家协议&#xa;• 设备台账以 DeviceRegistry / SQLite 为唯一数据源（source of truth）&#xa;• 标准航迹经 SystemBus 进入必经识别主干，再分为显示与对外转发两路&#xa;• 存储、日志和性能统计为旁路服务，不阻塞两条主链路" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#444444;fontFamily=Helvetica;fontSize=12;align=left;spacing=4;" vertex="1" parent="1">
   <mxGeometry x="84" y="999" width="780" height="86" as="geometry"/>
 </mxCell>
 <mxCell id="note-divider" value="" style="line;strokeColor=#E5E5E5;strokeWidth=1;" vertex="1" parent="1">
   <mxGeometry x="84" y="1093" width="780" height="10" as="geometry"/>
 </mxCell>
-<mxCell id="note-mapping" value="代码映射：Web=React  |  总控=AppController  |  通信=CommunicationManager  |  DataProcessor=RadarDataProcessor  |  设备台账=DeviceRegistry+SQLite  |  航迹显示=TrackDisplayManager  |  日志=Logger" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#999999;fontFamily=Helvetica;fontSize=10;align=left;fontStyle=2;" vertex="1" parent="1">
+<mxCell id="note-mapping" value="当前代码映射：Web=React  |  总控=AppController  |  通信=CommunicationManager  |  协议处理=RadarDataProcessor  |  识别=待实现透传模块  |  航迹显示=TrackDisplayManager  |  日志=Logger" style="text;html=1;strokeColor=none;fillColor=none;fontColor=#999999;fontFamily=Helvetica;fontSize=10;align=left;fontStyle=2;" vertex="1" parent="1">
   <mxGeometry x="84" y="1107" width="780" height="36" as="geometry"/>
 </mxCell>
 

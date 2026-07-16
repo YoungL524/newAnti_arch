@@ -1,6 +1,7 @@
 ﻿#include "UdpEndpoint.h"
 #include <QDateTime>
 #include <QDebug>
+#include "metrics/MonotonicClock.h"
 
 UdpEndpoint::UdpEndpoint(const EndpointConfig& config, QObject* parent)
     : Endpoint(config, parent)
@@ -110,7 +111,8 @@ void UdpEndpoint::onReadyRead()
         datagram.resize(static_cast<int>(actual));
         // 在 readDatagram 之后立即捕获时间戳，排除后续 Qt 信号投递和处理的影响
         const qint64 receivedMs = QDateTime::currentMSecsSinceEpoch();
-        emit dataReceived(datagram, receivedMs);
+        const qint64 receivedSteadyNs = monotonicNowNs();
+        emit dataReceived(datagram, receivedMs, receivedSteadyNs);
     }
 }
 

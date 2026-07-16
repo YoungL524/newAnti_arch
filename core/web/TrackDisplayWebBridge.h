@@ -7,6 +7,7 @@
 
 namespace web { class WebService; }
 struct TrackDisplaySnapshot;
+class PipelineLatencyMonitor;
 
 /**
  * @brief 航迹显示 snapshot 总线事件 → WebSocket DTO 适配器
@@ -21,12 +22,14 @@ public:
 
     void start();
     void stop();
+    void setLatencyMonitor(PipelineLatencyMonitor* latencyMonitor);
 
 private:
     void onBusEnvelope(const BusEnvelope& env);
-    void pushSnapshot(const TrackDisplaySnapshot& snap);
+    void pushSnapshot(const TrackDisplaySnapshot& snap, qint64 queuedSteadyNs);
 
     web::WebService* m_ws = nullptr;
     SubscriptionId m_subId = 0;
     std::atomic_bool m_active{false};
+    PipelineLatencyMonitor* m_latencyMonitor = nullptr;
 };

@@ -5,6 +5,8 @@
 #include "DataStore.h"
 #include "SystemBus.h"
 #include "log/LogContext.h"
+#include "metrics/MonotonicClock.h"
+#include "metrics/PipelineLatencyMonitor.h"
 
 #include <QDateTime>
 #include <QDebug>
@@ -42,6 +44,11 @@ void RadarDataProcessor::setTaskService(TaskService* taskService)
     m_taskService = taskService;
 }
 
+void RadarDataProcessor::setLatencyMonitor(PipelineLatencyMonitor* latencyMonitor)
+{
+    m_latencyMonitor = latencyMonitor;
+}
+
 RadarDataProcessor::~RadarDataProcessor()
 {
     // 析构前确保缓冲数据落盘
@@ -74,7 +81,8 @@ uint16_t RadarDataProcessor::resolveSourceType(const QString& endpointId) const
 
 void RadarDataProcessor::onCommDataReceived(const QString& endpointId,
                                             const QByteArray& data,
-                                            qint64 receivedMs)
+                                            qint64 receivedMs,
+                                            qint64 receivedSteadyNs)
 {
     // 按大小分发
     const size_t sz = static_cast<size_t>(data.size());
@@ -83,7 +91,7 @@ void RadarDataProcessor::onCommDataReceived(const QString& endpointId,
     if (sz == sizeof(GeneralPackage)) {
         GeneralPackage gp;
         memcpy(&gp, data.constData(), sizeof(GeneralPackage));
-        handleGeneralPackage(endpointId, gp, receivedMs);
+        handleGeneralPackage(endpointId, gp, receivedMs, receivedSteadyNs);
         handled = true;
     } else if (sz == sizeof(workStandby)) {
         workStandby cmd;
@@ -105,6 +113,10 @@ void RadarDataProcessor::onCommDataReceived(const QString& endpointId,
 
     // 记录上行处理延时（仅对已识别的合法包统计）
     if (handled) {
+        if (m_latencyMonitor) {
+            m_latencyMonitor->recordNs(PipelineLatencyStage::ProcessorTotal,
+                                       monotonicNowNs() - receivedSteadyNs);
+        }
         const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
         m_uplinkLatency.addSample(nowMs - receivedMs);
 
@@ -121,7 +133,8 @@ void RadarDataProcessor::onCommDataReceived(const QString& endpointId,
 
 void RadarDataProcessor::handleGeneralPackage(const QString& endpointId,
                                               const GeneralPackage& gp,
-                                              qint64 receivedMs)
+                                              qint64 receivedMs,
+                                              qint64 receivedSteadyNs)
 {
     m_generalPackageCount++;
 
@@ -135,6 +148,12 @@ void RadarDataProcessor::handleGeneralPackage(const QString& endpointId,
     QString taskId;
     if (m_taskService && !deviceId.isEmpty())
         taskId = m_taskService->resolveTaskIdForDevice(deviceId);
+
+    const qint64 normalizedSteadyNs = monotonicNowNs();
+    if (m_latencyMonitor) {
+        m_latencyMonitor->recordNs(PipelineLatencyStage::Decode,
+                                   normalizedSteadyNs - receivedSteadyNs);
+    }
 
     LogContext::Scope logScope(deviceId, taskId);
 
@@ -168,6 +187,9 @@ void RadarDataProcessor::handleGeneralPackage(const QString& endpointId,
     // 3) 输出业务 TrackPoint（供 TrackDisplayManager / 全量 snapshot 使用）
     if (!deviceId.isEmpty()) {
         TrackPoint pt;
+        pt.traceId       = ++m_traceSequence;
+        pt.ingressSteadyNs = receivedSteadyNs;
+        pt.normalizedSteadyNs = normalizedSteadyNs;
         pt.deviceId     = deviceId;
         pt.taskId       = taskId;
         pt.trackId      = tgt.TargetID;

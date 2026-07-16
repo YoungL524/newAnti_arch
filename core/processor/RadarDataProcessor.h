@@ -15,6 +15,7 @@ class CommunicationManager;
 class DataStore;
 class DeviceRegistry;
 class TaskService;
+class PipelineLatencyMonitor;
 
 /**
  * @file RadarDataProcessor.h
@@ -51,6 +52,7 @@ public:
     void setDeviceRegistry(DeviceRegistry* reg);
 
     void setTaskService(TaskService* taskService);
+    void setLatencyMonitor(PipelineLatencyMonitor* latencyMonitor);
 
     /**
      * @brief 注册端点到设备源类型的映射
@@ -98,7 +100,8 @@ public slots:
      * @param receivedMs 数据到达时间戳（由 UdpEndpoint 在 readDatagram 后捕获）
      * @details 按数据大小分发到相应解析路径。解析失败或未知大小的包会记录警告。
      */
-    void onCommDataReceived(const QString& endpointId, const QByteArray& data, qint64 receivedMs);
+    void onCommDataReceived(const QString& endpointId, const QByteArray& data,
+                            qint64 receivedMs, qint64 receivedSteadyNs);
 
 private:
     /**
@@ -107,7 +110,8 @@ private:
      * @param gp         协议包
      * @param receivedMs 数据到达时间戳（用于 latency 基准 + DataPacket.timeStamp）
      */
-    void handleGeneralPackage(const QString& endpointId, const GeneralPackage& gp, qint64 receivedMs);
+    void handleGeneralPackage(const QString& endpointId, const GeneralPackage& gp,
+                              qint64 receivedMs, qint64 receivedSteadyNs);
 
     /**
      * @brief 处理独立的 workStandby（通常是对端回显；核心场景下不常见）
@@ -139,11 +143,13 @@ private:
     DataStore* m_dataStore = nullptr;                ///< 数据存储（非持有）
     DeviceRegistry* m_deviceReg = nullptr;            ///< 设备台账（非持有，用于 endpoint→deviceId 映射）
     TaskService* m_taskService = nullptr;              ///< 任务服务（非持有，用于航迹归属）
+    PipelineLatencyMonitor* m_latencyMonitor = nullptr; ///< 非持有，进程级时延聚合器
 
     QMap<QString, uint16_t> m_endpointSourceMap;     ///< 端点ID → DeviceType 映射
     uint64_t m_trackArchiveSkipCount = 0;            ///< 未归属当前任务而跳过归档的计数
     uint64_t m_trackArchiveCount = 0;                ///< 已缓冲待写入的任务归属航迹计数
     uint32_t m_sequence = 0;                         ///< DataPacket 发布序列号
+    uint64_t m_traceSequence = 0;                    ///< 航迹链路 trace id
     uint64_t m_generalPackageCount = 0;              ///< 已处理的 GeneralPackage 计数
     uint64_t m_trackInsertCount = 0;                 ///< 已写入 tracks 表的记录数
 

@@ -12,6 +12,7 @@
 
 struct BusEnvelope;
 class TaskService;
+class PipelineLatencyMonitor;
 
 class TrackDisplayManager : public QObject {
     Q_OBJECT
@@ -26,6 +27,7 @@ public:
     void stop();
     void clear();
     void setTaskService(TaskService* taskService);
+    void setLatencyMonitor(PipelineLatencyMonitor* latencyMonitor);
 
 private:
     void syncActiveTaskContext();
@@ -64,6 +66,7 @@ private:
     uint32_t m_cmdSubId = 0;
     std::atomic_bool m_acceptCommands{false};
     TaskService* m_taskService = nullptr;
+    PipelineLatencyMonitor* m_latencyMonitor = nullptr;
     QString m_activeTaskId;
     QSet<QString> m_activeDeviceIds;
 };

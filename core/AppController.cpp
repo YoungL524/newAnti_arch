@@ -171,6 +171,7 @@ bool AppController::initialize()
 
     // 航迹显示管理器
     m_trackDisplayManager = std::make_unique<TrackDisplayManager>(this);
+    m_trackDisplayManager->setLatencyMonitor(&m_pipelineLatency);
     wireTrackDisplayPipeline();
 
     printStartupDiagnostics();
@@ -492,6 +493,7 @@ void AppController::configureRadarProcessor(const QJsonObject& processorConfig)
 {
     m_radarProcessor = std::make_unique<RadarDataProcessor>(
         m_commManager.get(), m_dataStore.get(), this);
+    m_radarProcessor->setLatencyMonitor(&m_pipelineLatency);
 
     if (!registerConfiguredEndpointSources(processorConfig)) {
         qDebug() << QStringLiteral("[AppController] 端点源映射使用内置默认值");
@@ -934,6 +936,7 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
             return st;
         },
         [this]() { return healthReport(); },
+        [this]() { return m_pipelineLatency.snapshot(); },
         m_taskService.get(),
         this);
     m_webApi->registerRestRoutes();
@@ -970,6 +973,7 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
     // TrackDisplaySnapshot 总线事件 → WebSocket（经 TrackDisplayWebBridge，不经 TrackDisplayManager 信号）
     if (m_webService) {
         m_trackDisplayWebBridge = std::make_unique<TrackDisplayWebBridge>(m_webService.get(), this);
+        m_trackDisplayWebBridge->setLatencyMonitor(&m_pipelineLatency);
         m_trackDisplayWebBridge->start();
     }
     if (m_trackDisplayManager) {

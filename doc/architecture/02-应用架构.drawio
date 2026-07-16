@@ -22,7 +22,7 @@
         <mxCell id="domain" parent="core" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=12;fontStyle=1;" value="业务服务层&#xa;DeviceRegistry · RuntimeSettingsService · RadarWorkModeController · TrackDisplayManager" vertex="1">
           <mxGeometry height="72" width="560" x="45" y="160" as="geometry" />
         </mxCell>
-        <mxCell id="processor" parent="core" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;fontStyle=1;" value="数据处理 / 协议适配&#xa;RadarDataProcessor · 厂家协议解析 · TrackPoint 标准化" vertex="1">
+        <mxCell id="processor" parent="core" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=12;fontStyle=1;" value="协议适配 / 识别服务&#xa;标准化 TrackBatch · RecognitionModule（必经）" vertex="1">
           <mxGeometry height="72" width="270" x="45" y="270" as="geometry" />
         </mxCell>
         <mxCell id="lQlkZRBsWHHc1jIHGezp-1" edge="1" parent="core" source="bus" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="store">
@@ -40,19 +40,16 @@
         <mxCell id="store" parent="core" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=12;fontStyle=1;" value="存储与日志 Adapter&#xa;DataStore · Logger · config/*.json" vertex="1">
           <mxGeometry height="72" width="270" x="335" y="380" as="geometry" />
         </mxCell>
-        <mxCell id="note" parent="core" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffcc;strokeColor=#d6b656;fontSize=11;align=left;spacingLeft=10;" value="应用原则：Web 只面对固定 API/DTO；业务规则沉在业务服务层；高频显示路径可直连，通用业务事件走 SystemBus；设备协议不越过 Core 边界。" vertex="1">
+        <mxCell id="note" parent="core" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffcc;strokeColor=#d6b656;fontSize=11;align=left;spacingLeft=10;" value="应用原则：标准航迹经 SystemBus 进入必经识别主干；识别后只分显示与对外转发两路；存储/日志为旁路；设备协议不越过适配器边界。" vertex="1">
           <mxGeometry height="54" width="560" x="45" y="490" as="geometry" />
         </mxCell>
         <mxCell id="e-api-domain" edge="1" parent="core" source="api" style="endArrow=classic;html=1;strokeWidth=2;" target="domain">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e-processor-domain" edge="1" parent="core" source="processor" style="endArrow=classic;html=1;fontSize=10;strokeColor=#d79b00;strokeWidth=2;" target="domain" value="TrackPoint direct signal">
+        <mxCell id="e-processor-bus" edge="1" parent="core" source="processor" style="endArrow=classic;startArrow=classic;html=1;fontSize=10;" target="bus" value="Normalized / Identified">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e-processor-bus" edge="1" parent="core" source="processor" style="endArrow=classic;html=1;fontSize=10;dashed=1;" target="bus" value="events">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e-domain-bus" edge="1" parent="core" source="domain" style="endArrow=classic;startArrow=classic;html=1;fontSize=10;" target="bus" value="commands / events">
+        <mxCell id="e-domain-bus" edge="1" parent="core" source="domain" style="endArrow=classic;startArrow=classic;html=1;fontSize=10;" target="bus" value="identified tracks / commands">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="e-bus-io" edge="1" parent="core" source="bus" style="endArrow=classic;html=1;" target="io">

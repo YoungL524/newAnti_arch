@@ -44,8 +44,8 @@
 </mxCell>
 
 <!-- 路径A：core 内部 Processor → TrackManager 直连 -->
-<mxCell id="labelA" value="路径 A  core 内部（Processor → TrackManager 可直连，省拷贝）" style="text;html=1;fontStyle=2;fontSize=10;fillColor=#fff3cd;strokeColor=#d6b656;rounded=1;" vertex="1" parent="1"><mxGeometry x="330" y="258" width="380" height="22" as="geometry"/></mxCell>
-<mxCell id="s4a" value="④a  TrackPoint（Qt direct connection）" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#d79b00;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="385" y="290" as="sourcePoint"/><mxPoint x="695" y="290" as="targetPoint"/></mxGeometry></mxCell>
+<mxCell id="labelA" value="当前实现（待迁移）：Processor → TrackManager 使用 Qt signal 直连" style="text;html=1;fontStyle=2;fontSize=10;fillColor=#fff3cd;strokeColor=#d6b656;rounded=1;" vertex="1" parent="1"><mxGeometry x="330" y="258" width="430" height="22" as="geometry"/></mxCell>
+<mxCell id="s4a" value="④a  TrackPoint（当前过渡路径，目标改为总线识别主干）" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#d79b00;strokeWidth=2;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="385" y="290" as="sourcePoint"/><mxPoint x="695" y="290" as="targetPoint"/></mxGeometry></mxCell>
 
 <!-- 自调用：apply display rules -->
 <mxCell id="s5" value="⑤ apply display rules" style="endArrow=block;endFill=1;html=1;fontSize=10;curved=1;strokeColor=#d6b656;strokeWidth=2;" edge="1" parent="1">
@@ -66,7 +66,7 @@
 <mxCell id="s4b2" value="dispatch to subscribers" style="endArrow=block;endFill=1;html=1;fontSize=10;strokeColor=#9673a6;strokeWidth=2;dashed=1;" edge="1" parent="1"><mxGeometry relative="1" as="geometry"><mxPoint x="540" y="505" as="sourcePoint"/><mxPoint x="855" y="505" as="targetPoint"/></mxGeometry></mxCell>
 
 <!-- 备注 -->
-<mxCell id="note" value="&lt;b&gt;设计说明&lt;/b&gt;&#xa;· Web 不接收厂家协议，UI 只消费 TrackDisplaySnapshot 固定 DTO&#xa;· Processor → TrackDisplayManager 可 core 内直连；TrackDisplayManager → Web 必须经 SystemBus + WebBridge&#xa;· WebSocket 推送层不直接监听 TrackDisplayManager 信号" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffde7;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="1"><mxGeometry x="30" y="610" width="1060" height="60" as="geometry"/></mxCell>
+<mxCell id="note" value="&lt;b&gt;迁移说明&lt;/b&gt;&#xa;· 本页保留当前代码路径用于对照，不代表最终设计&#xa;· 目标路径：输入适配 → NormalizedTrackBatch → SystemBus → Recognition → IdentifiedTrackBatch → SystemBus → TrackDisplayManager&#xa;· UI 只消费 TrackDisplaySnapshot 固定 DTO" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffde7;strokeColor=#d6b656;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="1"><mxGeometry x="30" y="610" width="1060" height="60" as="geometry"/></mxCell>
 
 </root>
 </mxGraphModel>

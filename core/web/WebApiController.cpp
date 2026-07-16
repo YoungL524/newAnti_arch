@@ -22,6 +22,33 @@
 
 namespace {
 
+QJsonObject latencyStatsToJson(const PipelineLatencyStats& stats)
+{
+    return QJsonObject{
+        {QStringLiteral("sampleCount"), static_cast<qint64>(stats.sampleCount)},
+        {QStringLiteral("windowSampleCount"), static_cast<qint64>(stats.windowSampleCount)},
+        {QStringLiteral("minUs"), stats.minUs},
+        {QStringLiteral("avgUs"), stats.avgUs},
+        {QStringLiteral("p50Us"), stats.p50Us},
+        {QStringLiteral("p95Us"), stats.p95Us},
+        {QStringLiteral("p99Us"), stats.p99Us},
+        {QStringLiteral("maxUs"), stats.maxUs}
+    };
+}
+
+QJsonObject pipelineLatencyToJson(const PipelineLatencySnapshot& snapshot)
+{
+    QJsonObject stages;
+    for (auto it = snapshot.stages.cbegin(); it != snapshot.stages.cend(); ++it)
+        stages.insert(it.key(), latencyStatsToJson(it.value()));
+
+    return QJsonObject{
+        {QStringLiteral("unit"), snapshot.unit},
+        {QStringLiteral("windowCapacity"), snapshot.windowCapacity},
+        {QStringLiteral("stages"), stages}
+    };
+}
+
 bool wmcAcquisitionActive(RadarWorkModeController::State st)
 {
     return st == RadarWorkModeController::State::Starting
@@ -61,6 +88,7 @@ WebApiController::WebApiController(web::WebService* ws,
                                    RuntimeSettingsService* runtimeSettings,
                                    RuntimeStatusProvider runtimeStatusProvider,
                                    HealthProvider healthProvider,
+                                   LatencyProvider latencyProvider,
                                    TaskService* taskService,
                                    QObject* parent)
     : QObject(parent)
@@ -70,6 +98,7 @@ WebApiController::WebApiController(web::WebService* ws,
     , m_runtimeSettings(runtimeSettings)
     , m_runtimeStatusProvider(std::move(runtimeStatusProvider))
     , m_health(std::move(healthProvider))
+    , m_latency(std::move(latencyProvider))
     , m_taskService(taskService)
 {
 }
@@ -95,6 +124,16 @@ void WebApiController::registerRestRoutes()
             ? (m_wmc ? RadarWorkModeController::stateName(st2) : QStringLiteral("Unknown"))
             : RadarWorkModeController::stateName(RadarWorkModeController::State::Standby);
         return s;
+    });
+
+    // GET /api/metrics/latency - 进程内分段时延，不包含浏览器绘制时间
+    m_ws->handleGet(QStringLiteral("/api/metrics/latency"), [this](const QJsonObject&, const QString&) {
+        const auto health = m_health();
+        QJsonObject result = pipelineLatencyToJson(m_latency());
+        result[QStringLiteral("ok")] = true;
+        result[QStringLiteral("timestamp")] = health.timestampMs;
+        result[QStringLiteral("excludesSnapshotInterval")] = true;
+        return result;
     });
 
     // GET /api/logs

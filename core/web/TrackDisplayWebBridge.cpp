@@ -2,6 +2,8 @@
 #include "WebService.h"
 #include "bus/SystemBus.h"
 #include "TrackTypes.h"
+#include "metrics/MonotonicClock.h"
+#include "metrics/PipelineLatencyMonitor.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -18,6 +20,11 @@ TrackDisplayWebBridge::TrackDisplayWebBridge(web::WebService* ws, QObject* paren
 TrackDisplayWebBridge::~TrackDisplayWebBridge()
 {
     stop();
+}
+
+void TrackDisplayWebBridge::setLatencyMonitor(PipelineLatencyMonitor* latencyMonitor)
+{
+    m_latencyMonitor = latencyMonitor;
 }
 
 void TrackDisplayWebBridge::start()
@@ -60,17 +67,29 @@ void TrackDisplayWebBridge::onBusEnvelope(const BusEnvelope& env)
     if (!snapPtr)
         return;
 
+    const qint64 queuedSteadyNs = monotonicNowNs();
+    if (m_latencyMonitor && snapPtr->publishedSteadyNs > 0) {
+        m_latencyMonitor->recordNs(PipelineLatencyStage::SnapshotBusDispatch,
+                                   queuedSteadyNs - snapPtr->publishedSteadyNs);
+    }
+
     QPointer<TrackDisplayWebBridge> guard(this);
-    QMetaObject::invokeMethod(this, [guard, snapPtr]() {
+    QMetaObject::invokeMethod(this, [guard, snapPtr, queuedSteadyNs]() {
         if (guard && guard->m_active.load(std::memory_order_acquire))
-            guard->pushSnapshot(*snapPtr);
+            guard->pushSnapshot(*snapPtr, queuedSteadyNs);
     }, Qt::QueuedConnection);
 }
 
-void TrackDisplayWebBridge::pushSnapshot(const TrackDisplaySnapshot& snap)
+void TrackDisplayWebBridge::pushSnapshot(const TrackDisplaySnapshot& snap, qint64 queuedSteadyNs)
 {
     if (!m_ws)
         return;
+
+    const qint64 startedSteadyNs = monotonicNowNs();
+    if (m_latencyMonitor) {
+        m_latencyMonitor->recordNs(PipelineLatencyStage::WebQueue,
+                                   startedSteadyNs - queuedSteadyNs);
+    }
 
     QJsonObject msg;
     msg[QStringLiteral("type")] = QStringLiteral("tracks");
@@ -118,4 +137,8 @@ void TrackDisplayWebBridge::pushSnapshot(const TrackDisplaySnapshot& snap)
         }
     }
     m_ws->broadcast(msg);
+    if (m_latencyMonitor) {
+        m_latencyMonitor->recordNs(PipelineLatencyStage::WebPrepareAndBroadcast,
+                                   monotonicNowNs() - startedSteadyNs);
+    }
 }

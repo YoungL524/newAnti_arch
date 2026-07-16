@@ -28,8 +28,10 @@ bool CommunicationManager::addEndpoint(const EndpointConfig& config)
         return false;
     }
 
-    connect(ep, &Endpoint::dataReceived, this, [this, id = config.id](const QByteArray& data, qint64 receivedMs) {
-        emit dataReceived(id, data, receivedMs);
+    connect(ep, &Endpoint::dataReceived, this,
+            [this, id = config.id](const QByteArray& data, qint64 receivedMs,
+                                   qint64 receivedSteadyNs) {
+        emit dataReceived(id, data, receivedMs, receivedSteadyNs);
     });
     connect(ep, &Endpoint::errorOccurred, this, [this, id = config.id](const QString& msg) {
         emit errorOccurred(id, msg);
