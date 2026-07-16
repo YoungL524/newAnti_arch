@@ -13,10 +13,13 @@ enum class PipelineLatencyStage : uint8_t {
     ProcessorTotal,
     IngressToDisplay,
     DisplayProcessing,
+    SnapshotWait,
     SnapshotBuild,
     SnapshotBusDispatch,
     WebQueue,
     WebPrepareAndBroadcast,
+    IngressToWebSend,
+    ActiveBackendToWebSend,
     Count
 };
 

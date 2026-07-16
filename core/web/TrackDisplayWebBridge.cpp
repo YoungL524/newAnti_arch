@@ -138,7 +138,23 @@ void TrackDisplayWebBridge::pushSnapshot(const TrackDisplaySnapshot& snap, qint6
     }
     m_ws->broadcast(msg);
     if (m_latencyMonitor) {
+        const qint64 completedSteadyNs = monotonicNowNs();
         m_latencyMonitor->recordNs(PipelineLatencyStage::WebPrepareAndBroadcast,
-                                   monotonicNowNs() - startedSteadyNs);
+                                   completedSteadyNs - startedSteadyNs);
+        if (snap.latestIngressSteadyNs > 0) {
+            const qint64 ingressToWebSendNs = completedSteadyNs - snap.latestIngressSteadyNs;
+            m_latencyMonitor->recordNs(PipelineLatencyStage::IngressToWebSend,
+                                       ingressToWebSendNs);
+
+            if (snap.latestDisplayReadySteadyNs > 0
+                && snap.snapshotBuildStartedSteadyNs >= snap.latestDisplayReadySteadyNs) {
+                const qint64 snapshotWaitNs = snap.snapshotBuildStartedSteadyNs
+                    - snap.latestDisplayReadySteadyNs;
+                m_latencyMonitor->recordNs(PipelineLatencyStage::SnapshotWait,
+                                           snapshotWaitNs);
+                m_latencyMonitor->recordNs(PipelineLatencyStage::ActiveBackendToWebSend,
+                                           ingressToWebSendNs - snapshotWaitNs);
+            }
+        }
     }
 }

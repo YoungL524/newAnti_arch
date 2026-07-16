@@ -11,6 +11,7 @@ struct TrackPoint {
     uint64_t  traceId = 0;       // 仅用于 core 内部链路追踪，不进入 Web DTO
     qint64    ingressSteadyNs = 0;
     qint64    normalizedSteadyNs = 0;
+    qint64    displayReadySteadyNs = 0;
     QString   deviceId;          // DeviceRegistry 业务设备 id
     QString   taskId;            // 当前 active task id（未归属时为空）
     uint32_t  trackId = 0;
@@ -76,8 +77,11 @@ struct TrackDisplayPoint {
  */
 struct TrackDisplaySnapshot {
     qint64 timestamp = 0;
+    qint64 snapshotBuildStartedSteadyNs = 0;
     qint64 builtSteadyNs = 0;     // 仅用于 core 内部链路追踪
     qint64 publishedSteadyNs = 0;
+    qint64 latestIngressSteadyNs = 0;
+    qint64 latestDisplayReadySteadyNs = 0;
     QVector<TrackDisplayPoint> tracks;
 };
 

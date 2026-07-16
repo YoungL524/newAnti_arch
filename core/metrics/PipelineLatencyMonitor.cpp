@@ -52,11 +52,15 @@ QString PipelineLatencyMonitor::stageName(PipelineLatencyStage stage)
     case PipelineLatencyStage::ProcessorTotal: return QStringLiteral("processorTotal");
     case PipelineLatencyStage::IngressToDisplay: return QStringLiteral("ingressToDisplay");
     case PipelineLatencyStage::DisplayProcessing: return QStringLiteral("displayProcessing");
+    case PipelineLatencyStage::SnapshotWait: return QStringLiteral("snapshotWait");
     case PipelineLatencyStage::SnapshotBuild: return QStringLiteral("snapshotBuild");
     case PipelineLatencyStage::SnapshotBusDispatch: return QStringLiteral("snapshotBusDispatch");
     case PipelineLatencyStage::WebQueue: return QStringLiteral("webQueue");
     case PipelineLatencyStage::WebPrepareAndBroadcast:
         return QStringLiteral("webPrepareAndBroadcast");
+    case PipelineLatencyStage::IngressToWebSend: return QStringLiteral("ingressToWebSend");
+    case PipelineLatencyStage::ActiveBackendToWebSend:
+        return QStringLiteral("activeBackendToWebSend");
     case PipelineLatencyStage::Count: break;
     }
     return QStringLiteral("unknown");

@@ -133,8 +133,11 @@ void TrackDisplayManager::addPoint(const TrackPoint& pt)
     ++m_cachedPointCount;
     enforceGlobalCacheBudget();
 
+    const qint64 processingCompletedNs = monotonicNowNs();
+    auto completedCache = m_caches.find(key);
+    if (completedCache != m_caches.end() && !completedCache->points.empty())
+        completedCache->points.back().point.displayReadySteadyNs = processingCompletedNs;
     if (m_latencyMonitor) {
-        const qint64 processingCompletedNs = monotonicNowNs();
         if (scoped.ingressSteadyNs > 0) {
             m_latencyMonitor->recordNs(PipelineLatencyStage::IngressToDisplay,
                                        processingCompletedNs - scoped.ingressSteadyNs);
@@ -227,10 +230,13 @@ TrackDisplaySnapshot TrackDisplayManager::snapshot(qint64 nowMs) const
     Q_UNUSED(nowMs);
     TrackDisplaySnapshot snap;
     snap.timestamp = nowMs;
+    snap.snapshotBuildStartedSteadyNs = buildStartedNs;
 
     struct Candidate {
         TrackDisplayPoint dp;
         qint64 ts;
+        qint64 ingressSteadyNs;
+        qint64 displayReadySteadyNs;
     };
     QVector<Candidate> candidates;
     candidates.reserve(m_cachedPointCount);
@@ -264,7 +270,7 @@ TrackDisplaySnapshot TrackDisplayManager::snapshot(qint64 nowMs) const
             dp.pointIndex   = cp.pointIndex;
             dp.interaction  = interaction;
             applyStyle(dp, cp.pointIndex, interaction);
-            candidates.append({dp, pt.timestampMs});
+            candidates.append({dp, pt.timestampMs, pt.ingressSteadyNs, pt.displayReadySteadyNs});
         }
     }
 
@@ -279,8 +285,13 @@ TrackDisplaySnapshot TrackDisplayManager::snapshot(qint64 nowMs) const
     std::sort(candidates.begin(), candidates.end(),
               [](const Candidate& a, const Candidate& b) { return a.ts < b.ts; });
 
-    for (auto& c : candidates)
+    for (auto& c : candidates) {
         snap.tracks.append(std::move(c.dp));
+        if (c.displayReadySteadyNs > snap.latestDisplayReadySteadyNs) {
+            snap.latestDisplayReadySteadyNs = c.displayReadySteadyNs;
+            snap.latestIngressSteadyNs = c.ingressSteadyNs;
+        }
+    }
 
     snap.builtSteadyNs = monotonicNowNs();
     if (m_latencyMonitor) {

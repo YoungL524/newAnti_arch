@@ -239,15 +239,19 @@ T6  Communication 调用对外发送
 | `processorTotal` | UDP 完整帧接收后，到 `RadarDataProcessor` 本次处理返回 |
 | `ingressToDisplay` | UDP 完整帧接收后，到 `TrackDisplayManager` 完成该航迹缓存处理 |
 | `displayProcessing` | 单个可见航迹进入显示缓存和样式状态处理的耗时 |
+| `snapshotWait` | 航迹完成显示缓存后，到下一次 snapshot 构建开始的等待时间 |
 | `snapshotBuild` | 构建一次全量 `TrackDisplaySnapshot` 的耗时 |
 | `snapshotBusDispatch` | 显示快照发布到 SystemBus 后，到 WebBridge 订阅回调收到 |
 | `webQueue` | WebBridge 从总线线程投递到 Qt 主线程的排队耗时 |
 | `webPrepareAndBroadcast` | Web DTO 组装、JSON 准备和调用 WebSocket broadcast 的耗时 |
+| `ingressToWebSend` | 同一 snapshot 中最新航迹从 UDP 接收到 WebSocket broadcast 返回的总时间，包含 snapshot 等待 |
+| `activeBackendToWebSend` | `ingressToWebSend` 扣除 `snapshotWait` 后的实际后端处理时间 |
 
 说明：
 
 - 统计明确排除浏览器接收与绘制时间；
-- `ingressToDisplay` 是当前“COM 到 UI 绘制前业务数据就绪”的逐航迹端到端指标；
+- `ingressToWebSend` 是当前最接近“COM 到前端绘制前”的整条后端链路指标；
+- `activeBackendToWebSend` 用于排除 1 秒刷新策略后的有效处理时间；
 - 当前显示快照每 1 秒生成一次，这段定时等待不计入处理耗时，避免把产品刷新策略误判为后端性能；
 - 采集路径只做 O(1) 内存追加，P50/P95/P99 仅在查询统计接口时计算；
 - 内存接口实时提供最近 4096 个样本的滚动统计；每 10 秒将有新样本的阶段批量写入 SQLite `pipeline_metrics`；
