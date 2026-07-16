@@ -27,6 +27,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QSet>
+#include <QTimer>
 #include <cstring>
 
 AppController::AppController(QObject* parent)
@@ -78,6 +79,10 @@ void AppController::shutdown()
     }
 
     stopRuntime();
+
+    if (m_latencyPersistTimer)
+        m_latencyPersistTimer->stop();
+    flushLatencyMetrics();
 
     if (m_busRouter) {
         m_busRouter->unsubscribe();
@@ -203,6 +208,7 @@ bool AppController::initializeDataAccess()
     if (!ensureDatabaseSchema()) {
         qWarning() << QStringLiteral("[AppController] 数据库表结构初始化不完整，程序继续运行");
     }
+    startLatencyPersistence();
 
     return true;
 }
@@ -236,7 +242,108 @@ bool AppController::ensureDatabaseSchema()
 
     const bool systemEventsOk = ensureSystemEventsSchema();
     const bool tracksOk = ensureTracksSchema();
-    return systemEventsOk && tracksOk;
+    const bool pipelineMetricsOk = ensurePipelineMetricsSchema();
+    return systemEventsOk && tracksOk && pipelineMetricsOk;
+}
+
+bool AppController::ensurePipelineMetricsSchema()
+{
+    static const QString ddl = QStringLiteral(
+        "CREATE TABLE IF NOT EXISTS pipeline_metrics ("
+        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  window_end_ms INTEGER NOT NULL,"
+        "  stage TEXT NOT NULL,"
+        "  unit TEXT NOT NULL DEFAULT 'us',"
+        "  sample_count INTEGER NOT NULL,"
+        "  window_sample_count INTEGER NOT NULL,"
+        "  min_us INTEGER NOT NULL,"
+        "  avg_us INTEGER NOT NULL,"
+        "  p50_us INTEGER NOT NULL,"
+        "  p95_us INTEGER NOT NULL,"
+        "  p99_us INTEGER NOT NULL,"
+        "  max_us INTEGER NOT NULL"
+        ")");
+
+    bool ok = m_dataStore->ensureTable(QStringLiteral("pipeline_metrics"), ddl);
+    ok = m_dataStore->execute(QStringLiteral(
+             "CREATE INDEX IF NOT EXISTS idx_pipeline_metrics_stage_time "
+             "ON pipeline_metrics(stage, window_end_ms)")) && ok;
+    return ok;
+}
+
+void AppController::startLatencyPersistence()
+{
+    if (!m_dataStore || !m_dataStore->isConnected() || m_latencyPersistTimer)
+        return;
+
+    m_latencyPersistTimer = new QTimer(this);
+    m_latencyPersistTimer->setInterval(10000);
+    connect(m_latencyPersistTimer, &QTimer::timeout,
+            this, &AppController::flushLatencyMetrics);
+    m_latencyPersistTimer->start();
+}
+
+void AppController::flushLatencyMetrics()
+{
+    if (!m_dataStore || !m_dataStore->isConnected()
+        || !m_dataStore->tableExists(QStringLiteral("pipeline_metrics"))) {
+        return;
+    }
+
+    const auto snapshot = m_pipelineLatency.snapshot();
+    const qint64 windowEndMs = QDateTime::currentMSecsSinceEpoch();
+    QVector<QVariantMap> rows;
+    QMap<QString, uint64_t> persistedCounts;
+
+    for (auto it = snapshot.stages.cbegin(); it != snapshot.stages.cend(); ++it) {
+        const auto& stats = it.value();
+        if (stats.sampleCount == 0
+            || stats.sampleCount == m_lastPersistedLatencyCounts.value(it.key(), 0)) {
+            continue;
+        }
+
+        QVariantMap row;
+        row.insert(QStringLiteral("window_end_ms"), windowEndMs);
+        row.insert(QStringLiteral("stage"), it.key());
+        row.insert(QStringLiteral("unit"), snapshot.unit);
+        row.insert(QStringLiteral("sample_count"), static_cast<qulonglong>(stats.sampleCount));
+        row.insert(QStringLiteral("window_sample_count"),
+                   static_cast<qulonglong>(stats.windowSampleCount));
+        row.insert(QStringLiteral("min_us"), stats.minUs);
+        row.insert(QStringLiteral("avg_us"), stats.avgUs);
+        row.insert(QStringLiteral("p50_us"), stats.p50Us);
+        row.insert(QStringLiteral("p95_us"), stats.p95Us);
+        row.insert(QStringLiteral("p99_us"), stats.p99Us);
+        row.insert(QStringLiteral("max_us"), stats.maxUs);
+        rows.append(std::move(row));
+        persistedCounts.insert(it.key(), stats.sampleCount);
+    }
+
+    if (rows.isEmpty())
+        return;
+    if (!m_dataStore->insertBatch(QStringLiteral("pipeline_metrics"), rows)) {
+        qWarning() << QStringLiteral("[Latency] pipeline_metrics 批量写入失败: %1 行")
+                          .arg(rows.size());
+        return;
+    }
+
+    for (auto it = persistedCounts.cbegin(); it != persistedCounts.cend(); ++it)
+        m_lastPersistedLatencyCounts.insert(it.key(), it.value());
+
+    qInfo().noquote() << QStringLiteral("[Latency] 已保存 pipeline_metrics: %1 个阶段")
+                            .arg(rows.size());
+
+    const auto displayIt = snapshot.stages.constFind(QStringLiteral("ingressToDisplay"));
+    if (displayIt != snapshot.stages.cend()
+        && persistedCounts.contains(QStringLiteral("ingressToDisplay"))) {
+        qInfo().noquote() << QStringLiteral(
+            "[Latency] ingressToDisplay count=%1 p50=%2us p95=%3us p99=%4us max=%5us")
+            .arg(displayIt->sampleCount)
+            .arg(displayIt->p50Us)
+            .arg(displayIt->p95Us)
+            .arg(displayIt->p99Us)
+            .arg(displayIt->maxUs);
+    }
 }
 
 bool AppController::ensureSystemEventsSchema()

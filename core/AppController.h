@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QJsonObject>
+#include <QMap>
 #include <memory>
 #include "AppTypes.h"
 #include "CommunicationManager.h"
@@ -21,6 +22,7 @@ class TaskService;
 class RuntimeSettingsService;
 class TrackDisplayManager;
 class TrackDisplayWebBridge;
+class QTimer;
 
 namespace web { class WebService; }
 class WebApiController;
@@ -171,6 +173,10 @@ private:
      */
     bool ensureTracksSchema();
 
+    bool ensurePipelineMetricsSchema();
+    void startLatencyPersistence();
+    void flushLatencyMetrics();
+
     /**
      * @brief 将端点配置加入通信管理器
      * @param configs 端点配置列表
@@ -268,6 +274,8 @@ private:
 
 private:
     PipelineLatencyMonitor m_pipelineLatency;                       ///< 进程内分段时延聚合
+    QMap<QString, uint64_t> m_lastPersistedLatencyCounts;
+    QTimer* m_latencyPersistTimer = nullptr;
     ConfigManager m_configManager;                          ///< 配置管理器（数据访问层）
     std::unique_ptr<DataStore> m_dataStore;                 ///< 数据存储（数据访问层）
     std::unique_ptr<CommunicationManager> m_commManager;    ///< 通信管理器
