@@ -1,3 +1,9 @@
+/**
+ * @file StatusBar.tsx
+ * @brief 显示核心服务连接、WebSocket 数据流和当前时间等运行状态。
+ * @details 状态栏只消费连接状态，不参与重连策略或航迹缓存更新。
+ */
+
 import { useState, useEffect } from 'react'
 import { useCore } from '../../hooks/useCoreApi'
 

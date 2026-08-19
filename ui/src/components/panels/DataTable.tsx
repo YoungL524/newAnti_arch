@@ -1,3 +1,9 @@
+/**
+ * @file DataTable.tsx
+ * @brief 对设备数据执行列选择、筛选、排序和虚拟化表格展示。
+ * @details 输入行由实时状态提供；组件只维护视图派生状态，避免复制或回写核心航迹数据。
+ */
+
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { DeviceType } from '../../lib/protocol'
 import type { DeviceDataRow, RadarTrack } from '../../lib/protocol'

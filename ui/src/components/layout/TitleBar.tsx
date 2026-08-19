@@ -1,3 +1,9 @@
+/**
+ * @file TitleBar.tsx
+ * @brief 显示当前任务名称、生命周期状态和设备执行摘要。
+ * @details 所有值均来自上层任务状态，标题栏不发起任务命令，也不修改任务对象。
+ */
+
 import type { Task } from '../../lib/taskTypes'
 import { useCore } from '../../hooks/useCoreApi'
 

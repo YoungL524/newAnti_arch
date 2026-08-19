@@ -6,6 +6,9 @@
 namespace web {
 
 // Lowercase header name for case-insensitive lookup
+/**
+ * @brief 去除头名首尾空白并转小写，使后续查询大小写无关。
+ */
 static QString normalizeHeaderKey(const QString& raw) {
     return raw.toLower();
 }
@@ -13,6 +16,9 @@ static QString normalizeHeaderKey(const QString& raw) {
 // ============================================================
 // HttpRequest helpers (case-insensitive header lookup)
 // ============================================================
+/**
+ * @brief 使用与解析阶段相同的规范化规则查询头映射。
+ */
 std::optional<QString> HttpRequest::headerValue(const QString& key) const {
     auto it = headers.find(key.toLower());
     if (it != headers.end())
@@ -20,11 +26,17 @@ std::optional<QString> HttpRequest::headerValue(const QString& key) const {
     return std::nullopt;
 }
 
+/**
+ * @brief 把 Content-Length 转为非负整数；转换失败按 0 处理。
+ */
 int HttpRequest::contentLength() const {
     auto v = headerValue("content-length");
     return v ? v->toInt() : 0;
 }
 
+/**
+ * @brief 显式 close 优先关闭，显式 keep-alive 开启复用；其余采用解析器的 HTTP/1.1 默认。
+ */
 bool HttpRequest::isKeepAlive() const {
     auto conn = headerValue("connection");
     return conn.has_value() && conn->compare("keep-alive", Qt::CaseInsensitive) == 0;
@@ -33,18 +45,30 @@ bool HttpRequest::isKeepAlive() const {
 // ============================================================
 // Response helpers
 // ============================================================
+/**
+ * @brief 更新数字状态码，供序列化阶段映射原因短语。
+ */
 void HttpResponse::setStatus(int code) noexcept { statusCode = code; }
 
+/**
+ * @brief 原样保存正文并设置调用方指定 MIME 类型。
+ */
 void HttpResponse::setContent(const QByteArray& content, const QString& mimeType) {
     body = content;
     headers["content-type"]   = mimeType;
     headers["content-length"] = QString::number(body.size());
 }
 
+/**
+ * @brief 使用统一 UTF-8 JSON 类型委托 setContent。
+ */
 void HttpResponse::setJson(const QByteArray& jsonBody) {
     setContent(jsonBody, "application/json");
 }
 
+/**
+ * @brief 根据 keepAlive 写入连接响应头和固定 5 秒提示，或明确要求关闭。
+ */
 void HttpResponse::applyKeepAlive() {
     keepAlive = true;
     headers["connection"] = QStringLiteral("keep-alive");
@@ -55,6 +79,9 @@ void HttpResponse::applyKeepAlive() {
 // ============================================================
 // Parse
 // ============================================================
+/**
+ * @brief 把有限方法 token 映射为枚举，未支持方法保持 UNKNOWN。
+ */
 static Method methodFromString(const QString& s) {
     if (s == "GET")    return Method::GET;
     if (s == "POST")   return Method::POST;
@@ -66,7 +93,7 @@ static Method methodFromString(const QString& s) {
 enum class ChunkResult { Ok, Incomplete, Malformed };
 
 /**
- * @brief Decode HTTP chunked body.
+ * @brief 逐块解码 Transfer-Encoding: chunked 正文，并校验十六进制长度和终止块。
  * @param data   Raw buffer
  * @param offset Offset where chunked body starts
  * @param dataSize Total bytes available in data
@@ -127,6 +154,10 @@ static ChunkResult decodeChunked(const QByteArray& data, int offset, int dataSiz
     return ChunkResult::Incomplete;
 }
 
+/**
+ * @brief 分离头部、解析请求行和头字段，再按 chunked 或 Content-Length 判断正文完整性。
+ * @details 所有长度检查先于分配和切片；只有完整请求才返回 consumed，支持同一 TCP 缓冲区流水线请求。
+ */
 std::optional<ParseResult> tryParseRequest(const QByteArray& buffer) {
     int headerEnd = buffer.indexOf("\r\n\r\n");
     if (headerEnd < 0) return ParseResult{{}, 0, false};
@@ -214,6 +245,9 @@ std::optional<ParseResult> tryParseRequest(const QByteArray& buffer) {
 // ============================================================
 // Serialize
 // ============================================================
+/**
+ * @brief 将服务使用的状态码映射为 HTTP 原因短语，未知码返回 Unknown。
+ */
 static QByteArray statusText(int code) {
     switch (code) {
     case 200: return "OK";
@@ -226,6 +260,9 @@ static QByteArray statusText(int code) {
     }
 }
 
+/**
+ * @brief 补齐 Content-Length 和连接头后序列化完整 HTTP/1.1 响应。
+ */
 QByteArray serializeResponse(const HttpResponse& resp) {
     QByteArray result;
     result += "HTTP/1.1 " + QByteArray::number(resp.statusCode) + " "
@@ -251,6 +288,9 @@ QByteArray serializeResponse(const HttpResponse& resp) {
 // ============================================================
 // MIME
 // ============================================================
+/**
+ * @brief 使用小写扩展名映射常见前端资源类型，防止未知文件被浏览器误解释。
+ */
 QString mimeType(const QString& filePath) {
     if (filePath.endsWith(".html"))  return "text/html; charset=utf-8";
     if (filePath.endsWith(".css"))   return "text/css; charset=utf-8";

@@ -1,3 +1,9 @@
+/**
+ * @file devicesApi.ts
+ * @brief 封装设备台账的读取、创建、更新和删除接口。
+ * @details 雷达 6DOF、阵面绝对朝向与端点绑定均按核心 JSON 契约传输，客户端不额外换算航向角。
+ */
+
 export type DeviceRegistryStatus = 'loading' | 'available' | 'unavailable'
 
 import type { RadarDevice, SubDevice, RadarBrand } from '../components/map/types'
@@ -13,6 +19,7 @@ export interface ApiResult<T = boolean> {
 export interface ApiDevice {
   id: string; name: string; brand: string; kind: number
   lng: number; lat: number; altitude: number; maxRange: number
+  pitch: number; roll: number
   facesJson: string; endpointId: string; linkedRadarId: string
   mountOffsetAzimuth: number; coordinateSystem: string; status: number
 }
@@ -64,6 +71,8 @@ export function apiDeviceToRadar(item: ApiDevice): RadarDevice | null {
     lng: item.lng,
     lat: item.lat,
     altitude: item.altitude,
+    pitch: item.pitch ?? 0,
+    roll: item.roll ?? 0,
     maxRange: item.maxRange || 5,
     faces: faces.length > 0 ? faces : [{ label: 'A', boresightAzimuth: 0, scanAngle: 45, active: true }],
     endpointId: item.endpointId || undefined,
@@ -104,6 +113,7 @@ export function radarToApiPayload(id: string, d: RadarDevice): any {
   return {
     id, name: d.name, brand: d.brand, kind: 0,
     lng: d.lng, lat: d.lat, altitude: d.altitude,
+    pitch: d.pitch, roll: d.roll,
     maxRange: d.maxRange, facesJson: JSON.stringify(d.faces),
     endpointId: d.endpointId || '',
   }

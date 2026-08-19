@@ -20,11 +20,17 @@ struct OptionalMs {
     qint64 value = 0;
 };
 
+/**
+ * @brief 生成系统事件查询使用的统一 JSON 错误响应。
+ */
 QJsonObject fail(const QString& msg)
 {
     return {{QStringLiteral("ok"), false}, {QStringLiteral("error"), msg}};
 }
 
+/**
+ * @brief 解析可选 Unix 毫秒查询参数，并区分缺失与非法数字。
+ */
 OptionalMs parseOptionalMs(const QString& raw)
 {
     if (raw.isEmpty())
@@ -36,6 +42,9 @@ OptionalMs parseOptionalMs(const QString& raw)
     return {true, false, v};
 }
 
+/**
+ * @brief 把事件分页大小限制在服务允许范围，防止单请求生成无界响应。
+ */
 int clampEventLimit(const QString& raw)
 {
     if (raw.isEmpty())
@@ -47,6 +56,9 @@ int clampEventLimit(const QString& raw)
     return qBound(kMinEventLimit, n, kMaxEventLimit);
 }
 
+/**
+ * @brief 将 system_events 查询行映射为稳定 API 字段并保留 Unix 毫秒时间。
+ */
 QJsonObject rowToJson(const QVariantMap& row)
 {
     QJsonObject j;
@@ -65,6 +77,10 @@ QJsonObject rowToJson(const QVariantMap& row)
 
 } // namespace
 
+/**
+ * @brief 注册带任务、设备、类别、时间和分页过滤的只读系统事件查询。
+ * @details 路由先验证数据库连接及查询参数，再调用 DataStore 的参数化查询；该接口不修改事件数据。
+ */
 void registerRoutes(web::WebService* ws, DataStore* store)
 {
     if (!ws || !store)

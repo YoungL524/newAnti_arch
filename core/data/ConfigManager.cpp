@@ -1,4 +1,4 @@
-﻿#include "ConfigManager.h"
+#include "ConfigManager.h"
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -8,6 +8,10 @@
 #include <QDebug>
 #include <QSaveFile>
 
+/**
+ * @brief 按“显式提示、工作目录、可执行文件目录、可执行文件上级”顺序定位首个 config 目录。
+ * @details 成功后保存绝对路径并清除旧缓存，保证切换目录后不会继续返回上一目录的配置对象。
+ */
 bool ConfigManager::loadConfigDir(const QString& hint)
 {
     // 如果提供了明确路径，直接使用
@@ -45,6 +49,10 @@ bool ConfigManager::loadConfigDir(const QString& hint)
     return false;
 }
 
+/**
+ * @brief 按配置名惰性读取 name.json，并缓存解析后的根对象。
+ * @details 缓存避免多个装配模块反复访问磁盘；需要观察外部文件修改时必须先调用 clearCache()。
+ */
 QJsonObject ConfigManager::getConfig(const QString& name) const
 {
     // 检查缓存
@@ -64,6 +72,9 @@ QJsonObject ConfigManager::getConfig(const QString& name) const
     return obj;
 }
 
+/**
+ * @brief 覆盖写入缩进 JSON，并仅在完整写入成功后更新内存缓存。
+ */
 bool ConfigManager::saveConfig(const QString& name, const QJsonObject& config)
 {
     QString filePath = configFilePath(name);
@@ -89,6 +100,9 @@ bool ConfigManager::saveConfig(const QString& name, const QJsonObject& config)
     return true;
 }
 
+/**
+ * @brief 将无扩展名配置名解析为已定位目录下的 name.json 绝对路径。
+ */
 QString ConfigManager::configFilePath(const QString& name) const
 {
     if (m_configDir.isEmpty()) {
@@ -98,11 +112,17 @@ QString ConfigManager::configFilePath(const QString& name) const
     return m_configDir + QStringLiteral("/") + name + QStringLiteral(".json");
 }
 
+/**
+ * @brief 丢弃全部已解析对象；不修改磁盘文件或当前配置目录。
+ */
 void ConfigManager::clearCache()
 {
     m_cache.clear();
 }
 
+/**
+ * @brief 读取完整文件并要求 JSON 根节点为对象；打开或解析失败返回空对象并记录原因。
+ */
 QJsonObject ConfigManager::loadJsonFile(const QString& filePath) const
 {
     if (filePath.isEmpty()) {
@@ -129,6 +149,10 @@ QJsonObject ConfigManager::loadJsonFile(const QString& filePath) const
     return doc.object();
 }
 
+/**
+ * @brief 对 endpoints/processor 已知字段执行启动前结构校验，收集全部问题而非首错返回。
+ * @details 校验不修改对象且不负责端口占用、数据库连接等运行时条件；调用方决定警告还是拒绝更新。
+ */
 QStringList ConfigManager::validateConfig(const QString& name, const QJsonObject& obj)
 {
     QStringList errors;

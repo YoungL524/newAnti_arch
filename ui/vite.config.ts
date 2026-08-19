@@ -1,3 +1,9 @@
+/**
+ * @file vite.config.ts
+ * @brief 配置前端开发服务器、React 编译插件和生产构建参数。
+ * @details 开发环境中的 API 与 WebSocket 代理必须指向核心进程端口，使浏览器代码始终使用同源相对地址。
+ */
+
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 

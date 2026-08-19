@@ -1,3 +1,10 @@
+/**
+ * @file WebService.h
+ * @brief 声明 HTTP/REST 和 WebSocket 传输服务及每连接背压策略。
+ * @details WebService 负责监听、请求缓冲、路由匹配、静态资源和 JSON/二进制发送，不持有业务状态。
+ *          WebSocket 慢客户端按待发送字节限制隔离，实时航迹允许丢弃并由后续快照恢复。
+ */
+
 #pragma once
 
 #include <QObject>
@@ -16,11 +23,9 @@ class QTimer;
 namespace web {
 
 /**
- * @brief HTTP (QTcpServer) + WebSocket (QWebSocketServer) service.
- *
- * Owns both servers on the Qt event loop (no threading needed).
- * Handles HTTP parsing via HttpParser, WS push via QWebSocketServer.
- * REST handlers are registered via handleGet/handlePost.
+ * @brief 在同一 Qt 事件线程中提供轻量 HTTP API、静态文件和 WebSocket 推送服务。
+ * @details REST 路由由上层控制器注册，本类只负责协议解析、连接生命周期与响应序列化。
+ *          WebSocket 发送采用拥塞阈值保护：慢客户端的待发送字节持续堆积时主动断开，防止单个浏览器拖垮核心进程。
  */
 class WebService : public QObject {
     Q_OBJECT
@@ -58,12 +63,15 @@ public:
 
     /// Broadcast JSON to all WebSocket clients (main thread safe).
     void broadcast(const QJsonObject& msg);
+    /// Send JSON to one connected client (used for connection-scoped initial state).
+    bool sendToClient(QWebSocket* client, const QJsonObject& msg);
 
     /// Static file directory.
     void setStaticDir(const QString& dir);
 
 signals:
     void serverLog(const QString& level, const QString& msg);
+    void webSocketConnected(QWebSocket* client);
 
 private slots:
     void onHttpConnection();

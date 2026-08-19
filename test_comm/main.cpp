@@ -1,4 +1,10 @@
-﻿#include <QCoreApplication>
+#include <QCoreApplication>
+/**
+ * @file main.cpp
+ * @brief 实现雷达通信模拟器的命令行入口。
+ * @details 负责解析目标地址和本地监听端口、启动 TestComm 与输入线程，并在 Qt 事件循环中持续模拟 DPH 接收和航迹回放。
+ */
+
 #include <QDebug>
 #include "TestComm.h"
 #include "StdinReader.h"
@@ -10,7 +16,8 @@
 
 
 /**
- * @brief 打印命令帮助
+ * @brief 输出模拟器业务行为和运行时诊断命令。
+ * @details 帮助文本明确 core 是工作模式的发起方，模拟器只响应命令并按配置回放航迹。
  */
 static void printUsage()
 {
@@ -34,6 +41,14 @@ static void printUsage()
 }
 
 
+/**
+ * @brief 配置并运行雷达端 UDP 通信模拟器。
+ * @param argc 命令行参数个数。
+ * @param argv 依次可提供目标 IP、目标端口、工作模式监听端口、DPH 监听端口和 CSV 路径。
+ * @return Qt 事件循环退出码；UDP 监听初始化失败时返回 1。
+ * @details Logger 必须在首条诊断信息前安装。TestComm 留在主线程处理套接字与定时器；StdinReader 单独阻塞读取，
+ *          退出时终止并等待该线程，避免其晚于 QCoreApplication 析构。
+ */
 int main(int argc, char *argv[])
 {
     #ifdef Q_OS_WIN

@@ -1,3 +1,9 @@
+/**
+ * @file systemEventsApi.ts
+ * @brief 封装系统事件的条件过滤与分页查询接口。
+ * @details 查询条件可限定任务、设备、类别和时间窗口；返回数据来自持久化事件表而非浏览器日志缓存。
+ */
+
 export interface SystemEvent {
   tsMs: number
   category: string

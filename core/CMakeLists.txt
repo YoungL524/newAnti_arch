@@ -16,14 +16,16 @@ set(CORE_HEADERS
     protocol/StructureReceive.h
     bus/ThreadSafeQueue.h
     bus/GenericPackets.h
-    bus/BusEnvelope.h
     bus/ISystemBus.h
     bus/SystemBus.h
     processor/RadarDataProcessor.h
+    processor/TrackPacketMapper.h
+    processor/TrackRecognizer.h
     processor/BusToCommRouter.h
     processor/DphPublisher.h
     data/ConfigManager.h
     data/DataStore.h
+    data/TrackStorage.h
     log/Logger.h
     log/LogContext.h
     metrics/MonotonicClock.h
@@ -59,12 +61,14 @@ set(CORE_SOURCES
     comm/CommunicationManager.cpp
     comm/EndpointConfigLoader.cpp
     bus/SystemBus.cpp
-    bus/BusEnvelope.cpp
     processor/RadarDataProcessor.cpp
+    processor/TrackPacketMapper.cpp
+    processor/TrackRecognizer.cpp
     processor/BusToCommRouter.cpp
     processor/DphPublisher.cpp
     data/ConfigManager.cpp
     data/DataStore.cpp
+    data/TrackStorage.cpp
     business/RadarWorkModeController.cpp
     business/BusWorkModeSender.cpp
     business/DeviceRegistry.cpp
@@ -113,4 +117,27 @@ if(WIN32)
             COMMENT "Deploying Qt DLLs via windeployqt..."
         )
     endif()
+
+    # qsqlpsql.dll does not bundle libpq/OpenSSL. Deploy the small runtime set
+    # next to the executable so launching from VS Code, Explorer or a clean
+    # terminal behaves the same.
+    set(POSTGRESQL_BIN_DIR "C:/Program Files/PostgreSQL/17/bin" CACHE PATH
+        "PostgreSQL client runtime directory")
+    set(POSTGRESQL_RUNTIME_DLLS
+        libpq.dll
+        libintl-9.dll
+        libiconv-2.dll
+        libssl-3-x64.dll
+        libcrypto-3-x64.dll
+    )
+    foreach(_pg_dll IN LISTS POSTGRESQL_RUNTIME_DLLS)
+        if(EXISTS "${POSTGRESQL_BIN_DIR}/${_pg_dll}")
+            add_custom_command(TARGET NewAntiDrone_core POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${POSTGRESQL_BIN_DIR}/${_pg_dll}"
+                    "$<TARGET_FILE_DIR:NewAntiDrone_core>/${_pg_dll}"
+                COMMENT "Deploying PostgreSQL runtime: ${_pg_dll}"
+            )
+        endif()
+    endforeach()
 endif()

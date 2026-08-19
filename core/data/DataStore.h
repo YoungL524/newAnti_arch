@@ -10,7 +10,7 @@
 /**
  * @file DataStore.h
  * @brief 通用数据库存储层
- * @details 数据访问层组件。封装 QSqlDatabase，提供对 PostgreSQL 的通用操作。
+ * @details 数据访问层组件。封装具名 QSqlDatabase 连接，同时支持 SQLite 和 PostgreSQL 风格驱动。
  *          不包含任何业务语义（不知道"航迹"或"校准"是什么），
  *          仅提供表级别的 CRUD 操作，业务语义由上层（业务层）定义。
  *
@@ -37,14 +37,17 @@
  *   auto rows = store.query("SELECT * FROM tracks WHERE target_id = ?", {1});
  * @endcode
  *
- * 依赖：Qt SQL 模块（QT += sql）、PostgreSQL 客户端库（libpq）
+ * @warning Qt SQL 连接只能在创建它的线程使用；跨线程消费者必须在自己的线程创建独立 DataStore。
+ * @note 表名和列名由可信业务代码提供，值使用占位符绑定；本类不负责把任意外部输入当作标识符转义。
  */
 class DataStore : public QObject
 {
     Q_OBJECT
 
 public:
+    /** @brief 创建具有进程内唯一连接名但尚未连接的存储对象。 */
     explicit DataStore(QObject* parent = nullptr);
+    /** @brief 关闭并从 Qt 全局连接注册表移除本实例连接。 */
     ~DataStore() override;
 
     // ========== 连接管理 ==========
@@ -145,8 +148,11 @@ public:
     bool execute(const QString& sql,
                  const QVariantList& bindValues = QVariantList());
 
+    /** @brief 在当前连接开启事务；未连接或驱动拒绝时返回 false。 */
     bool beginTransaction();
+    /** @brief 提交当前事务；失败时由调用方决定是否回滚。 */
     bool commitTransaction();
+    /** @brief 回滚当前事务；未连接时无操作，回滚失败通过 errorOccurred 报告。 */
     void rollbackTransaction();
 
     /**
@@ -257,8 +263,8 @@ private:
      */
     void rollbackTransaction(QSqlDatabase& db, const QString& context);
 
-    QString m_connectionName;   ///< 数据库连接名（支持多实例）
-    bool m_connected = false;   ///< 连接状态标志
+    QString m_connectionName;   ///< Qt 全局连接注册表中的唯一名称，格式 DataStore_N。
+    bool m_connected = false;   ///< 本实例完成 open 和必要初始化后的逻辑连接状态。
 
     static int s_connectionCounter;  ///< 全局连接计数器（生成唯一连接名）
 };

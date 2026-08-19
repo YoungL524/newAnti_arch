@@ -1,6 +1,13 @@
+/**
+ * @file HistoryTrackLayer.tsx
+ * @brief 按任务查询并绘制可分页回放的历史航迹线与点。
+ * @details 历史数据来自数据库查询，图层生命周期独立于实时 TrackLayer，切换任务时会清理旧地图要素。
+ */
+
 import { useEffect, useRef, useMemo, useState, useCallback } from 'react'
 import type { TrackHistoryPoint } from '../../lib/tracksApi'
 import type { RadarDevice } from './types'
+import { projectRadarTrack } from '../../lib/radarPose'
 
 interface ScreenPoint { x: number; y: number }
 
@@ -13,12 +20,6 @@ interface Props {
   points: TrackHistoryPoint[]
   mapInstance: any
   mapClass: any
-}
-
-function polarToLngLat(lng: number, lat: number, azRad: number, rng: number) {
-  const lr = (lat * Math.PI) / 180
-  const mpl = 111320 * Math.cos(lr)
-  return [lng + rng * Math.sin(azRad) / mpl, lat + rng * Math.cos(azRad) / 111320] as const
 }
 
 function strokePolyline(ctx: CanvasRenderingContext2D, points: ScreenPoint[], color: string, width: number, alpha: number) {
@@ -91,7 +92,13 @@ export default function HistoryTrackLayer({ device, points, mapInstance, mapClas
     for (const [, pts] of trailMap) {
       const sp = pts
         .map((pt) => {
-          const p = map.lngLatToContainer(new AMap.LngLat(...polarToLngLat(device.lng, device.lat, pt.azimuth, pt.range)))
+          const projected = projectRadarTrack(
+            device,
+            pt.azimuth * 180 / Math.PI,
+            pt.elevation * 180 / Math.PI,
+            pt.range,
+          )
+          const p = map.lngLatToContainer(new AMap.LngLat(projected.lng, projected.lat))
           return p ? { x: p.x, y: p.y } : null
         })
         .filter((v): v is ScreenPoint => {

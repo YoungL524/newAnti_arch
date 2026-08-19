@@ -7,6 +7,10 @@
 #include <cstring>
 #include <cmath>
 
+/**
+ * @brief 验证 TestComm 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 TestComm::TestComm(QObject* parent)
     : QObject(parent)
 {
@@ -21,6 +25,10 @@ TestComm::~TestComm()
     if (m_socketDph)      m_socketDph->close();
 }
 
+/**
+ * @brief 验证 initialize 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 bool TestComm::initialize(quint16 workmodePort, quint16 dphPort)
 {
     m_socketWorkmode = new QUdpSocket(this);
@@ -90,12 +98,20 @@ bool TestComm::initialize(quint16 workmodePort, quint16 dphPort)
     return true;
 }
 
+/**
+ * @brief 验证 setTarget 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestComm::setTarget(const QString& address, quint16 port)
 {
     m_targetAddress = QHostAddress(address);
     m_targetPort = port;
 }
 
+/**
+ * @brief 验证 setTrackReportInterval 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestComm::setTrackReportInterval(int intervalMs)
 {
     if (intervalMs < 10) intervalMs = 10;
@@ -104,6 +120,10 @@ void TestComm::setTrackReportInterval(int intervalMs)
 
 // ========== CSV 加载 ==========
 
+/**
+ * @brief 验证 loadCsv 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 bool TestComm::loadCsv(const QString& path)
 {
     QFile file(path);
@@ -216,6 +236,10 @@ bool TestComm::loadCsv(const QString& path)
 
 // ========== 查询 / 显示 ==========
 
+/**
+ * @brief 验证 printDphStats 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestComm::printDphStats()
 {
     double elapsedSec = m_statsTimer.elapsed() / 1000.0;
@@ -230,6 +254,10 @@ void TestComm::printDphStats()
     qDebug() << QStringLiteral("========================");
 }
 
+/**
+ * @brief 验证 printStatus 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestComm::printStatus()
 {
     qDebug() << QStringLiteral("===== TestComm 状态 =====");
@@ -242,6 +270,10 @@ void TestComm::printStatus()
     qDebug() << QStringLiteral("========================");
 }
 
+/**
+ * @brief 验证 toggleVerbose 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestComm::toggleVerbose()
 {
     m_verbose = !m_verbose;
@@ -251,11 +283,19 @@ void TestComm::toggleVerbose()
 
 // ========== UDP 接收 ==========
 
+/**
+ * @brief 验证 onWorkmodeReadyRead 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestComm::onWorkmodeReadyRead()
 {
     drainSocket(m_socketWorkmode, &TestComm::handleWorkmodePacket);
 }
 
+/**
+ * @brief 验证 onDphReadyRead 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestComm::onDphReadyRead()
 {
     drainSocket(m_socketDph, &TestComm::handleDphPacket);
@@ -336,6 +376,10 @@ void TestComm::handleDphPacket(const QByteArray& data,
     }
 }
 
+/**
+ * @brief 验证 handleWorkStandby 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestComm::handleWorkStandby(const workStandby& cmd)
 {
     const uint32_t mode = cmd.Work_Standby_Mode;
@@ -381,6 +425,10 @@ void TestComm::handleWorkStandby(const workStandby& cmd)
 
 // ========== 航迹上报 ==========
 
+/**
+ * @brief 验证 sendTrackFromCsv 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestComm::sendTrackFromCsv(int index)
 {
     if (index < 0 || index >= m_csvTracks.size()) return;
@@ -401,6 +449,10 @@ void TestComm::sendTrackFromCsv(int index)
     }
 }
 
+/**
+ * @brief 验证 onTrackReportTick 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestComm::onTrackReportTick()
 {
     if (!m_working) return;

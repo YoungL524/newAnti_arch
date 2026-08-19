@@ -1,3 +1,9 @@
+/**
+ * @file SelectedTracksPanel.tsx
+ * @brief 展示用户当前选中的航迹及其关键运动、识别信息。
+ * @details 面板内容由实时航迹集合派生；航迹删除或过期后相应选择应随上层状态一起移除。
+ */
+
 import { useMemo } from 'react'
 import { useCore } from '../../hooks/useCoreApi'
 import type { RadarTrack } from '../../lib/protocol'

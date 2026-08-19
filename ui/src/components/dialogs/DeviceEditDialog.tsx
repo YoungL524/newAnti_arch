@@ -1,3 +1,9 @@
+/**
+ * @file DeviceEditDialog.tsx
+ * @brief 根据设备类型选择对应编辑表单，并提交新增或修改结果。
+ * @details 对话框维护未提交的表单草稿；只有核心 API 成功后才通知上层刷新设备台账。
+ */
+
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import RadarEditForm from './RadarEditForm'

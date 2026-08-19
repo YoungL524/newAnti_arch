@@ -1,16 +1,34 @@
+/**
+ * @file GenericPackets.h
+ * @brief 定义 SystemBus 上唯一的顶层消息 DataPacket 及其类型安全载荷工具。
+ * @details 厂家协议对象进入核心后必须转换为这里定义的统一消息；显示、存储、Web 和反向控制均只交换
+ *          DataPacket。command 表示业务语义，DataPayload 的 variant 表示真实载荷类型，二者必须一致。
+ *          小型协议结构按值保存，大型业务对象使用 shared_ptr<const T> 在多个订阅分支间只读共享。
+ *
+ * @par 扩展新命令的步骤
+ * 在 DataCommand、DataPayload、getPayloadTypeConstant<T>() 和 DataPacket::hasConsistentPayload() 四处同时登记，
+ * 并增加协议布局/总线往返测试；遗漏任一处都会导致 pack 或 publish 明确失败，而不是退化为 void 指针。
+ */
+
 #ifndef GENERICPACKETS_H
 #define GENERICPACKETS_H
 
 #include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <type_traits>
+#include <variant>
 #include <QByteArray>
 #include <QString>
 #include <QDateTime>
+#include <QMetaType>
 #include "StructureReceive.h"
 
-#pragma pack(push, 1) // 强制单字节对齐
+struct RadarRuntimeSettings;
+struct TrackPacket;
+struct TrackDisplayUpdate;
+struct TrackInteractionCommand;
 
 /**
  * @brief 设备类型枚举
@@ -82,13 +100,27 @@ enum ErrorLevel {
 const uint32_t PAYLOAD_TYPE_UNKNOWN = 0;
 const uint32_t PAYLOAD_TYPE_WORK_STANDBY = 1;
 const uint32_t PAYLOAD_TYPE_TARGET_TYPE = 2;
-const uint32_t PAYLOAD_TYPE_GENERAL_PACKAGE = 3;
 const uint32_t PAYLOAD_TYPE_LOG_TEXT = 100;
 const uint32_t PAYLOAD_TYPE_ERROR = 101;        ///< 错误/告警数据
 const uint32_t PAYLOAD_TYPE_CONFIG = 102;       ///< 配置数据
 const uint32_t PAYLOAD_TYPE_DPH_PARAMS_CHANGED = 103; ///< 运行时参数变更
-const uint32_t PAYLOAD_TYPE_TRACK_DISPLAY_SNAPSHOT = 104; ///< 航迹显示全量 snapshot（shared payload）
+const uint32_t PAYLOAD_TYPE_TRACK_DISPLAY_UPDATE = 104; ///< 航迹显示初始快照/增量（shared payload）
 const uint32_t PAYLOAD_TYPE_TRACK_INTERACTION_COMMAND = 105; ///< 航迹交互命令（shared payload）
+const uint32_t PAYLOAD_TYPE_TRACK_PACKET = 106; ///< 标准权威航迹（shared payload）
+
+/// 命令字沿用旧 payloadType 数值，避免配置和路由同时重写。
+enum class DataCommand : uint32_t {
+    Unknown = PAYLOAD_TYPE_UNKNOWN,
+    WorkStandby = PAYLOAD_TYPE_WORK_STANDBY,
+    Target = PAYLOAD_TYPE_TARGET_TYPE,
+    Log = PAYLOAD_TYPE_LOG_TEXT,
+    Error = PAYLOAD_TYPE_ERROR,
+    Config = PAYLOAD_TYPE_CONFIG,
+    DphParamsChanged = PAYLOAD_TYPE_DPH_PARAMS_CHANGED,
+    TrackDisplayUpdate = PAYLOAD_TYPE_TRACK_DISPLAY_UPDATE,
+    TrackInteractionCommand = PAYLOAD_TYPE_TRACK_INTERACTION_COMMAND,
+    Track = PAYLOAD_TYPE_TRACK_PACKET,
+};
 
 /// @brief 设备 / 服务源类型
 /// @note 编号区间：10-49 雷达设备，50-199 保留，200-299 内部服务，300+ runtime/control target
@@ -99,60 +131,94 @@ const uint16_t SOURCE_COMMUNICATION = 203;      ///< 通信层
 const uint16_t SOURCE_DATA_PROCESSOR = 204;     ///< 数据处理层
 const uint16_t SOURCE_RUNTIME_SETTINGS = 205;   ///< 运行时参数服务
 const uint16_t SOURCE_TRACK_DISPLAY = 206;      ///< 航迹显示管理
-const uint16_t SOURCE_WEB_API = 207;            ///< Web API 接入层（UI 命令入口）
+const uint16_t SOURCE_WEB_API = 207;            ///< Web API 接入层发布操作员命令时使用的源标识。
 
-/**
- * @brief 数据包大小常量
- */
-const size_t MAX_PAYLOAD_SIZE = 4096;
 const size_t MAX_ERROR_DESC_SIZE = 256;
 
+/** @brief 可经总线传播并最终写日志或推送 Web 的结构化错误。 */
+struct ErrorPayload {
+    ErrorType type = ERR_NONE;            ///< 便于接收方分类处理的错误类别。
+    ErrorLevel level = ERR_LEVEL_INFO;    ///< 对应日志严重级别和告警展示策略。
+    QString description;                  ///< 面向运维的错误文本，创建时限制为 MAX_ERROR_DESC_SIZE-1 个字符。
+    QString sourceFile;                   ///< 可选的短文件名，不包含本机绝对路径。
+    uint32_t sourceLine = 0;              ///< sourceFile 中的源码行号；未知时为 0。
+};
+
+using DataPayload = std::variant<
+    std::monostate,
+    workStandby,
+    TargetType,
+    QByteArray,
+    ErrorPayload,
+    std::shared_ptr<const RadarRuntimeSettings>,
+    std::shared_ptr<const TrackPacket>,
+    std::shared_ptr<const TrackDisplayUpdate>,
+    std::shared_ptr<const TrackInteractionCommand>>;
+
 /**
- * @brief 通用数据包结构
- * @details 系统总线上流转的统一数据格式
+ * @brief SystemBus 唯一顶层消息
+ * @details command 决定消息语义，std::variant 保证载荷类型安全。
+ *          不再内嵌固定 rawData，也不再需要 void 对象载荷。
  */
 struct DataPacket {
-    uint16_t sourceType;           ///< 数据源类型（可以是DeviceType或UIWidget）
-    uint16_t dispatchTarget;       ///< 分发目标
-    uint32_t packetSequence;       ///< 包序列号
-    uint64_t timeStamp;           ///< 时间戳
-    uint16_t errorType;           ///< 错误类型（ErrorType枚举）
-    uint16_t errorLevel;          ///< 错误级别（ErrorLevel枚举）
-    char errorDescription[MAX_ERROR_DESC_SIZE]; ///< 错误描述
-    char sourceFile[64];          ///< 源文件名（用于错误追踪）
-    uint32_t sourceLine;          ///< 源文件行号（用于错误追踪）
-    
+    static constexpr uint32_t Magic = 0x5A5A6B6B;
+    static constexpr uint16_t SchemaVersion = 1;
+
+    uint16_t sourceType = DEVICE_UNKNOWN; ///< 设备或内部服务来源，用于源类型订阅和链路归属。
+    uint16_t dispatchTarget = UI_UNKNOWN; ///< 逻辑分发目标，用于目标订阅；不是网络地址。
+    uint32_t packetSequence = 0;          ///< 来源范围内递增的包序号；允许回绕，不作为全局主键。
+    uint64_t timeStamp = 0;               ///< 业务产生或接收时间，Unix 时间戳，单位毫秒。
+    uint64_t traceId = 0;                 ///< 跨处理阶段保持不变的链路跟踪 ID；0 表示尚未分配。
+    DataCommand command = DataCommand::Unknown; ///< 决定消息语义及 payload 必须持有的 variant 分支。
+    DataPayload payload;                  ///< 类型安全载荷；共享指针分支必须非空且指向不可变对象。
+
+    /** @brief 返回用于日志、配置和兼容旧 payloadType 编号的命令整数值。 */
+    uint32_t commandValue() const noexcept {
+        return static_cast<uint32_t>(command);
+    }
+
     /**
-     * @brief 载荷联合体
+     * @brief 校验 command 与 variant 当前分支是否构成已登记的合法组合。
+     * @return 值载荷类型匹配，或共享载荷类型匹配且指针非空时返回 true。
+     * @note SystemBus 在入队前强制调用本函数，防止错误类型传播到异步订阅者。
      */
-    union PayloadUnion {
-        uint8_t rawData[MAX_PAYLOAD_SIZE];              ///< 原始字节数据
-        GeneralPackage generalPackage;                  ///< CPU数据总包（向后兼容）
-        
-        PayloadUnion() { memset(this, 0, sizeof(PayloadUnion)); }
-        ~PayloadUnion() {}
-    } payload;
-    
-    uint32_t payloadSize;                               ///< 实际载荷大小
-    uint32_t payloadType;                               ///< 载荷数据类型标识
-    
-    /**
-     * @brief 构造函数
-     */
-    DataPacket() : sourceType(DEVICE_UNKNOWN), 
-                   dispatchTarget(UI_UNKNOWN), 
-                   packetSequence(0), 
-                   timeStamp(0), 
-                   errorType(ERR_NONE),
-                   errorLevel(ERR_LEVEL_INFO),
-                   sourceLine(0),
-                   payloadSize(0),
-                   payloadType(0) {
-        memset(errorDescription, 0, sizeof(errorDescription));
-        memset(sourceFile, 0, sizeof(sourceFile));
-        memset(&payload, 0, sizeof(payload));
+    bool hasConsistentPayload() const noexcept {
+        switch (command) {
+        case DataCommand::Unknown:
+            return std::holds_alternative<std::monostate>(payload);
+        case DataCommand::WorkStandby:
+            return std::holds_alternative<workStandby>(payload);
+        case DataCommand::Target:
+            return std::holds_alternative<TargetType>(payload);
+        case DataCommand::Log:
+        case DataCommand::Config:
+            return std::holds_alternative<QByteArray>(payload);
+        case DataCommand::Error:
+            return std::holds_alternative<ErrorPayload>(payload);
+        case DataCommand::DphParamsChanged:
+            return std::holds_alternative<std::shared_ptr<const RadarRuntimeSettings>>(payload)
+                && static_cast<bool>(std::get<std::shared_ptr<const RadarRuntimeSettings>>(payload));
+        case DataCommand::TrackDisplayUpdate:
+            return std::holds_alternative<std::shared_ptr<const TrackDisplayUpdate>>(payload)
+                && static_cast<bool>(std::get<std::shared_ptr<const TrackDisplayUpdate>>(payload));
+        case DataCommand::TrackInteractionCommand:
+            return std::holds_alternative<std::shared_ptr<const TrackInteractionCommand>>(payload)
+                && static_cast<bool>(std::get<std::shared_ptr<const TrackInteractionCommand>>(payload));
+        case DataCommand::Track:
+            return std::holds_alternative<std::shared_ptr<const TrackPacket>>(payload)
+                && static_cast<bool>(std::get<std::shared_ptr<const TrackPacket>>(payload));
+        }
+        return false;
+    }
+
+    /** @brief 只读取得大型共享载荷；类型不匹配时返回空 shared_ptr，不抛出异常。 */
+    template<typename T>
+    std::shared_ptr<const T> sharedPayloadAs() const {
+        const auto value = std::get_if<std::shared_ptr<const T>>(&payload);
+        return value ? *value : std::shared_ptr<const T>{};
     }
 };
+
 
 /**
  * @brief 获取类型对应的载荷类型常量
@@ -174,50 +240,53 @@ inline uint32_t getPayloadTypeConstant<TargetType>() {
     return PAYLOAD_TYPE_TARGET_TYPE;
 }
 
-template<>
-inline uint32_t getPayloadTypeConstant<GeneralPackage>() {
-    return PAYLOAD_TYPE_GENERAL_PACKAGE;
-}
-
 /**
- * @brief 将任意结构体打包到DataPacket的rawData中
- * @tparam T 结构体类型（必须是trivially copyable）
- * @param packet 目标数据包
- * @param data 要打包的结构体数据
- * @return 是否成功打包
+ * @brief 将已登记类型写入载荷，并同步设置与其匹配的命令字。
+ * @details 协议小对象按值复制；业务大对象复制到 shared_ptr<const T>，供总线多个分支共享。
+ * @return 类型已通过 getPayloadTypeConstant<T>() 登记时返回 true；未知类型不修改为有效命令并返回 false。
  */
 template<typename T>
 inline bool packDataToPayload(DataPacket& packet, const T& data) {
-    static_assert(std::is_trivially_copyable<T>::value, "Type must be trivially copyable");
-    
-    if (sizeof(T) > MAX_PAYLOAD_SIZE) {
+    const uint32_t command = getPayloadTypeConstant<T>();
+    if (command == PAYLOAD_TYPE_UNKNOWN)
         return false;
+
+    packet.command = static_cast<DataCommand>(command);
+    if constexpr (std::is_same<T, workStandby>::value
+                  || std::is_same<T, TargetType>::value
+                  || std::is_same<T, QByteArray>::value
+                  || std::is_same<T, ErrorPayload>::value) {
+        packet.payload = data;
+    } else {
+        packet.payload = std::make_shared<const T>(data);
     }
-    
-    memset(&packet.payload, 0, sizeof(packet.payload));
-    packet.payloadSize = sizeof(T);
-    packet.payloadType = getPayloadTypeConstant<T>();
-    memcpy(packet.payload.rawData, &data, sizeof(T));
-    
     return true;
 }
 
+
 /**
- * @brief 从DataPacket的rawData中解包任意结构体
- * @tparam T 结构体类型（必须是trivially copyable）
- * @param packet 源数据包
- * @param data 输出的结构体数据
- * @return 是否成功解包
+ * @brief 同时校验命令字和 variant 分支后，将载荷复制到调用方对象。
+ * @return 两层类型检查均通过时返回 true；共享指针为空或类型不匹配时保持失败。
  */
 template<typename T>
 inline bool unpackDataFromPayload(const DataPacket& packet, T& data) {
-    static_assert(std::is_trivially_copyable<T>::value, "Type must be trivially copyable");
-    
-    if (packet.payloadSize != sizeof(T)) {
+    if (packet.commandValue() != getPayloadTypeConstant<T>())
         return false;
+
+    if constexpr (std::is_same<T, workStandby>::value
+                  || std::is_same<T, TargetType>::value
+                  || std::is_same<T, QByteArray>::value
+                  || std::is_same<T, ErrorPayload>::value) {
+        const auto value = std::get_if<T>(&packet.payload);
+        if (!value)
+            return false;
+        data = *value;
+    } else {
+        const auto value = std::get_if<std::shared_ptr<const T>>(&packet.payload);
+        if (!value || !*value)
+            return false;
+        data = **value;
     }
-    
-    memcpy(&data, packet.payload.rawData, sizeof(T));
     return true;
 }
 
@@ -229,33 +298,17 @@ inline bool unpackDataFromPayload(const DataPacket& packet, T& data) {
  */
 template<typename T>
 inline bool containsDataType(const DataPacket& packet) {
-    return (packet.payloadSize == sizeof(T)) && 
-           (packet.payloadType == getPayloadTypeConstant<T>());
-}
-
-/**
- * @brief 序列化DataPacket到QByteArray
- * @param packet 要序列化的数据包
- * @return 二进制数据
- */
-inline QByteArray serializeDataPacket(const DataPacket& packet) {
-    QByteArray buffer;
-    buffer.resize(static_cast<int>(sizeof(DataPacket)));
-    memcpy(buffer.data(), &packet, sizeof(DataPacket));
-    return buffer;
-}
-
-/**
- * @brief 从QByteArray反序列化DataPacket
- * @param data 二进制数据
- * @return 反序列化的数据包，如果数据不足则返回空包
- */
-inline DataPacket deserializeDataPacket(const QByteArray& data) {
-    DataPacket packet;
-    if (data.size() >= static_cast<int>(sizeof(DataPacket))) {
-        memcpy(&packet, data.constData(), sizeof(DataPacket));
+    if (packet.commandValue() != getPayloadTypeConstant<T>())
+        return false;
+    if constexpr (std::is_same<T, workStandby>::value
+                  || std::is_same<T, TargetType>::value
+                  || std::is_same<T, QByteArray>::value
+                  || std::is_same<T, ErrorPayload>::value) {
+        return std::holds_alternative<T>(packet.payload);
+    } else {
+        const auto value = std::get_if<std::shared_ptr<const T>>(&packet.payload);
+        return value && static_cast<bool>(*value);
     }
-    return packet;
 }
 
 /**
@@ -277,25 +330,20 @@ inline DataPacket createErrorPacket(ErrorLevel level, ErrorType errorType,
     static std::atomic<uint32_t> errorSequence{0};
     packet.packetSequence = ++errorSequence;
     packet.timeStamp = static_cast<uint64_t>(QDateTime::currentMSecsSinceEpoch());
-    packet.errorType = errorType;
-    packet.errorLevel = level;
-    
-    // 复制错误描述
-    QByteArray msgBytes = message.toUtf8();
-    strncpy(packet.errorDescription, msgBytes.constData(), MAX_ERROR_DESC_SIZE - 1);
-    packet.errorDescription[MAX_ERROR_DESC_SIZE - 1] = '\0';
-    
-    // 复制源文件信息
+    packet.command = DataCommand::Error;
+
+    ErrorPayload error;
+    error.type = errorType;
+    error.level = level;
+    error.description = message.left(static_cast<int>(MAX_ERROR_DESC_SIZE - 1));
     if (file) {
         const char* fileName = strrchr(file, '\\');
         if (!fileName) fileName = strrchr(file, '/');
         const char* shortName = fileName ? (fileName + 1) : file;
-        
-        strncpy(packet.sourceFile, shortName, sizeof(packet.sourceFile) - 1);
-        packet.sourceFile[sizeof(packet.sourceFile) - 1] = '\0';
+        error.sourceFile = QString::fromUtf8(shortName);
     }
-    packet.sourceLine = static_cast<uint32_t>(line);
-    
+    error.sourceLine = static_cast<uint32_t>(line);
+    packet.payload = std::move(error);
     return packet;
 }
 
@@ -303,9 +351,12 @@ inline DataPacket createErrorPacket(ErrorLevel level, ErrorType errorType,
  * @brief 判断数据包是否为错误/日志包
  */
 inline bool isErrorPacket(const DataPacket& packet) {
-    return packet.errorType != ERR_NONE || packet.errorLevel >= ERR_LEVEL_WARNING;
+    if (packet.command != DataCommand::Error)
+        return false;
+    const auto error = std::get_if<ErrorPayload>(&packet.payload);
+    return error && (error->type != ERR_NONE || error->level >= ERR_LEVEL_WARNING);
 }
 
-#pragma pack(pop) // 恢复之前的对齐
+Q_DECLARE_METATYPE(DataPacket)
 
 #endif // GENERICPACKETS_H

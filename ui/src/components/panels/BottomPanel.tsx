@@ -1,3 +1,9 @@
+/**
+ * @file BottomPanel.tsx
+ * @brief 呈现可折叠的底部数据面板，并在日志与设备数据视图之间切换。
+ * @details 面板只持有选中页签和布局状态；业务数据由上层传入，筛选与表格渲染交给子组件。
+ */
+
 import { useState, useEffect, useRef, useMemo } from 'react'
 import DataTable from './DataTable'
 import DeviceTypeSelector from './DeviceTypeSelector'

@@ -10,6 +10,7 @@
 #include "business/TaskService.h"
 #include "business/RuntimeSettingsService.h"
 #include "business/TrackDisplayManager.h"
+#include "data/TrackStorage.h"
 #include "EndpointConfigLoader.h"
 #include "bus/SystemBus.h"
 #include "GenericPackets.h"
@@ -30,6 +31,9 @@
 #include <QTimer>
 #include <cstring>
 
+/**
+ * @brief 创建尚未装配子系统的组合根；构造阶段不访问网络、配置或数据库。
+ */
 AppController::AppController(QObject* parent)
     : QObject(parent)
 {
@@ -41,6 +45,11 @@ AppController::~AppController()
     SystemBus::getInstance().shutdown();
 }
 
+/**
+ * @brief 退出采集运行态，但保留能够快速恢复所需的进程级基础设施。
+ * @details 先清除 m_running 防止外部状态查询继续报告运行，再停止 DPH 定时器，最后关闭接收/发送端点。
+ *          不取消总线订阅、不停止 Web、不关闭数据库，因此之后调用 start() 可直接恢复采集。
+ */
 void AppController::stopRuntime()
 {
     if (!m_running)
@@ -57,6 +66,12 @@ void AppController::stopRuntime()
     qDebug() << QStringLiteral("[AppController] 运行态已停止（通信/DPH），总线订阅与 Web 保持");
 }
 
+/**
+ * @brief 按依赖关系的逆序执行进程级关闭。
+ * @details 先置位幂等闩锁并阻止 Web 命令进入，再停止显示订阅与桥接；随后关闭采集、落盘最后一批
+ *          延时指标、取消总线订阅、停止 Web 和航迹存储线程，最后断开数据库。SystemBus 在析构函数中
+ *          等这些消费者全部退出后才关闭，避免队列回调访问已释放对象。
+ */
 void AppController::shutdown()
 {
     if (m_shutdown)
@@ -99,12 +114,21 @@ void AppController::shutdown()
         m_webService.reset();
     }
 
+    if (m_trackStorage) {
+        m_trackStorage->stop();
+        m_trackStorage.reset();
+    }
+
     if (m_dataStore)
         m_dataStore->disconnect();
 
     qDebug() << QStringLiteral("[AppController] 进程级 shutdown 完成");
 }
 
+/**
+ * @brief 按数据访问、通信、处理器、业务服务、存储和显示的依赖顺序完成一次性装配。
+ * @details 数据库相关能力允许降级，通信和核心处理器失败则终止初始化；通信端点在 start() 前保持关闭。
+ */
 bool AppController::initialize()
 {
     // 协议结构体尺寸诊断 (static_assert 的基准值)
@@ -171,6 +195,18 @@ bool AppController::initialize()
     if (m_radarProcessor && m_taskService)
         m_radarProcessor->setTaskService(m_taskService.get());
 
+    if (m_dataStore && m_dataStore->isConnected()
+        && m_dataStore->tableExists(QStringLiteral("tracks"))
+        && !m_databaseConfig.isEmpty()) {
+        m_trackStorage = std::make_unique<TrackStorage>();
+        if (!m_trackStorage->start(m_databaseConfig)) {
+            qWarning() << QStringLiteral("[AppController] TrackStorage 启动失败，将以无航迹归档模式运行");
+            m_trackStorage.reset();
+        }
+    } else {
+        qWarning() << QStringLiteral("[AppController] tracks 表或数据库不可用，航迹归档未启动");
+    }
+
     m_runtimeSettings = std::make_unique<RuntimeSettingsService>();
     qDebug() << "[AppController] 运行时参数服务已就绪";
 
@@ -178,6 +214,8 @@ bool AppController::initialize()
     m_trackDisplayManager = std::make_unique<TrackDisplayManager>(this);
     m_trackDisplayManager->setLatencyMonitor(&m_pipelineLatency);
     wireTrackDisplayPipeline();
+    // 航迹订阅属于 core 基座，必须先于通信端点启动；WebBridge 可稍后接入。
+    m_trackDisplayManager->start();
 
     printStartupDiagnostics();
 
@@ -185,6 +223,9 @@ bool AppController::initialize()
     return true;
 }
 
+/**
+ * @brief 定位配置目录、读取 database.json、连接数据库并创建核心表结构。
+ */
 bool AppController::initializeDataAccess()
 {
     if (!m_configManager.loadConfigDir()) {
@@ -213,16 +254,28 @@ bool AppController::initializeDataAccess()
     return true;
 }
 
+/**
+ * @brief 解析 SQLite 相对路径后创建 DataStore；连接失败时保留无数据库降级模式。
+ */
 bool AppController::connectDatabaseFromConfig(QJsonObject dbConfig)
 {
+    const QString driver = dbConfig.value(QStringLiteral("driver"))
+                               .toString(QStringLiteral("QSQLITE"));
     const QString dbPath = dbConfig.value(QStringLiteral("database")).toString();
-    if (!dbPath.isEmpty()) {
+    if (driver.compare(QStringLiteral("QSQLITE"), Qt::CaseInsensitive) == 0
+        && !dbPath.isEmpty()) {
         dbConfig.insert(QStringLiteral("database"), resolveDatabasePath(dbPath));
     }
 
-    return m_dataStore && m_dataStore->connectFromConfig(dbConfig);
+    const bool connected = m_dataStore && m_dataStore->connectFromConfig(dbConfig);
+    if (connected)
+        m_databaseConfig = dbConfig;
+    return connected;
 }
 
+/**
+ * @brief 将 SQLite 相对路径锚定到配置目录，绝对路径和非文件数据库名原样返回。
+ */
 QString AppController::resolveDatabasePath(const QString& dbPath) const
 {
     if (dbPath.isEmpty() || QDir::isAbsolutePath(dbPath)) {
@@ -234,6 +287,9 @@ QString AppController::resolveDatabasePath(const QString& dbPath) const
     return projectRoot.absoluteFilePath(dbPath);
 }
 
+/**
+ * @brief 依次确保系统事件、航迹和管线指标 schema，就单项失败记录告警并汇总结果。
+ */
 bool AppController::ensureDatabaseSchema()
 {
     if (!m_dataStore || !m_dataStore->isConnected()) {
@@ -246,31 +302,51 @@ bool AppController::ensureDatabaseSchema()
     return systemEventsOk && tracksOk && pipelineMetricsOk;
 }
 
+/**
+ * @brief 创建按阶段保存累计数和分位数的 pipeline_metrics 表及时间索引。
+ */
 bool AppController::ensurePipelineMetricsSchema()
 {
-    static const QString ddl = QStringLiteral(
+    const bool postgres = m_dataStore->database().driverName().startsWith(
+        QStringLiteral("QPSQL"));
+    const QString ddl = QStringLiteral(
         "CREATE TABLE IF NOT EXISTS pipeline_metrics ("
-        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        "  window_end_ms INTEGER NOT NULL,"
+        "  id %1,"
+        "  window_end_ms BIGINT NOT NULL,"
         "  stage TEXT NOT NULL,"
         "  unit TEXT NOT NULL DEFAULT 'us',"
-        "  sample_count INTEGER NOT NULL,"
-        "  window_sample_count INTEGER NOT NULL,"
-        "  min_us INTEGER NOT NULL,"
-        "  avg_us INTEGER NOT NULL,"
-        "  p50_us INTEGER NOT NULL,"
-        "  p95_us INTEGER NOT NULL,"
-        "  p99_us INTEGER NOT NULL,"
-        "  max_us INTEGER NOT NULL"
-        ")");
+        "  sample_count BIGINT NOT NULL,"
+        "  window_sample_count BIGINT NOT NULL,"
+        "  min_us BIGINT NOT NULL,"
+        "  avg_us BIGINT NOT NULL,"
+        "  p50_us BIGINT NOT NULL,"
+        "  p95_us BIGINT NOT NULL,"
+        "  p99_us BIGINT NOT NULL,"
+        "  max_us BIGINT NOT NULL"
+        ")").arg(postgres
+                      ? QStringLiteral("BIGSERIAL PRIMARY KEY")
+                      : QStringLiteral("INTEGER PRIMARY KEY AUTOINCREMENT"));
 
     bool ok = m_dataStore->ensureTable(QStringLiteral("pipeline_metrics"), ddl);
+    if (postgres) {
+        ok = m_dataStore->execute(QStringLiteral(
+            "ALTER TABLE pipeline_metrics "
+            "ALTER COLUMN window_end_ms TYPE BIGINT, "
+            "ALTER COLUMN sample_count TYPE BIGINT, "
+            "ALTER COLUMN window_sample_count TYPE BIGINT, "
+            "ALTER COLUMN min_us TYPE BIGINT, ALTER COLUMN avg_us TYPE BIGINT, "
+            "ALTER COLUMN p50_us TYPE BIGINT, ALTER COLUMN p95_us TYPE BIGINT, "
+            "ALTER COLUMN p99_us TYPE BIGINT, ALTER COLUMN max_us TYPE BIGINT")) && ok;
+    }
     ok = m_dataStore->execute(QStringLiteral(
              "CREATE INDEX IF NOT EXISTS idx_pipeline_metrics_stage_time "
              "ON pipeline_metrics(stage, window_end_ms)")) && ok;
     return ok;
 }
 
+/**
+ * @brief 创建低频指标落库定时器，仅在数据库和表可用时启用。
+ */
 void AppController::startLatencyPersistence()
 {
     if (!m_dataStore || !m_dataStore->isConnected() || m_latencyPersistTimer)
@@ -283,6 +359,9 @@ void AppController::startLatencyPersistence()
     m_latencyPersistTimer->start();
 }
 
+/**
+ * @brief 只持久化自上次写入后样本数发生变化的阶段快照，避免周期性重复行。
+ */
 void AppController::flushLatencyMetrics()
 {
     if (!m_dataStore || !m_dataStore->isConnected()
@@ -346,12 +425,17 @@ void AppController::flushLatencyMetrics()
     }
 }
 
+/**
+ * @brief 创建可按任务、设备、类别和时间检索的 system_events 表及兼容索引。
+ */
 bool AppController::ensureSystemEventsSchema()
 {
-    static const QString kSystemEventsDdl = QStringLiteral(
+    const bool postgres = m_dataStore->database().driverName().startsWith(
+        QStringLiteral("QPSQL"));
+    const QString kSystemEventsDdl = QStringLiteral(
         "CREATE TABLE IF NOT EXISTS system_events ("
-        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        "  ts_ms INTEGER NOT NULL,"
+        "  id %1,"
+        "  ts_ms BIGINT NOT NULL,"
         "  category TEXT NOT NULL,"
         "  source TEXT,"
         "  detail TEXT,"
@@ -359,16 +443,27 @@ bool AppController::ensureSystemEventsSchema()
         "  task_id TEXT,"
         "  device_id TEXT"
         ")"
-    );
+    ).arg(postgres
+              ? QStringLiteral("BIGSERIAL PRIMARY KEY")
+              : QStringLiteral("INTEGER PRIMARY KEY AUTOINCREMENT"));
 
     bool ok = true;
     if (!m_dataStore->ensureTable(QStringLiteral("system_events"), kSystemEventsDdl)) {
         qWarning() << QStringLiteral("[AppController] system_events 表初始化失败");
         ok = false;
     }
+    if (postgres) {
+        ok = m_dataStore->execute(QStringLiteral(
+            "ALTER TABLE system_events ALTER COLUMN ts_ms TYPE BIGINT")) && ok;
+    }
 
-    auto ensureSystemEventsColumn = [this](const QString& column, const QString& type) -> bool {
-        const auto cols = m_dataStore->query(QStringLiteral("PRAGMA table_info(system_events)"));
+    auto ensureSystemEventsColumn = [this, postgres](const QString& column,
+                                                      const QString& type) -> bool {
+        const auto cols = postgres
+            ? m_dataStore->query(QStringLiteral(
+                  "SELECT column_name AS name FROM information_schema.columns "
+                  "WHERE table_schema = current_schema() AND table_name = 'system_events'"))
+            : m_dataStore->query(QStringLiteral("PRAGMA table_info(system_events)"));
         for (const auto& col : cols) {
             if (col.value(QStringLiteral("name")).toString() == column)
                 return true;
@@ -412,12 +507,17 @@ bool AppController::ensureSystemEventsSchema()
     return ok;
 }
 
+/**
+ * @brief 创建与 TrackPacket 字段和单位一致的 tracks 表，并迁移历史缺失列。
+ */
 bool AppController::ensureTracksSchema()
 {
-    static const QString kTracksDdl = QStringLiteral(
+    const bool postgres = m_dataStore->database().driverName().startsWith(
+        QStringLiteral("QPSQL"));
+    const QString kTracksDdl = QStringLiteral(
         "CREATE TABLE IF NOT EXISTS tracks ("
-        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        "  ts_ms INTEGER NOT NULL,"
+        "  id %1,"
+        "  ts_ms BIGINT NOT NULL,"
         "  source TEXT,"
         "  task_id TEXT,"
         "  device_id TEXT,"
@@ -430,16 +530,27 @@ bool AppController::ensureTracksSchema()
         "  altitude_m REAL,"
         "  x REAL, y REAL, z REAL"
         ")"
-    );
+    ).arg(postgres
+              ? QStringLiteral("BIGSERIAL PRIMARY KEY")
+              : QStringLiteral("INTEGER PRIMARY KEY AUTOINCREMENT"));
 
     bool ok = true;
     if (!m_dataStore->ensureTable(QStringLiteral("tracks"), kTracksDdl)) {
         qWarning() << QStringLiteral("[AppController] tracks 表初始化失败");
         ok = false;
     }
+    if (postgres) {
+        ok = m_dataStore->execute(QStringLiteral(
+            "ALTER TABLE tracks ALTER COLUMN ts_ms TYPE BIGINT")) && ok;
+    }
 
-    auto ensureTracksColumn = [this](const QString& column, const QString& type) -> bool {
-        const auto cols = m_dataStore->query(QStringLiteral("PRAGMA table_info(tracks)"));
+    auto ensureTracksColumn = [this, postgres](const QString& column,
+                                               const QString& type) -> bool {
+        const auto cols = postgres
+            ? m_dataStore->query(QStringLiteral(
+                  "SELECT column_name AS name FROM information_schema.columns "
+                  "WHERE table_schema = current_schema() AND table_name = 'tracks'"))
+            : m_dataStore->query(QStringLiteral("PRAGMA table_info(tracks)"));
         for (const auto& col : cols) {
             if (col.value(QStringLiteral("name")).toString() == column)
                 return true;
@@ -483,6 +594,9 @@ bool AppController::ensureTracksSchema()
     return ok;
 }
 
+/**
+ * @brief 打开通信端点，成功后启动 DPH；重复调用或未初始化时不重复改变状态。
+ */
 void AppController::start()
 {
     if (m_running) {
@@ -515,11 +629,17 @@ void AppController::start()
     qDebug() << QStringLiteral("[AppController] 运行态已启动");
 }
 
+/**
+ * @brief 委托 stopRuntime() 暂停采集，保留管理面和核心订阅供快速恢复。
+ */
 void AppController::stop()
 {
     stopRuntime();
 }
 
+/**
+ * @brief 从 endpoints.json 解析并创建全部未打开端点，至少一个有效端点才算成功。
+ */
 bool AppController::initializeCommunication()
 {
     m_commManager = std::make_unique<CommunicationManager>(this);
@@ -549,6 +669,9 @@ bool AppController::initializeCommunication()
     return addConfiguredEndpoints(configs);
 }
 
+/**
+ * @brief 逐项加入通信管理器并汇总成功数量，允许记录单端点配置错误后继续诊断其余项。
+ */
 bool AppController::addConfiguredEndpoints(const QVector<EndpointConfig>& configs)
 {
     bool hasEndpoint = false;
@@ -568,6 +691,9 @@ bool AppController::addConfiguredEndpoints(const QVector<EndpointConfig>& config
     return hasEndpoint;
 }
 
+/**
+ * @brief 读取 processor.json 后装配上行处理器、反向路由和周期 DPH，并接通核心信号。
+ */
 bool AppController::initializeProcessorPipeline()
 {
     connectCoreSignals();
@@ -587,6 +713,9 @@ bool AppController::initializeProcessorPipeline()
     return true;
 }
 
+/**
+ * @brief 将通信错误接入系统事件和总线错误链路；业务数据由 RadarDataProcessor 独占处理。
+ */
 void AppController::connectCoreSignals()
 {
     const bool connected = connect(m_commManager.get(), &CommunicationManager::errorOccurred,
@@ -596,10 +725,13 @@ void AppController::connectCoreSignals()
     }
 }
 
+/**
+ * @brief 创建上行处理器，注入延时监控并注册配置或默认 endpoint/sourceType 映射。
+ */
 void AppController::configureRadarProcessor(const QJsonObject& processorConfig)
 {
     m_radarProcessor = std::make_unique<RadarDataProcessor>(
-        m_commManager.get(), m_dataStore.get(), this);
+        m_commManager.get(), this);
     m_radarProcessor->setLatencyMonitor(&m_pipelineLatency);
 
     if (!registerConfiguredEndpointSources(processorConfig)) {
@@ -610,6 +742,9 @@ void AppController::configureRadarProcessor(const QJsonObject& processorConfig)
     qDebug() << QStringLiteral("[AppController] RadarDataProcessor 已创建并订阅 Comm::dataReceived");
 }
 
+/**
+ * @brief 在设备、任务服务就绪后向上行处理器和显示管理器注入归属解析依赖。
+ */
 void AppController::wireTrackDisplayPipeline()
 {
     if (!m_radarProcessor || !m_trackDisplayManager) {
@@ -617,31 +752,35 @@ void AppController::wireTrackDisplayPipeline()
         return;
     }
 
-    QObject::disconnect(m_radarProcessor.get(), &RadarDataProcessor::trackPointReady,
-                        nullptr, nullptr);
-    QObject::connect(m_radarProcessor.get(), &RadarDataProcessor::trackPointReady,
-                     m_trackDisplayManager.get(), &TrackDisplayManager::addPoint);
-
     if (m_deviceRegistry)
         m_radarProcessor->setDeviceRegistry(m_deviceRegistry.get());
     else
-        qWarning() << "[AppController] DeviceRegistry 不可用，TrackPoint 将无法映射 deviceId";
+        qWarning() << "[AppController] DeviceRegistry 不可用，TrackPacket 将无法映射 deviceId";
 
     if (m_taskService)
         m_trackDisplayManager->setTaskService(m_taskService.get());
 
-    qDebug() << "[AppController] RadarDataProcessor → TrackDisplayManager 航迹显示链路已接通";
+    qDebug() << "[AppController] RadarDataProcessor → DataPacket{Track} → SystemBus → TrackDisplayManager 链路已装配";
 }
 
+/**
+ * @brief 输出端点、数据库、任务和核心订阅状态，帮助定位启动降级而不改变运行状态。
+ */
 void AppController::printStartupDiagnostics() const
 {
     qInfo() << "======== Startup Diagnostics ========";
     qInfo() << "configDir:" << m_configManager.configDir();
 
     const QJsonObject dbCfg = m_configManager.getConfig(QStringLiteral("database"));
-    const QString dbRel = dbCfg.value(QStringLiteral("database")).toString();
-    if (!dbRel.isEmpty())
-        qInfo() << "database:" << resolveDatabasePath(dbRel);
+    const QString dbName = dbCfg.value(QStringLiteral("database")).toString();
+    const QString dbDriver = dbCfg.value(QStringLiteral("driver"))
+                                 .toString(QStringLiteral("QSQLITE"));
+    if (!dbName.isEmpty()) {
+        qInfo() << "database:"
+                << (dbDriver.compare(QStringLiteral("QSQLITE"), Qt::CaseInsensitive) == 0
+                        ? resolveDatabasePath(dbName)
+                        : dbName);
+    }
 
     const QJsonObject epCfg = m_configManager.getConfig(QStringLiteral("endpoints"));
     for (const QJsonValue& v : epCfg.value(QStringLiteral("endpoints")).toArray()) {
@@ -670,6 +809,9 @@ void AppController::printStartupDiagnostics() const
     qInfo() << "=====================================";
 }
 
+/**
+ * @brief 解析 processor.json 的端点来源表，跳过缺失 ID 或无效类型并返回是否登记过有效项。
+ */
 bool AppController::registerConfiguredEndpointSources(const QJsonObject& processorConfig)
 {
     bool hasEndpointSourceConfig = false;
@@ -689,11 +831,17 @@ bool AppController::registerConfiguredEndpointSources(const QJsonObject& process
     return hasEndpointSourceConfig;
 }
 
+/**
+ * @brief 为默认 radar_cpu 端点登记内置雷达来源类型，供最小配置启动。
+ */
 void AppController::registerDefaultEndpointSources()
 {
     m_radarProcessor->registerEndpointSource(QStringLiteral("radar_cpu"), DEVICE_RADAR_NH_KU_1);
 }
 
+/**
+ * @brief 创建反向路由器、装配默认和显式路由，并订阅目标雷达设备类型。
+ */
 void AppController::configureBusRouter(const QJsonObject& processorConfig)
 {
     m_busRouter = std::make_unique<BusToCommRouter>(m_commManager.get(), this);
@@ -714,6 +862,9 @@ void AppController::configureBusRouter(const QJsonObject& processorConfig)
     qDebug() << QStringLiteral("[AppController] BusToCommRouter 已创建并订阅 SystemBus 反向流");
 }
 
+/**
+ * @brief 读取完整默认端点/目标对；任一字段缺失时整体回退 radar_cpu/workmode。
+ */
 BusToCommRouter::Route AppController::resolveDefaultRoute(const QJsonObject& processorConfig) const
 {
     const QJsonObject defaultRouteObj = processorConfig.value(QStringLiteral("defaultRoute")).toObject();
@@ -726,6 +877,9 @@ BusToCommRouter::Route AppController::resolveDefaultRoute(const QJsonObject& pro
     return { QStringLiteral("radar_cpu"), QStringLiteral("workmode") };
 }
 
+/**
+ * @brief 登记配置中的 payloadType 路由，缺失类型、端点或目标名的条目被跳过。
+ */
 bool AppController::registerConfiguredRoutes(const QJsonObject& processorConfig)
 {
     bool hasRouteConfig = false;
@@ -746,16 +900,20 @@ bool AppController::registerConfiguredRoutes(const QJsonObject& processorConfig)
     return hasRouteConfig;
 }
 
+/**
+ * @brief 为工作/待机和目标控制协议登记 radar_cpu/workmode 内置路由。
+ */
 void AppController::registerDefaultRoutes()
 {
     m_busRouter->registerRoute(PAYLOAD_TYPE_WORK_STANDBY,
                                { QStringLiteral("radar_cpu"), QStringLiteral("workmode") });
     m_busRouter->registerRoute(PAYLOAD_TYPE_TARGET_TYPE,
                                { QStringLiteral("radar_cpu"), QStringLiteral("workmode") });
-    m_busRouter->registerRoute(PAYLOAD_TYPE_GENERAL_PACKAGE,
-                               { QStringLiteral("radar_cpu"), QStringLiteral("workmode") });
 }
 
+/**
+ * @brief 创建 DPH 定时发送器并应用 enabled、周期和端点目标配置，默认周期 50 ms。
+ */
 void AppController::configureDphPublisher(const QJsonObject& processorConfig)
 {
     m_dphPublisher = std::make_unique<DphPublisher>(m_commManager.get(), this);
@@ -777,6 +935,9 @@ void AppController::configureDphPublisher(const QJsonObject& processorConfig)
                 .arg(m_dphEnabled ? QStringLiteral("true") : QStringLiteral("false"));
 }
 
+/**
+ * @brief 创建总线命令发送器和雷达模式状态机，并接通回显确认、拒绝和诊断信号。
+ */
 bool AppController::initializeBusinessLogic()
 {
     // 工作模式命令发送器：直接发布到 SystemBus
@@ -822,6 +983,9 @@ bool AppController::initializeBusinessLogic()
     return true;
 }
 
+/**
+ * @brief 从总线、端点、处理器、存储、路由和数据库采样一次性健康快照。
+ */
 AppHealth AppController::healthReport() const
 {
     AppHealth report;
@@ -842,7 +1006,9 @@ AppHealth AppController::healthReport() const
     // 数据处理状态
     if (m_radarProcessor) {
         report.processing.generalPackageCount = m_radarProcessor->generalPackageCount();
-        report.processing.trackInsertCount = m_radarProcessor->trackInsertCount();
+    }
+    if (m_trackStorage) {
+        report.processing.trackInsertCount = m_trackStorage->stats().persisted;
     }
     if (m_busRouter) {
         report.processing.routedCount = m_busRouter->routedCount();
@@ -863,6 +1029,9 @@ AppHealth AppController::healthReport() const
     return report;
 }
 
+/**
+ * @brief 将端点错误关联到设备和活动任务，同时写 system_events 并发布结构化总线错误。
+ */
 void AppController::onCommError(const QString& endpointId, const QString& message)
 {
     QString deviceId;
@@ -917,11 +1086,17 @@ void AppController::insertSystemEvent(const QString& category,
 // 通信端点配置
 // ════════════════════════════════════════════════════════════════
 
+/**
+ * @brief 从 ConfigManager 缓存读取完整端点配置根对象。
+ */
 QJsonObject AppController::endpointsConfigJson()
 {
     return m_configManager.getConfig(QStringLiteral("endpoints"));
 }
 
+/**
+ * @brief 校验设备绑定后热重载完整端点集合，再落盘；任一步失败尝试恢复旧运行时配置。
+ */
 bool AppController::updateEndpointsConfig(const QJsonObject& root, QString* errorOut)
 {
     auto setError = [&](const QString& msg) {
@@ -985,6 +1160,9 @@ bool AppController::updateEndpointsConfig(const QJsonObject& root, QString* erro
     return true;
 }
 
+/**
+ * @brief 合并单端点请求为完整配置事务，强制路径 ID 与正文 ID 一致。
+ */
 bool AppController::updateEndpointConfig(const QString& id, const QJsonObject& endpointObj, QString* errorOut)
 {
     auto setError = [&](const QString& msg) {
@@ -1028,6 +1206,9 @@ bool AppController::updateEndpointConfig(const QString& id, const QJsonObject& e
 // Web 服务 (组合根持有 web::WebService)
 // ════════════════════════════════════════════════════════════════
 
+/**
+ * @brief 启动 HTTP/WS，注册业务路由和状态推送，再接通运行参数桥及显示快照/增量链路。
+ */
 WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort)
 {
     m_webService = std::make_unique<web::WebService>(this);
@@ -1063,7 +1244,7 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
     if (m_runtimeSettingsSubId == 0 && m_runtimeSettings && m_dphPublisher) {
         m_runtimeSettingsSubId = SystemBus::getInstance().subscribeBySource(SOURCE_RUNTIME_SETTINGS,
             [this](const DataPacket* pkt) {
-                if (!pkt || pkt->payloadType != PAYLOAD_TYPE_DPH_PARAMS_CHANGED) return;
+                if (!pkt || pkt->command != DataCommand::DphParamsChanged) return;
                 RadarRuntimeSettings s;
                 if (!unpackDataFromPayload(*pkt, s)) return;
                 QMetaObject::invokeMethod(this, [this, s]() {
@@ -1077,15 +1258,21 @@ WebServiceResult AppController::startWebService(quint16 httpPort, quint16 wsPort
         }
     }
 
-    // TrackDisplaySnapshot 总线事件 → WebSocket（经 TrackDisplayWebBridge，不经 TrackDisplayManager 信号）
+    // TrackDisplayUpdate 总线事件 → WebSocket；新连接由 bridge 单独补发当前快照。
     if (m_webService) {
         m_trackDisplayWebBridge = std::make_unique<TrackDisplayWebBridge>(m_webService.get(), this);
         m_trackDisplayWebBridge->setLatencyMonitor(&m_pipelineLatency);
+        if (m_trackDisplayManager) {
+            connect(m_trackDisplayWebBridge.get(), &TrackDisplayWebBridge::resyncRequired,
+                    m_trackDisplayManager.get(), &TrackDisplayManager::publishReset,
+                    Qt::QueuedConnection);
+        }
         m_trackDisplayWebBridge->start();
     }
     if (m_trackDisplayManager) {
         m_trackDisplayManager->start();
-        qDebug() << "[AppController] TrackDisplayManager 定时 snapshot → SystemBus 已就绪";
+        m_trackDisplayManager->publishReset();
+        qDebug() << "[AppController] TrackDisplayManager 初始快照 + 定时增量 → SystemBus 已就绪";
     }
 
     qInfo() << "[AppController] Web 服务已启动";

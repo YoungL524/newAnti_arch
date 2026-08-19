@@ -6,16 +6,25 @@
 
 namespace {
 
+/**
+ * @brief 复用 TaskInfo::toJson 形成单一任务 DTO 序列化入口。
+ */
 QJsonObject taskToJson(const task::TaskInfo& t)
 {
     return t.toJson();
 }
 
+/**
+ * @brief 生成包含 error 字段的统一 JSON 失败响应和调用方指定状态码。
+ */
 QJsonObject fail(const QString& msg)
 {
     return {{QStringLiteral("ok"), false}, {QStringLiteral("error"), msg}};
 }
 
+/**
+ * @brief 生成包含 task 对象的成功响应，供创建和重跑接口复用。
+ */
 QJsonObject okTask(const task::TaskInfo& t)
 {
     QJsonObject r;
@@ -24,11 +33,17 @@ QJsonObject okTask(const task::TaskInfo& t)
     return r;
 }
 
+/**
+ * @brief 解析 JSON 正文并转换为 TaskInfo；语法错误保持 ok=false。
+ */
 task::TaskInfo taskFromBody(const QJsonObject& body)
 {
     return task::TaskInfo::fromJson(body);
 }
 
+/**
+ * @brief 在进入 TaskService 前检查创建请求必填名称和设备数组类型。
+ */
 QString validateCreate(const task::TaskInfo& t)
 {
     if (t.name.isEmpty())
@@ -36,6 +51,9 @@ QString validateCreate(const task::TaskInfo& t)
     return {};
 }
 
+/**
+ * @brief 把 TaskService::lastError 转为失败响应，缺少诊断时使用稳定兜底文本。
+ */
 QString taskError(TaskService* svc, const QString& fallback)
 {
     const QString err = svc->lastError();
@@ -44,6 +62,10 @@ QString taskError(TaskService* svc, const QString& fallback)
 
 } // namespace
 
+/**
+ * @brief 注册任务 CRUD 和生命周期命令路由，统一完成路径 ID、正文和业务结果映射。
+ * @details HTTP 层负责校验任务 ID 和请求字段，TaskService 负责状态机与持久化，避免 Web 路由复制任务生命周期规则。
+ */
 void TaskApiRoutes::registerRoutes(web::WebService* ws, TaskService* taskService)
 {
     if (!ws || !taskService) return;

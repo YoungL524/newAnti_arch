@@ -7,6 +7,9 @@
 
 int DataStore::s_connectionCounter = 0;
 
+/**
+ * @brief 分配唯一 Qt SQL 连接名，使同一进程多个线程/实例互不覆盖。
+ */
 DataStore::DataStore(QObject* parent)
     : QObject(parent)
 {
@@ -14,6 +17,7 @@ DataStore::DataStore(QObject* parent)
     m_connectionName = QStringLiteral("DataStore_%1").arg(++s_connectionCounter);
 }
 
+/** @brief 关闭连接并满足 QSqlDatabase::removeDatabase 对引用释放顺序的要求。 */
 DataStore::~DataStore()
 {
     disconnect();
@@ -21,6 +25,10 @@ DataStore::~DataStore()
 
 // ========== 连接管理 ==========
 
+/**
+ * @brief 使用网络数据库参数创建具名 Qt SQL 连接并统一处理打开失败清理。
+ * @details 驱动不可用时不登记连接；open 失败时先释放局部 QSqlDatabase 句柄，再从全局注册表移除。
+ */
 bool DataStore::connectToDatabase(const QString& driver,
                                   const QString& host, int port,
                                   const QString& dbName,
@@ -57,6 +65,10 @@ bool DataStore::connectToDatabase(const QString& driver,
     return true;
 }
 
+/**
+ * @brief 创建 SQLite 文件父目录，打开连接并强制启用 WAL 与外键约束。
+ * @details 任一 PRAGMA 失败都视为连接初始化失败并移除连接，避免上层在错误并发或完整性模式下运行。
+ */
 bool DataStore::connectToSqlite(const QString& dbPath)
 {
     if (dbPath.isEmpty()) {
@@ -114,6 +126,10 @@ bool DataStore::connectToSqlite(const QString& dbPath)
     return true;
 }
 
+/**
+ * @brief 按 driver 分派文件数据库或网络数据库参数，并支持从环境变量读取密码。
+ * @details passwordEnv 非空时覆盖 JSON 中的 password，避免生产凭据必须明文落盘。
+ */
 bool DataStore::connectFromConfig(const QJsonObject& config)
 {
     QString driver = config[QStringLiteral("driver")].toString(QStringLiteral("QSQLITE"));
@@ -130,10 +146,16 @@ bool DataStore::connectFromConfig(const QJsonObject& config)
     QString dbName   = config[QStringLiteral("database")].toString();
     QString user     = config[QStringLiteral("user")].toString();
     QString password = config[QStringLiteral("password")].toString();
+    const QString passwordEnv = config[QStringLiteral("passwordEnv")].toString();
+    if (!passwordEnv.isEmpty())
+        password = qEnvironmentVariable(passwordEnv.toUtf8().constData());
 
     return connectToDatabase(driver, host, port, dbName, user, password);
 }
 
+/**
+ * @brief 幂等关闭并移除具名连接，随后更新逻辑状态和发出 disconnected。
+ */
 void DataStore::disconnect()
 {
     if (!m_connected) {
@@ -147,6 +169,9 @@ void DataStore::disconnect()
     emit disconnected();
 }
 
+/**
+ * @brief 返回本实例是否完成连接初始化；不额外发起网络探活查询。
+ */
 bool DataStore::isConnected() const
 {
     return m_connected;
@@ -154,6 +179,9 @@ bool DataStore::isConnected() const
 
 // ========== 表管理 ==========
 
+/**
+ * @brief 在当前连接执行由业务层提供的幂等建表 SQL，并用 tableName 关联诊断日志。
+ */
 bool DataStore::ensureTable(const QString& tableName, const QString& createSql)
 {
     if (!m_connected) {
@@ -173,6 +201,9 @@ bool DataStore::ensureTable(const QString& tableName, const QString& createSql)
     return true;
 }
 
+/**
+ * @brief 通过当前驱动的元数据表列表检查精确表名；未连接时返回 false。
+ */
 bool DataStore::tableExists(const QString& tableName) const
 {
     if (!m_connected) {
@@ -185,6 +216,10 @@ bool DataStore::tableExists(const QString& tableName) const
 
 // ========== 数据操作 ==========
 
+/**
+ * @brief 从 QVariantMap 的键构造列列表，值全部使用位置占位符绑定后插入一行。
+ * @note tableName 和列名来自内部 schema 代码，不接受未经校验的外部标识符。
+ */
 bool DataStore::insert(const QString& tableName, const QVariantMap& record)
 {
     if (!m_connected) {
@@ -226,6 +261,10 @@ bool DataStore::insert(const QString& tableName, const QVariantMap& record)
     return true;
 }
 
+/**
+ * @brief 在单个事务中逐行复用 insert()，实现全批成功或回滚。
+ * @details 任一行失败立即回滚；commit 失败也尝试回滚。该实现重视一致性，尚未使用驱动级 execBatch。
+ */
 bool DataStore::insertBatch(const QString& tableName, const QVector<QVariantMap>& records)
 {
     if (!m_connected) {
@@ -260,6 +299,10 @@ bool DataStore::insertBatch(const QString& tableName, const QVector<QVariantMap>
     return true;
 }
 
+/**
+ * @brief 预处理并执行 SELECT，把每行按驱动返回的字段名转换为 QVariantMap。
+ * @details 未连接、prepare 或 exec 失败均返回空集合，因此调用方需要结合 errorOccurred 区分“无结果”和失败。
+ */
 QVector<QVariantMap> DataStore::query(const QString& sql,
                                       const QVariantList& bindValues)
 {
@@ -293,6 +336,10 @@ QVector<QVariantMap> DataStore::query(const QString& sql,
     return results;
 }
 
+/**
+ * @brief 执行无结果 SQL；无绑定值时直接 exec，有参数时使用预处理绑定。
+ * @details PostgreSQL 不允许部分 DDL 进入服务端 PREPARE，故无参数语句直接执行以兼容 CREATE INDEX 等操作。
+ */
 bool DataStore::execute(const QString& sql, const QVariantList& bindValues)
 {
     if (!m_connected) {
@@ -302,6 +349,19 @@ bool DataStore::execute(const QString& sql, const QVariantList& bindValues)
 
     QSqlDatabase db = QSqlDatabase::database(m_connectionName);
     QSqlQuery q(db);
+
+    // PostgreSQL does not allow every DDL statement (for example CREATE INDEX)
+    // in a server-side PREPARE. Statements without parameters do not benefit
+    // from preparation, so execute them directly.
+    if (bindValues.isEmpty()) {
+        if (!q.exec(sql)) {
+            reportError(QStringLiteral("执行"),
+                        QStringLiteral("SQL 执行失败: %1").arg(q.lastError().text()));
+            return false;
+        }
+        return true;
+    }
+
     if (!prepareQuery(q, QStringLiteral("执行"), sql, bindValues)) {
         return false;
     }
@@ -313,6 +373,9 @@ bool DataStore::execute(const QString& sql, const QVariantList& bindValues)
     return true;
 }
 
+/**
+ * @brief 在当前具名连接开启调用方管理的事务，并复用统一错误报告。
+ */
 bool DataStore::beginTransaction()
 {
     if (!m_connected)
@@ -321,6 +384,9 @@ bool DataStore::beginTransaction()
     return beginTransaction(db, QStringLiteral("事务")); 
 }
 
+/**
+ * @brief 提交当前具名连接的事务，并复用统一错误报告。
+ */
 bool DataStore::commitTransaction()
 {
     if (!m_connected)
@@ -329,6 +395,9 @@ bool DataStore::commitTransaction()
     return commitTransaction(db, QStringLiteral("事务"));
 }
 
+/**
+ * @brief 回滚当前具名连接的事务；回滚本身失败时同样报告。
+ */
 void DataStore::rollbackTransaction()
 {
     if (!m_connected)
@@ -337,6 +406,10 @@ void DataStore::rollbackTransaction()
     rollbackTransaction(db, QStringLiteral("事务"));
 }
 
+/**
+ * @brief 返回当前线程中指向本实例具名连接的 Qt 句柄副本。
+ * @warning 句柄不得保存到 DataStore::disconnect() 之后，也不得传给其他线程。
+ */
 QSqlDatabase DataStore::database() const
 {
     return QSqlDatabase::database(m_connectionName);
@@ -344,6 +417,9 @@ QSqlDatabase DataStore::database() const
 
 // ========== 内部方法 ==========
 
+/**
+ * @brief 用统一前缀写警告日志并发出 errorOccurred，供 AppController 归档系统事件。
+ */
 void DataStore::reportError(const QString& context, const QString& detail)
 {
     QString msg = QStringLiteral("[DataStore] %1 错误: %2").arg(context, detail);
@@ -351,6 +427,10 @@ void DataStore::reportError(const QString& context, const QString& detail)
     emit errorOccurred(msg);
 }
 
+/**
+ * @brief 在局部作用域关闭并释放最后一个 QSqlDatabase 句柄后，再移除全局具名连接。
+ * @details Qt 要求 removeDatabase 时不存在活跃句柄，否则查询会失效并产生警告；额外作用域用于保证析构顺序。
+ */
 void DataStore::removeConnection()
 {
     {
@@ -363,6 +443,7 @@ void DataStore::removeConnection()
     QSqlDatabase::removeDatabase(m_connectionName);
 }
 
+/** @brief 预处理 SQL 并按位置绑定全部值，集中报告驱动错误。 */
 bool DataStore::prepareQuery(QSqlQuery& query,
                              const QString& context,
                              const QString& sql,
@@ -381,6 +462,7 @@ bool DataStore::prepareQuery(QSqlQuery& query,
     return true;
 }
 
+/** @brief 执行已准备的查询，并把可选业务前缀与驱动错误组合为诊断文本。 */
 bool DataStore::execQuery(QSqlQuery& query,
                           const QString& context,
                           const QString& detailPrefix)
@@ -396,6 +478,7 @@ bool DataStore::execQuery(QSqlQuery& query,
     return true;
 }
 
+/** @brief 在指定连接直接执行一条无参数 SQL，主要用于 PRAGMA 和 DDL 初始化。 */
 bool DataStore::executeStatement(QSqlDatabase& db,
                                  const QString& context,
                                  const QString& sql,
@@ -413,6 +496,7 @@ bool DataStore::executeStatement(QSqlDatabase& db,
     return true;
 }
 
+/** @brief 打开已配置连接，并统一拼装数据库驱动返回的失败详情。 */
 bool DataStore::openDatabase(QSqlDatabase& db,
                              const QString& context,
                              const QString& detailPrefix)
@@ -428,6 +512,9 @@ bool DataStore::openDatabase(QSqlDatabase& db,
     return true;
 }
 
+/**
+ * @brief 在显式 QSqlDatabase 句柄上开启事务，供批量内部路径复用。
+ */
 bool DataStore::beginTransaction(QSqlDatabase& db, const QString& context)
 {
     if (!db.transaction()) {
@@ -439,6 +526,9 @@ bool DataStore::beginTransaction(QSqlDatabase& db, const QString& context)
     return true;
 }
 
+/**
+ * @brief 提交显式连接上的事务；失败不会自动回滚，由调用路径决定后续策略。
+ */
 bool DataStore::commitTransaction(QSqlDatabase& db, const QString& context)
 {
     if (!db.commit()) {
@@ -450,6 +540,9 @@ bool DataStore::commitTransaction(QSqlDatabase& db, const QString& context)
     return true;
 }
 
+/**
+ * @brief 回滚显式连接上的事务，并且不隐藏回滚操作本身的失败。
+ */
 void DataStore::rollbackTransaction(QSqlDatabase& db, const QString& context)
 {
     if (!db.rollback()) {

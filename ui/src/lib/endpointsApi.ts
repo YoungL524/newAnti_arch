@@ -1,3 +1,9 @@
+/**
+ * @file endpointsApi.ts
+ * @brief 封装通信端点配置的查询与更新 HTTP 接口。
+ * @details 函数负责 JSON 编解码和 HTTP 错误转换；配置校验、持久化及运行时回滚由核心 AppController 完成。
+ */
+
 export interface EndpointTarget {
   address: string
   port: number

@@ -27,6 +27,11 @@ namespace web {
 // ============================================================
 // Construction
 // ============================================================
+/**
+ * @brief 构造尚未监听端口的 Web 服务，并计算默认静态资源目录。
+ * @param parent Qt 父对象；负责随父对象销毁服务。
+ * @details 网络服务器和客户端连接均在 start() 后创建，并由本对象或 Qt 的 deleteLater() 管理。
+ */
 WebService::WebService(QObject* parent)
     : QObject(parent)
 {
@@ -43,6 +48,10 @@ WebService::~WebService() {
 // ============================================================
 // Lifecycle
 // ============================================================
+/**
+ * @brief 依次建立 HTTP 与 WebSocket 监听器；任一失败时回收已启动的另一监听器。
+ * @details HTTP 先监听、WebSocket 后监听；WebSocket 失败时关闭已建立的 HTTP 监听，避免出现只有半套接口可用的状态。
+ */
 WebService::Result WebService::start(quint16 httpPort, quint16 wsPort) {
     m_httpPort = httpPort;
     m_wsPort   = wsPort;
@@ -57,6 +66,7 @@ WebService::Result WebService::start(quint16 httpPort, quint16 wsPort) {
             QStringLiteral("HTTP 监听失败: %1").arg(m_httpServer->errorString()));
         return {false, 0, 0};
     }
+    m_httpPort = m_httpServer->serverPort();
 
     // ---- WebSocket server ----
     m_wsServer = new QWebSocketServer(QStringLiteral("CoreWS"),
@@ -70,16 +80,21 @@ WebService::Result WebService::start(quint16 httpPort, quint16 wsPort) {
         stop();
         return {false, 0, 0};
     }
+    m_wsPort = m_wsServer->serverPort();
 
     emit serverLog(QStringLiteral("info"),
-        QStringLiteral("HTTP : %1:%2").arg(QStringLiteral("127.0.0.1")).arg(httpPort));
+        QStringLiteral("HTTP : %1:%2").arg(QStringLiteral("127.0.0.1")).arg(m_httpPort));
     emit serverLog(QStringLiteral("info"),
-        QStringLiteral("WS   : %1:%2").arg(QStringLiteral("127.0.0.1")).arg(wsPort));
+        QStringLiteral("WS   : %1:%2").arg(QStringLiteral("127.0.0.1")).arg(m_wsPort));
     emit serverLog(QStringLiteral("info"),
         QStringLiteral("Static: %1").arg(m_staticDir));
-    return {true, httpPort, wsPort};
+    return {true, m_httpPort, m_wsPort};
 }
 
+/**
+ * @brief 关闭所有 WebSocket 客户端以及 HTTP、WebSocket 监听器。
+ * @details 客户端先发送关闭握手并排入延迟销毁，随后监听器停止接收新连接；清空容器后可安全重复调用。
+ */
 void WebService::stop() {
     // WS clients
     for (auto* ws : m_wsClients) {
@@ -116,31 +131,66 @@ void WebService::stop() {
 // ============================================================
 // Handler Registration
 // ============================================================
+/**
+ * @brief 注册精确路径 GET 处理器，重复路径覆盖旧处理器。
+ * @details 按所属模块契约完成校验、状态转换与后续分发，并隔离无效输入。
+ */
 void WebService::handleGet(const QString& path, GetJsonHandler handler) {
     m_getHandlers[path] = std::move(handler);
 }
+/**
+ * @brief 注册精确路径 POST 处理器。
+ * @details 按所属模块契约完成校验、状态转换与后续分发，并隔离无效输入。
+ */
 void WebService::handlePost(const QString& path, JsonHandler handler) {
     m_postHandlers[path] = std::move(handler);
 }
+/**
+ * @brief 注册精确路径 PUT 处理器。
+ * @details 按所属模块契约完成校验、状态转换与后续分发，并隔离无效输入。
+ */
 void WebService::handlePut(const QString& path, JsonHandler handler) {
     m_putHandlers[path] = std::move(handler);
 }
+/**
+ * @brief 注册精确路径 DELETE 处理器。
+ * @details 按所属模块契约完成校验、状态转换与后续分发，并隔离无效输入。
+ */
 void WebService::handleDelete(const QString& path, JsonHandler handler) {
     m_deleteHandlers[path] = std::move(handler);
 }
+/**
+ * @brief 注册携带剩余路径参数的 GET 前缀处理器。
+ * @details 按所属模块契约完成校验、状态转换与后续分发，并隔离无效输入。
+ */
 void WebService::handleGetPrefix(const QString& prefix, PrefixHandler handler) {
     m_getPrefixHandlers[prefix] = std::move(handler);
 }
+/**
+ * @brief 注册携带剩余路径参数的 POST 前缀处理器。
+ * @details 按所属模块契约完成校验、状态转换与后续分发，并隔离无效输入。
+ */
 void WebService::handlePostPrefix(const QString& prefix, PrefixHandler handler) {
     m_postPrefixHandlers[prefix] = std::move(handler);
 }
+/**
+ * @brief 注册携带剩余路径参数的 PUT 前缀处理器。
+ * @details 按所属模块契约完成校验、状态转换与后续分发，并隔离无效输入。
+ */
 void WebService::handlePutPrefix(const QString& prefix, PrefixHandler handler) {
     m_putPrefixHandlers[prefix] = std::move(handler);
 }
+/**
+ * @brief 注册携带剩余路径参数的 DELETE 前缀处理器。
+ * @details 按所属模块契约完成校验、状态转换与后续分发，并隔离无效输入。
+ */
 void WebService::handleDeletePrefix(const QString& prefix, PrefixHandler handler) {
     m_deletePrefixHandlers[prefix] = std::move(handler);
 }
 
+/**
+ * @brief 保存静态资源根目录绝对路径，后续请求必须解析并限制在该目录内。
+ */
 void WebService::setStaticDir(const QString& dir) {
     m_staticDir = QDir(dir).absolutePath() + QStringLiteral("/");
 }
@@ -148,10 +198,11 @@ void WebService::setStaticDir(const QString& dir) {
 // ============================================================
 // WebSocket
 // ============================================================
+/**
+ * @brief 向所有可用 WebSocket 客户端发送消息，并跳过待发送字节超过阈值的慢客户端。
+ * @details 航迹属于可恢复实时数据，宁可丢弃单次广播也不让一个客户端拖住服务线程或无限占用内存。
+ */
 void WebService::broadcast(const QJsonObject& msg) {
-    QByteArray data = QJsonDocument(msg).toJson(QJsonDocument::Compact);
-    constexpr qint64 kCongestionThreshold = 256 * 1024;  // 256KB pending write data
-
     for (int i = m_wsClients.size() - 1; i >= 0; --i) {
         auto* ws = m_wsClients[i];
         if (!ws || ws->state() != QAbstractSocket::ConnectedState) {
@@ -159,25 +210,44 @@ void WebService::broadcast(const QJsonObject& msg) {
             m_wsClients.removeAt(i);
             continue;
         }
-
-        // 慢客户端检测：写缓冲区积压超过阈值时断开
-        if (ws->bytesToWrite() > kCongestionThreshold) {
-            qWarning() << QStringLiteral("[WebService] WS 慢客户端断开: %1 (%2 bytes pending)")
-                          .arg(ws->peerAddress().toString())
-                          .arg(ws->bytesToWrite());
-            ws->close();
-            m_wsClients.removeAt(i);
-            continue;
-        }
-
-        ws->sendTextMessage(QString::fromUtf8(data));
+        sendToClient(ws, msg);
     }
 }
 
+/**
+ * @brief 向一个已连接 WebSocket 客户端发送紧凑 JSON 消息。
+ * @param client 目标客户端，必须仍处于 ConnectedState。
+ * @param msg 待序列化对象。
+ * @return 消息成功交给 Qt 发送缓冲区时为 true；客户端无效、拥塞或写入失败时为 false。
+ * @details 待发送量超过 256 KiB 视为慢客户端并主动断开，保护 7×24 小时运行中的服务端内存和实时性。
+ */
+bool WebService::sendToClient(QWebSocket* client, const QJsonObject& msg) {
+    if (!client || client->state() != QAbstractSocket::ConnectedState)
+        return false;
+
+    constexpr qint64 kCongestionThreshold = 256 * 1024;
+    if (client->bytesToWrite() > kCongestionThreshold) {
+        qWarning() << QStringLiteral("[WebService] WS 慢客户端断开: %1 (%2 bytes pending)")
+                      .arg(client->peerAddress().toString())
+                      .arg(client->bytesToWrite());
+        client->close();
+        m_wsClients.removeOne(client);
+        return false;
+    }
+
+    const QByteArray data = QJsonDocument(msg).toJson(QJsonDocument::Compact);
+    return client->sendTextMessage(QString::fromUtf8(data)) >= 0;
+}
+
+/**
+ * @brief 接纳新 WebSocket、登记断开回调并发出连接信号供显示桥单播快照。
+ * @details 按所属模块契约完成校验、状态转换与后续分发，并隔离无效输入。
+ */
 void WebService::onWsConnection() {
     while (auto* ws = m_wsServer->nextPendingConnection()) {
         m_wsClients.append(ws);
         connect(ws, &QWebSocket::disconnected, this, &WebService::onWsDisconnected);
+        emit webSocketConnected(ws);
         emit serverLog(QStringLiteral("info"),
             QStringLiteral("WS 客户端已连接 (%1:%2)")
                 .arg(ws->peerAddress().toString())
@@ -185,6 +255,10 @@ void WebService::onWsConnection() {
     }
 }
 
+/**
+ * @brief 从客户端集合移除并延迟销毁断开的 WebSocket。
+ * @details 按所属模块契约完成校验、状态转换与后续分发，并隔离无效输入。
+ */
 void WebService::onWsDisconnected() {
     auto* ws = qobject_cast<QWebSocket*>(sender());
     if (ws) {
@@ -200,11 +274,22 @@ void WebService::onWsDisconnected() {
 // ============================================================
 // HTTP — Connection Handling
 // ============================================================
+/**
+ * @brief 判断 HTTP 套接字是否仍可接受响应写入。
+ * @param sock 待检查连接。
+ * @return 指针非空且状态为 ConnectedState 时为 true。
+ */
 bool WebService::isSocketWritable(QTcpSocket* sock) const
 {
     return sock && sock->state() == QAbstractSocket::ConnectedState;
 }
 
+/**
+ * @brief 将已序列化的 HTTP 数据排入连接发送缓冲区。
+ * @param sock 目标 HTTP 连接。
+ * @param data 完整或部分 HTTP 响应字节。
+ * @return 套接字可写且 QTcpSocket::write() 未立即报错时为 true。
+ */
 bool WebService::writeToSocket(QTcpSocket* sock, const QByteArray& data)
 {
     if (!isSocketWritable(sock))
@@ -212,6 +297,11 @@ bool WebService::writeToSocket(QTcpSocket* sock, const QByteArray& data)
     return sock->write(data) >= 0;
 }
 
+/**
+ * @brief 停止一个 HTTP 连接的空闲计时并从连接状态表移除。
+ * @param sock 待关闭连接；未知或已清理的连接会被忽略。
+ * @details 已连接套接字先 disconnectFromHost()，随后统一 deleteLater()，避免在 readyRead 回调栈中直接析构。
+ */
 void WebService::closeHttpSocket(QTcpSocket* sock)
 {
     if (!sock || !m_buffers.contains(sock))
@@ -226,6 +316,9 @@ void WebService::closeHttpSocket(QTcpSocket* sock)
     }
 }
 
+/**
+ * @brief 删除 HTTP 连接缓冲和状态后安排 socket 销毁，允许重复清理。
+ */
 void WebService::cleanupHttpSocket(QTcpSocket* sock)
 {
     if (!sock) return;
@@ -239,6 +332,10 @@ void WebService::cleanupHttpSocket(QTcpSocket* sock)
     sock->deleteLater();
 }
 
+/**
+ * @brief 接纳全部待处理 TCP 连接，为每个连接建立独立请求缓冲和错误/断开回调。
+ * @details 按所属模块契约完成校验、状态转换与后续分发，并隔离无效输入。
+ */
 void WebService::onHttpConnection() {
     while (auto* sock = m_httpServer->nextPendingConnection()) {
         connect(sock, &QTcpSocket::readyRead, this, &WebService::onHttpReadyRead);
@@ -258,10 +355,18 @@ void WebService::onHttpConnection() {
     }
 }
 
+/**
+ * @brief 在客户端正常断开时回收该连接的解析状态。
+ * @details 按所属模块契约完成校验、状态转换与后续分发，并隔离无效输入。
+ */
 void WebService::onHttpDisconnected() {
     cleanupHttpSocket(qobject_cast<QTcpSocket*>(sender()));
 }
 
+/**
+ * @brief 记录 TCP 错误并回收连接，避免损坏缓冲继续参与解析。
+ * @details 按所属模块契约完成校验、状态转换与后续分发，并隔离无效输入。
+ */
 void WebService::onHttpSocketError(QAbstractSocket::SocketError err)
 {
     auto* sock = qobject_cast<QTcpSocket*>(sender());
@@ -272,6 +377,10 @@ void WebService::onHttpSocketError(QAbstractSocket::SocketError err)
     closeHttpSocket(sock);
 }
 
+/**
+ * @brief 追加新字节并循环解析流水线请求，按缓冲上限隔离不完整或恶意客户端。
+ * @details 按所属模块契约完成校验、状态转换与后续分发，并隔离无效输入。
+ */
 void WebService::onHttpReadyRead() {
     auto* sock = qobject_cast<QTcpSocket*>(sender());
     if (!sock) return;
@@ -306,6 +415,10 @@ void WebService::onHttpReadyRead() {
 }
 
 /// @return true if a request was fully processed; false if incomplete or errored.
+/**
+ * @brief 按方法先匹配精确路由、再匹配最长前缀路由，最后回退静态资源或 404。
+ * @details 按所属模块契约完成校验、状态转换与后续分发，并隔离无效输入。
+ */
 bool WebService::dispatchRequest(QTcpSocket* sock, QByteArray& raw) {
     auto result = tryParseRequest(raw);
     if (!result) {
@@ -398,6 +511,9 @@ bool WebService::dispatchRequest(QTcpSocket* sock, QByteArray& raw) {
 // ============================================================
 // Static Files
 // ============================================================
+/**
+ * @brief 返回前端 index.html，为单页应用根路径和客户端路由提供入口。
+ */
 void WebService::serveIndex(QTcpSocket* sock, bool keepAlive) {
     QString idx = m_staticDir + QStringLiteral("index.html");
     if (QFileInfo::exists(idx)) {
@@ -418,6 +534,9 @@ void WebService::serveIndex(QTcpSocket* sock, bool keepAlive) {
     sendJson(sock, 503, obj, false);
 }
 
+/**
+ * @brief 规范化请求路径并确认目标仍位于静态根目录后读取文件，阻止目录穿越。
+ */
 void WebService::serveStaticFile(QTcpSocket* sock, const QString& path, bool keepAlive) {
     if (path.contains(QStringLiteral(".."))) {
         sendError(sock, 403, QStringLiteral("Forbidden"), keepAlive);
@@ -443,6 +562,13 @@ void WebService::serveStaticFile(QTcpSocket* sock, const QString& path, bool kee
 // ============================================================
 // Response Helpers
 // ============================================================
+/**
+ * @brief 构造并发送 JSON HTTP 响应。
+ * @param sock 目标连接。
+ * @param status HTTP 状态码。
+ * @param obj 响应对象，以紧凑 JSON 编码。
+ * @param keepAlive 是否在响应头中声明保持连接。
+ */
 void WebService::sendJson(QTcpSocket* sock, int status, const QJsonObject& obj, bool keepAlive) {
     if (!isSocketWritable(sock))
         return;
@@ -454,6 +580,13 @@ void WebService::sendJson(QTcpSocket* sock, int status, const QJsonObject& obj, 
     writeToSocket(sock, serializeResponse(resp));
 }
 
+/**
+ * @brief 以统一 `{ok:false,error:...}` 结构发送 HTTP 错误。
+ * @param sock 目标连接。
+ * @param status HTTP 错误状态码。
+ * @param text 面向调用方的错误说明。
+ * @param keepAlive 是否保持连接供后续请求复用。
+ */
 void WebService::sendError(QTcpSocket* sock, int status, const QString& text, bool keepAlive) {
     QJsonObject obj;
     obj[QStringLiteral("ok")]    = false;

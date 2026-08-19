@@ -1,3 +1,9 @@
+/**
+ * @file columns.ts
+ * @brief 定义各类设备数据表的列、取值器、单位和筛选元数据。
+ * @details 列定义把 protocol.ts 的原始字段转换为展示值，是 DataTable 与筛选栏共享的唯一列语义来源。
+ */
+
 import { DeviceType, type RadarTrack, type LevelSensorData, type OptoelectronicData, type GpsData, type DeviceDataRow } from './protocol'
 
 export type FilterType = 'range' | 'text' | 'select'

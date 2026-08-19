@@ -1,3 +1,9 @@
+/**
+ * @file useTrackData.ts
+ * @brief 订阅核心 WebSocket 航迹流并向 React 组件提供当前显示集合。
+ * @details Hook 应用“初始快照 + 增量更新/删除”，并在断线或版本缺口时重建状态，避免无限追加历史点。
+ */
+
 import { useState, useEffect } from 'react'
 import { DeviceType, type DeviceDataRow, type RadarTrack } from '../lib/protocol'
 import { useCore } from './useCoreApi'

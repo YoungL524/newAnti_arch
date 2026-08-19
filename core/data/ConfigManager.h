@@ -81,7 +81,7 @@ private:
     /**
      * @brief 从文件加载 JSON
      * @param filePath 文件完整路径
-     * @return QJsonObject
+     * @return 返回读取并解析后的 QJsonObject；失败时返回空对象。
      */
     QJsonObject loadJsonFile(const QString& filePath) const;
 

@@ -5,6 +5,10 @@
 
 namespace EndpointApiRoutes {
 
+/**
+ * @brief 注册端点配置查询和更新路由，并把 AppController 的校验/回滚错误映射为 HTTP 响应。
+ * @details 路由层只解析 HTTP 数据并返回 JSON；配置持久化、运行时重建与失败回滚均由 AppController 统一完成。
+ */
 void registerRoutes(web::WebService* ws, AppController* controller)
 {
     if (!ws || !controller)

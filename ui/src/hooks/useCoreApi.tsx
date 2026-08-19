@@ -1,8 +1,15 @@
+/**
+ * @file useCoreApi.tsx
+ * @brief 集中管理核心服务状态、设备台账、任务命令和周期刷新。
+ * @details Provider 是页面共享的控制面状态入口；实时航迹走独立 WebSocket Hook，避免低频 REST 刷新阻塞显示链路。
+ */
+
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { StatusResponse, LogsResponse, WsMessage, RadarTrack, DeviceStatus, LogEntry } from '../lib/protocol'
+import type { StatusResponse, LogsResponse, WsMessage, WsTracksMessage, WsTrackDisplayPoint, RadarTrack, DeviceStatus, LogEntry } from '../lib/protocol'
 import { fetchTrackHistory, type TrackHistoryPoint } from '../lib/tracksApi'
 import { fetchSystemEvents, type SystemEvent } from '../lib/systemEventsApi'
 import { fetchTaskLogs } from '../lib/taskLogsApi'
+import { applyTrackStreamMessage } from '../lib/trackStream'
 
 interface CommandResponse {
   ok: boolean
@@ -195,8 +202,8 @@ export function CoreProvider({
     setState(prev => ({ ...prev, interactionError: '' }))
   }, [])
 
-  // REST 成功（mode=queued）仅表示命令已发布到总线；权威 interaction 状态以 WS snapshot 为准。
-  // pendingInteractionRef 做乐观覆盖，待 snapshot 回推一致后清除。
+  // REST 成功（mode=queued）仅表示命令已发布到总线；权威 interaction 状态以 WS 更新为准。
+  // pendingInteractionRef 做乐观覆盖，待 snapshot/delta 回推一致后清除。
   const setTrackInteraction = useCallback(async (deviceId: string, trackId: number, selected: boolean, trackingEnabled: boolean): Promise<boolean> => {
     if (isHistoryView || !activeTaskIdRef.current) {
       setState(prev => ({ ...prev, interactionError: '历史记录为只读，当前没有可操作的实时任务' }))
@@ -523,16 +530,18 @@ export function CoreProvider({
     let ws: WebSocket | null = null
     let reconnectTimer: ReturnType<typeof setTimeout>
     let tracksRaf = 0
-    let pendingTracksRaw: string | null = null
+    const wireTracks = new Map<string, WsTrackDisplayPoint>()
+    let tracksRevision = 0
+    let pendingTracksRaw: string[] = []
 
-    const applyTracksSnapshot = (msg: WsMessage) => {
-      if (msg.type !== 'tracks' || msg.mode !== 'snapshot' || !Array.isArray(msg.tracks)) return
+    const renderWireTracks = () => {
       const ready = tasksReadyRef.current
       const currentTaskId = activeTaskIdRef.current
       const taskDevices = new Set(activeTaskDeviceIdsRef.current)
-      const received = msg.tracks.length
+      const allTracks = [...wireTracks.values()]
+      const received = allTracks.length
 
-      let visibleTracks: typeof msg.tracks = []
+      let visibleTracks: WsTrackDisplayPoint[] = []
       let notice = ''
 
       if (!ready) {
@@ -541,7 +550,7 @@ export function CoreProvider({
       if (!currentTaskId) {
         notice = '当前无激活任务，航迹显示未启用'
       } else {
-        visibleTracks = msg.tracks.filter(t =>
+        visibleTracks = allTracks.filter(t =>
           t.taskId === currentTaskId
           && typeof t.deviceId === 'string'
           && taskDevices.has(t.deviceId))
@@ -595,17 +604,35 @@ export function CoreProvider({
       flushTracksToState()
     }
 
-    const scheduleTracksSnapshot = (raw: string) => {
-      pendingTracksRaw = raw
+    const applyTracksMessage = (msg: WsTracksMessage) => {
+      const nextRevision = applyTrackStreamMessage(wireTracks, tracksRevision, msg)
+      if (nextRevision == null) {
+        console.warn('[tracks] revision gap, reconnecting', tracksRevision, msg.revision)
+        ws?.close(4000, 'tracks revision gap')
+        return
+      }
+      tracksRevision = nextRevision
+      renderWireTracks()
+    }
+
+    const scheduleTracksMessage = (raw: string) => {
+      pendingTracksRaw.push(raw)
+      if (pendingTracksRaw.length > 120) {
+        pendingTracksRaw = []
+        ws?.close(4001, 'tracks client backlog')
+        return
+      }
       if (tracksRaf) return
       tracksRaf = requestAnimationFrame(() => {
         tracksRaf = 0
-        const nextRaw = pendingTracksRaw
-        pendingTracksRaw = null
-        if (!nextRaw) return
-        try {
-          applyTracksSnapshot(JSON.parse(nextRaw) as WsMessage)
-        } catch { /* ignore */ }
+        const batch = pendingTracksRaw
+        pendingTracksRaw = []
+        for (const nextRaw of batch) {
+          try {
+            const msg = JSON.parse(nextRaw) as WsMessage
+            if (msg.type === 'tracks') applyTracksMessage(msg)
+          } catch { /* ignore */ }
+        }
       })
     }
 
@@ -628,9 +655,9 @@ export function CoreProvider({
       ws.onmessage = (e) => {
         if (cancelled) return
         const raw = String(e.data)
-        // tracks snapshot 体积大：延后 parse，避免阻塞 WS 读缓冲
+        // 航迹消息按序延后到 RAF 处理；delta 不允许像旧 snapshot 那样覆盖中间帧。
         if (WS_TRACKS_TYPE_RE.test(raw)) {
-          scheduleTracksSnapshot(raw)
+          scheduleTracksMessage(raw)
           return
         }
         try {

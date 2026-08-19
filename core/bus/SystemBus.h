@@ -1,9 +1,19 @@
+/**
+ * @file SystemBus.h
+ * @brief 声明 ISystemBus 的单例实现及其有界异步分发模型。
+ * @details 发布线程只负责校验和入队；BusWorker 从队列取出 DataPacket，根据 sourceType、
+ *          dispatchTarget 和通配符三类索引收集去重后的回调，再在不持有订阅锁的情况下依次调用。
+ *          这使接收线程不被业务处理阻塞，也允许回调安全地订阅或取消订阅。
+ *
+ * @par 生命周期
+ * 单例首次访问时启动工作线程，进程运行期间常驻。shutdown() 会关闭队列并等待工作线程退出，且不可重启。
+ */
+
 #pragma once
 
 #include "ISystemBus.h"
 #include "ThreadSafeQueue.h"
 #include "GenericPackets.h"
-#include "BusEnvelope.h"
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -29,6 +39,7 @@ public:
         ShutDown    ///< 已永久关闭，所有操作返回失败
     };
 
+    /** @brief 返回进程内唯一总线实例；首次调用会创建并启动工作线程。 */
     static SystemBus& getInstance();
 
     /**
@@ -38,17 +49,11 @@ public:
 
     // ========== ISystemBus接口实现 ==========
     bool publish(const DataPacket* dataPacket) override;
+    /** @brief 复制数据包后入队，适用于调用方仍需保留原对象的场景。 */
     bool publish(const DataPacket& dataPacket);
+    /** @brief 移动数据包后入队，避免大型 variant 载荷的额外复制。 */
     bool publish(DataPacket&& dataPacket);
-    bool publish(BusEnvelope&& envelope);
     SubscriptionId subscribeBySource(uint16_t sourceType, BusCallback callback) override;
-    SubscriptionId subscribeBySourceEnvelope(uint16_t sourceType,
-                                             BusEnvelopeCallback callback) override;
-    SubscriptionId subscribeByTargetEnvelope(uint16_t target,
-                                           BusEnvelopeCallback callback) override;
-    SubscriptionId subscribeEnvelope(uint16_t sourceType, uint16_t target,
-                                     BusEnvelopeCallback callback) override;
-    SubscriptionId subscribeAllEnvelope(BusEnvelopeCallback callback) override;
     SubscriptionId subscribeByTarget(uint16_t target, BusCallback callback) override;
     SubscriptionId subscribe(uint16_t sourceType, uint16_t target, BusCallback callback) override;
     SubscriptionId subscribeAll(BusCallback callback) override;
@@ -110,7 +115,6 @@ private:
         uint16_t sourceType = 0;
         uint16_t target = 0;
         BusCallback packetCallback;
-        BusEnvelopeCallback envelopeCallback;
         bool hasSourceType = false;
         bool hasTarget = false;
         bool isWildcard = false;
@@ -122,24 +126,10 @@ private:
             , hasSourceType(true)
         {}
 
-        // 按数据源类型订阅（完整 BusEnvelope）
-        SubscriptionInfo(BySource, uint16_t src, BusEnvelopeCallback cb)
-            : sourceType(src)
-            , envelopeCallback(std::move(cb))
-            , hasSourceType(true)
-        {}
-
         // 按分发目标订阅（DataPacket 头）
         SubscriptionInfo(ByTarget, uint16_t tgt, BusCallback cb)
             : target(tgt)
             , packetCallback(std::move(cb))
-            , hasTarget(true)
-        {}
-
-        // 按分发目标订阅（完整 BusEnvelope）
-        SubscriptionInfo(ByTarget, uint16_t tgt, BusEnvelopeCallback cb)
-            : target(tgt)
-            , envelopeCallback(std::move(cb))
             , hasTarget(true)
         {}
 
@@ -152,29 +142,18 @@ private:
             , hasTarget(true)
         {}
 
-        // 组合条件订阅（完整 BusEnvelope）
-        SubscriptionInfo(uint16_t src, uint16_t tgt, BusEnvelopeCallback cb)
-            : sourceType(src)
-            , target(tgt)
-            , envelopeCallback(std::move(cb))
-            , hasSourceType(true)
-            , hasTarget(true)
-        {}
-
         // 通配符订阅（DataPacket 头）
         SubscriptionInfo(BusCallback cb)
             : packetCallback(std::move(cb))
             , isWildcard(true)
         {}
 
-        // 通配符订阅（完整 BusEnvelope）
-        SubscriptionInfo(BusEnvelopeCallback cb)
-            : envelopeCallback(std::move(cb))
-            , isWildcard(true)
-        {}
     };
 
-    void dispatchToSubscribers(const BusEnvelope& envelope);
+    /**
+     * @brief 为一个已出队的数据包生成回调快照并逐个执行。
+     * @note 仅由 BusWorker 调用；回调执行时不持有 m_subscriptionsMutex。
+     */
     void dispatchToSubscribers(const DataPacket* dataPacket);
 
     /**
@@ -192,8 +171,6 @@ private:
      * @return 回调是否可用
      */
     bool validateCallback(const BusCallback& callback, const QString& operation) const;
-    bool validateEnvelopeCallback(const BusEnvelopeCallback& callback,
-                                  const QString& operation) const;
 
     /**
      * @brief 向源类型索引追加订阅 ID
@@ -289,14 +266,9 @@ private:
     std::vector<BusCallback> collectPacketCallbacks(
         const std::vector<SubscriptionId>& matchingSubscriptions) const;
 
-    std::vector<BusEnvelopeCallback> collectEnvelopeCallbacks(
-        const std::vector<SubscriptionId>& matchingSubscriptions) const;
-
+    /** @brief 逐个执行回调；单个回调抛出的异常会被隔离，不影响后续订阅者。 */
     void invokePacketCallbacks(const std::vector<BusCallback>& callbacks,
                                const DataPacket* dataPacket) const;
-
-    void invokeEnvelopeCallbacks(const std::vector<BusEnvelopeCallback>& callbacks,
-                                 const BusEnvelope& envelope) const;
 
     /**
      * @brief 停止业务处理线程（进程退出清理用，不可恢复）
@@ -311,19 +283,19 @@ private:
 
 private:
     // ========== 订阅管理 ==========
-    std::unordered_map<SubscriptionId, SubscriptionInfo> m_subscriptions;          // 订阅信息映射
-    std::unordered_map<uint16_t, std::vector<SubscriptionId>> m_sourceTypeSubscriptions; // 按源类型分组
-    std::unordered_map<uint16_t, std::vector<SubscriptionId>> m_targetSubscriptions;     // 按分发目标分组
-    std::vector<SubscriptionId> m_wildcardSubscriptions;                           // 通配符订阅列表
-    mutable std::mutex m_subscriptionsMutex;                                       // 订阅信息互斥锁
-    std::atomic<SubscriptionId> m_nextSubscriptionId;                              // 下一个订阅ID
+    std::unordered_map<SubscriptionId, SubscriptionInfo> m_subscriptions; ///< 权威订阅表，索引只保存其中的 ID。
+    std::unordered_map<uint16_t, std::vector<SubscriptionId>> m_sourceTypeSubscriptions; ///< sourceType 倒排索引。
+    std::unordered_map<uint16_t, std::vector<SubscriptionId>> m_targetSubscriptions; ///< dispatchTarget 倒排索引。
+    std::vector<SubscriptionId> m_wildcardSubscriptions; ///< 接收全部消息的订阅 ID。
+    mutable std::mutex m_subscriptionsMutex; ///< 同时保护权威表及三个索引；调用用户回调前必须释放。
+    std::atomic<SubscriptionId> m_nextSubscriptionId; ///< 单调递增 ID；从 1 开始，0 表示失败。
 
     // ========== 统计信息 ==========
-    std::atomic<uint64_t> m_publishedCount;                                        // 发布计数
-    std::atomic<State> m_state{State::Running};                                    // 总线状态（不可逆转为 ShutDown）
+    std::atomic<uint64_t> m_publishedCount; ///< 成功进入消息队列的累计数量，不等同于已分发数量。
+    std::atomic<State> m_state{State::Running}; ///< 只允许 Running 单向转换为 ShutDown。
 
-    ThreadSafeQueue<std::unique_ptr<BusEnvelope>> m_messageQueue;
-    BusWorker* m_worker{nullptr};                                                  // 工作线程
+    ThreadSafeQueue<std::unique_ptr<DataPacket>> m_messageQueue; ///< 跨发布线程与 BusWorker 传递唯一所有权。
+    BusWorker* m_worker{nullptr}; ///< 由 SystemBus 创建和删除；shutdown 后为空。
 
     // 禁用拷贝构造和赋值
     SystemBus(const SystemBus&) = delete;

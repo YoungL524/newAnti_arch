@@ -8,6 +8,9 @@
 #include <QRandomGenerator>
 #include <QVariantMap>
 
+/**
+ * @brief 把任务及其设备成员列表转换为 Web API JSON，时间保持 Unix 毫秒。
+ */
 QJsonObject task::TaskInfo::toJson() const
 {
     QJsonObject j;
@@ -27,6 +30,9 @@ QJsonObject task::TaskInfo::toJson() const
     return j;
 }
 
+/**
+ * @brief 从创建/更新请求提取任务字段；服务层随后负责 ID、状态和设备有效性校验。
+ */
 task::TaskInfo task::TaskInfo::fromJson(const QJsonObject& body)
 {
     task::TaskInfo t;
@@ -40,12 +46,18 @@ task::TaskInfo task::TaskInfo::fromJson(const QJsonObject& body)
     return t;
 }
 
+/**
+ * @brief 保存非拥有数据库和设备台账依赖；二者必须覆盖服务生命周期。
+ */
 TaskService::TaskService(DataStore* store, DeviceRegistry* deviceRegistry)
     : m_store(store)
     , m_deviceReg(deviceRegistry)
 {
 }
 
+/**
+ * @brief 生成 task_ 前缀 UUID，避免任务复制/重跑依赖数据库自增键。
+ */
 QString TaskService::generateId()
 {
     const qint64 ms = QDateTime::currentMSecsSinceEpoch();
@@ -53,18 +65,32 @@ QString TaskService::generateId()
     return QStringLiteral("task_%1_%2").arg(ms).arg(rand);
 }
 
+/**
+ * @brief 在新操作开始前清除上一次错误，防止成功响应携带陈旧诊断。
+ */
 void TaskService::clearError() { m_lastError.clear(); }
+/**
+ * @brief 保存最近失败原因，供 REST 层形成操作员可读响应。
+ */
 void TaskService::setError(const QString& msg) { m_lastError = msg; }
 
+/**
+ * @brief 判断状态是否已结束运行、可用于重跑或归档，避免散落字符串判断。
+ */
 bool TaskService::isTerminalStatus(const QString& status) const
 {
     return status == QString::fromUtf8(task::kStatusCompleted)
         || status == QString::fromUtf8(task::kStatusArchived);
 }
 
+/**
+ * @brief 创建任务、任务设备关系、任务事件和任务日志表及必要索引。
+ */
 bool TaskService::ensureSchema()
 {
     if (!m_store) return false;
+    const bool postgres = m_store->database().driverName().startsWith(
+        QStringLiteral("QPSQL"));
     const QString tasksSql = QStringLiteral(
         "CREATE TABLE IF NOT EXISTS tasks ("
         "  id TEXT PRIMARY KEY,"
@@ -72,10 +98,10 @@ bool TaskService::ensureSchema()
         "  description TEXT,"
         "  operator_name TEXT,"
         "  status TEXT NOT NULL,"
-        "  created_at INTEGER NOT NULL,"
-        "  activated_at INTEGER,"
-        "  completed_at INTEGER,"
-        "  archived_at INTEGER"
+        "  created_at BIGINT NOT NULL,"
+        "  activated_at BIGINT,"
+        "  completed_at BIGINT,"
+        "  archived_at BIGINT"
         ")");
     const QString taskDevicesSql = QStringLiteral(
         "CREATE TABLE IF NOT EXISTS task_devices ("
@@ -86,17 +112,29 @@ bool TaskService::ensureSchema()
         ")");
     const QString taskLogsSql = QStringLiteral(
         "CREATE TABLE IF NOT EXISTS task_logs ("
-        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  id %1,"
         "  task_id TEXT NOT NULL,"
         "  device_id TEXT,"
-        "  ts_ms INTEGER NOT NULL,"
+        "  ts_ms BIGINT NOT NULL,"
         "  level TEXT NOT NULL,"
         "  message TEXT NOT NULL,"
         "  FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE"
-        ")");
+        ")").arg(postgres
+                      ? QStringLiteral("BIGSERIAL PRIMARY KEY")
+                      : QStringLiteral("INTEGER PRIMARY KEY AUTOINCREMENT"));
     if (!m_store->execute(tasksSql)
         || !m_store->execute(taskDevicesSql)
         || !m_store->execute(taskLogsSql)) {
+        return false;
+    }
+    if (postgres
+        && (!m_store->execute(QStringLiteral(
+                "ALTER TABLE tasks ALTER COLUMN created_at TYPE BIGINT, "
+                "ALTER COLUMN activated_at TYPE BIGINT, "
+                "ALTER COLUMN completed_at TYPE BIGINT, "
+                "ALTER COLUMN archived_at TYPE BIGINT"))
+            || !m_store->execute(QStringLiteral(
+                "ALTER TABLE task_logs ALTER COLUMN ts_ms TYPE BIGINT")))) {
         return false;
     }
 
@@ -124,6 +162,9 @@ bool TaskService::ensureSchema()
                "ON tasks(status) WHERE status = 'Active'"));
 }
 
+/**
+ * @brief 把任务主表行和关联设备查询组合为完整 TaskInfo。
+ */
 task::TaskInfo TaskService::rowToTask(const QVariantMap& row) const
 {
     task::TaskInfo t;
@@ -147,6 +188,9 @@ task::TaskInfo TaskService::rowToTask(const QVariantMap& row) const
     return t;
 }
 
+/**
+ * @brief 按更新时间查询任务列表，并为每项补齐设备成员关系。
+ */
 QVector<task::TaskInfo> TaskService::list() const
 {
     QVector<task::TaskInfo> result;
@@ -157,6 +201,9 @@ QVector<task::TaskInfo> TaskService::list() const
     return result;
 }
 
+/**
+ * @brief 按 ID 查询任务主记录和设备成员；不存在时返回空 optional。
+ */
 std::optional<task::TaskInfo> TaskService::get(const QString& id) const
 {
     if (!m_store) return std::nullopt;
@@ -165,6 +212,9 @@ std::optional<task::TaskInfo> TaskService::get(const QString& id) const
     return rowToTask(rows.first());
 }
 
+/**
+ * @brief 查询数据库中唯一运行任务；发现多条时拒绝任选并记录一致性错误。
+ */
 std::optional<task::TaskInfo> TaskService::activeTask() const
 {
     if (!m_store) return std::nullopt;
@@ -175,6 +225,9 @@ std::optional<task::TaskInfo> TaskService::activeTask() const
     return rowToTask(rows.first());
 }
 
+/**
+ * @brief 返回内存活动任务快照，供航迹热路径避免每包查询数据库。
+ */
 std::optional<task::ActiveTaskContext> TaskService::getActiveTask() const
 {
     if (m_activeTaskCache.taskId.isEmpty())
@@ -186,6 +239,9 @@ std::optional<task::ActiveTaskContext> TaskService::getActiveTask() const
     return ctx;
 }
 
+/**
+ * @brief 在缓存成员集合判断设备是否属于当前运行任务。
+ */
 bool TaskService::isDeviceInActiveTask(const QString& deviceId) const
 {
     if (deviceId.isEmpty() || m_activeTaskCache.taskId.isEmpty())
@@ -193,6 +249,9 @@ bool TaskService::isDeviceInActiveTask(const QString& deviceId) const
     return m_activeTaskCache.deviceIds.contains(deviceId);
 }
 
+/**
+ * @brief 从活动任务缓存解析设备归属；不属于活动任务时返回空字符串。
+ */
 QString TaskService::resolveTaskIdForDevice(const QString& deviceId) const
 {
     if (deviceId.isEmpty() || m_activeTaskCache.taskId.isEmpty())
@@ -202,11 +261,17 @@ QString TaskService::resolveTaskIdForDevice(const QString& deviceId) const
     return {};
 }
 
+/**
+ * @brief 提供与 resolveTaskIdForDevice 相同的显式活动任务语义，供调用点自解释。
+ */
 QString TaskService::resolveActiveTaskIdForDevice(const QString& deviceId) const
 {
     return resolveTaskIdForDevice(deviceId);
 }
 
+/**
+ * @brief 从数据库重建活动任务 ID 和设备集合；无活动任务时原子语义上清空两者。
+ */
 void TaskService::refreshActiveTaskCache()
 {
     m_activeTaskCache = {};
@@ -232,6 +297,9 @@ void TaskService::refreshActiveTaskCache()
     }
 }
 
+/**
+ * @brief 去重检查任务设备 ID，并确认每台设备都存在于台账。
+ */
 bool TaskService::validateDeviceIds(const QStringList& deviceIds)
 {
     if (!m_deviceReg) return true;
@@ -245,6 +313,9 @@ bool TaskService::validateDeviceIds(const QStringList& deviceIds)
     return true;
 }
 
+/**
+ * @brief 判断成员中是否至少有一台绑定通信端点的雷达，作为任务可启动条件。
+ */
 bool TaskService::hasControllableRadar(const QStringList& deviceIds) const
 {
     if (!m_deviceReg)
@@ -305,6 +376,9 @@ bool TaskService::appendTaskLog(const QString& taskId,
     return m_store->insert(QStringLiteral("task_logs"), row);
 }
 
+/**
+ * @brief 重建任务设备关联表；调用者负责把本操作放在更大的任务写事务中。
+ */
 bool TaskService::saveDeviceIds(const QString& taskId, const QStringList& deviceIds)
 {
     if (!m_store) return false;
@@ -322,6 +396,9 @@ bool TaskService::saveDeviceIds(const QString& taskId, const QStringList& device
     return true;
 }
 
+/**
+ * @brief 校验名称和设备后，在事务中创建 Draft 任务、成员关系和创建事件。
+ */
 std::optional<task::TaskInfo> TaskService::create(task::TaskInfo task)
 {
     clearError();
@@ -369,6 +446,9 @@ std::optional<task::TaskInfo> TaskService::create(task::TaskInfo task)
     return std::nullopt;
 }
 
+/**
+ * @brief 仅允许非运行任务更新元数据和成员，并在事务中记录变更事件。
+ */
 bool TaskService::update(const task::TaskInfo& task)
 {
     clearError();
@@ -416,6 +496,9 @@ bool TaskService::update(const task::TaskInfo& task)
     return false;
 }
 
+/**
+ * @brief 单独替换非运行任务的设备集合，并刷新相关审计事件。
+ */
 bool TaskService::updateDevices(const QString& id, const QStringList& deviceIds)
 {
     clearError();
@@ -448,6 +531,9 @@ bool TaskService::updateDevices(const QString& id, const QStringList& deviceIds)
     return false;
 }
 
+/**
+ * @brief 在不存在其他运行任务且包含可控雷达时，把任务切换为 Running 并刷新热缓存。
+ */
 bool TaskService::activate(const QString& id)
 {
     clearError();
@@ -495,6 +581,9 @@ bool TaskService::activate(const QString& id)
     return false;
 }
 
+/**
+ * @brief 从终态任务复制配置和设备到新 ID 的 Draft 任务，保留旧任务历史不变。
+ */
 std::optional<task::TaskInfo> TaskService::rerun(const QString& id)
 {
     clearError();
@@ -541,6 +630,9 @@ std::optional<task::TaskInfo> TaskService::rerun(const QString& id)
     return get(created->id);
 }
 
+/**
+ * @brief 仅把当前 Running 任务结束为 Completed，写结束时间并清空活动缓存。
+ */
 bool TaskService::complete(const QString& id)
 {
     clearError();
@@ -566,6 +658,9 @@ bool TaskService::complete(const QString& id)
     return true;
 }
 
+/**
+ * @brief 把非运行任务标记 Archived；不删除其航迹、事件和日志。
+ */
 bool TaskService::archive(const QString& id)
 {
     clearError();
@@ -592,6 +687,9 @@ bool TaskService::archive(const QString& id)
     return true;
 }
 
+/**
+ * @brief 检查任务是否存在航迹、事件或日志等运行数据，用于限制物理删除。
+ */
 bool TaskService::hasRunData(const QString& id) const
 {
     if (!m_store || id.isEmpty()) return false;
@@ -609,6 +707,9 @@ bool TaskService::hasRunData(const QString& id) const
     return !logRows.isEmpty();
 }
 
+/**
+ * @brief 只允许删除非运行且无运行数据的任务，并在事务中清理成员关系。
+ */
 bool TaskService::remove(const QString& id)
 {
     clearError();

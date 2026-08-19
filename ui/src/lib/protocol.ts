@@ -1,3 +1,9 @@
+/**
+ * @file protocol.ts
+ * @brief 定义浏览器与核心 HTTP/WebSocket 接口共享的数据契约。
+ * @details 字段名称、可选性和单位必须与 C++ JSON 序列化保持一致；本文件不承担网络请求或状态管理。
+ */
+
 /** Protocol types matching C++ HttpServer API */
 
 export interface LogEntry {
@@ -137,26 +143,44 @@ export interface WsTrackDisplayPoint {
   azimuth: number          // rad
   elevation: number        // rad
   altitude: number
-  x: number
-  y: number
-  z: number
+  x?: number
+  y?: number
+  z?: number
   radialSpeed: number
-  rcs: number
+  rcs?: number
   pointIndex: number
-  style: {
+  style?: {
     color: string
     size: number
     opacity: number
   }
-  interaction: {
+  interaction?: {
     selected: boolean
     trackingEnabled: boolean
   }
 }
 
-export interface WsTracksMessage {
+export interface WsTrackDisplayPointKey {
+  deviceId: string
+  trackId: number
+  pointIndex: number
+}
+
+export interface WsTracksSnapshotMessage {
   type: 'tracks'
   mode: 'snapshot'
+  revision: number
   timestamp: number
   tracks: WsTrackDisplayPoint[]
 }
+
+export interface WsTracksDeltaMessage {
+  type: 'tracks'
+  mode: 'delta'
+  revision: number
+  timestamp: number
+  upserts: WsTrackDisplayPoint[]
+  removals: WsTrackDisplayPointKey[]
+}
+
+export type WsTracksMessage = WsTracksSnapshotMessage | WsTracksDeltaMessage

@@ -1,7 +1,14 @@
+/**
+ * @file TrackLayer.tsx
+ * @brief 把当前实时航迹集合映射为可选择的地图点、标签和短尾迹。
+ * @details 图层按稳定航迹键增删改地图要素；输入是 WebSocket 归并后的有界当前态，不在组件内累计全量历史。
+ */
+
 import { useEffect, useRef, useMemo, useState, useCallback } from 'react'
 import { useCore } from '../../hooks/useCoreApi'
 import type { RadarTrack } from '../../lib/protocol'
 import type { RadarDevice } from './types'
+import { projectRadarTrack } from '../../lib/radarPose'
 
 type TrackStyle = NonNullable<RadarTrack['style']>
 type TrackInteraction = NonNullable<RadarTrack['interaction']>
@@ -38,12 +45,6 @@ const GRADIENT_POWER = 2.6             // >1 使尾部更快缩小，接近 Qt �
 const ARROW_LEN = 5
 
 interface Props { device: RadarDevice; mapInstance: any; mapClass: any }
-
-function polarToLngLat(lng: number, lat: number, azRad: number, rng: number) {
-  const lr = (lat * Math.PI) / 180
-  const mpl = 111320 * Math.cos(lr)
-  return [lng + rng * Math.sin(azRad) / mpl, lat + rng * Math.cos(azRad) / 111320] as const
-}
 
 function isSelected(interaction?: TrackInteraction): boolean {
   return !!(interaction?.selected || interaction?.trackingEnabled)
@@ -208,11 +209,11 @@ export default function TrackLayer({ device, mapInstance, mapClass }: Props) {
 
       const trackId = t.trackId ?? t.batchId ?? 0
       if (!m.has(trackId)) m.set(trackId, [])
-      const [lng, lat] = polarToLngLat(device.lng, device.lat, t.azimuth * Math.PI / 180, t.slantRange)
+      const projected = projectRadarTrack(device, t.azimuth, t.elevation, t.slantRange)
       m.get(trackId)!.push({
-        lng, lat, deviceId, trackId,
+        lng: projected.lng, lat: projected.lat, deviceId, trackId,
         slantRange: t.slantRange,
-        azimuth: t.azimuth,
+        azimuth: projected.bearingDeg,
         elevation: t.elevation,
         altitude: t.altitude,
         radialSpeed: t.radialSpeed,

@@ -161,3 +161,208 @@ set_target_properties(tst_PipelineLatencyMonitor PROPERTIES
 
 add_test(NAME PipelineLatencyMonitor
          COMMAND tst_PipelineLatencyMonitor)
+
+# ----- TrackPacket protocol-to-core mapping tests -----
+add_executable(tst_TrackPacketMapper
+    tst_TrackPacketMapper.cpp
+    ${CMAKE_SOURCE_DIR}/core/processor/TrackPacketMapper.cpp
+    ${CMAKE_SOURCE_DIR}/core/processor/TrackPacketMapper.h
+    ${CMAKE_SOURCE_DIR}/core/business/TrackTypes.h
+)
+
+target_include_directories(tst_TrackPacketMapper PRIVATE
+    ${CMAKE_SOURCE_DIR}/core
+    ${CMAKE_SOURCE_DIR}/core/processor
+    ${CMAKE_SOURCE_DIR}/core/protocol
+    ${CMAKE_SOURCE_DIR}/core/business
+)
+
+target_link_libraries(tst_TrackPacketMapper PRIVATE
+    Qt5::Core
+    Qt5::Test
+)
+
+set_target_properties(tst_TrackPacketMapper PROPERTIES
+    WIN32_EXECUTABLE OFF
+    MACOSX_BUNDLE OFF
+)
+
+add_test(NAME TrackPacketMapper
+         COMMAND tst_TrackPacketMapper)
+
+# ----- TrackRecognizer 测试 -----
+add_executable(tst_TrackRecognizer
+    tst_TrackRecognizer.cpp
+    ${CMAKE_SOURCE_DIR}/core/processor/TrackRecognizer.cpp
+    ${CMAKE_SOURCE_DIR}/core/processor/TrackRecognizer.h
+    ${CMAKE_SOURCE_DIR}/core/business/TrackTypes.h
+)
+
+target_include_directories(tst_TrackRecognizer PRIVATE
+    ${CMAKE_SOURCE_DIR}/core
+    ${CMAKE_SOURCE_DIR}/core/processor
+    ${CMAKE_SOURCE_DIR}/core/business
+)
+
+target_link_libraries(tst_TrackRecognizer PRIVATE
+    Qt5::Core
+    Qt5::Test
+)
+
+set_target_properties(tst_TrackRecognizer PROPERTIES
+    WIN32_EXECUTABLE OFF
+    MACOSX_BUNDLE OFF
+)
+
+add_test(NAME TrackRecognizer
+         COMMAND tst_TrackRecognizer)
+
+# ----- Unified DataPacket track publication tests -----
+add_executable(tst_TrackDataPacketBus
+    tst_TrackDataPacketBus.cpp
+    ${CMAKE_SOURCE_DIR}/core/bus/SystemBus.cpp
+    ${CMAKE_SOURCE_DIR}/core/bus/SystemBus.h
+    ${CMAKE_SOURCE_DIR}/core/bus/ISystemBus.h
+    ${CMAKE_SOURCE_DIR}/core/bus/GenericPackets.h
+    ${CMAKE_SOURCE_DIR}/core/bus/ThreadSafeQueue.h
+    ${CMAKE_SOURCE_DIR}/core/business/TrackTypes.h
+)
+
+target_include_directories(tst_TrackDataPacketBus PRIVATE
+    ${CMAKE_SOURCE_DIR}/core
+    ${CMAKE_SOURCE_DIR}/core/protocol
+)
+
+target_link_libraries(tst_TrackDataPacketBus PRIVATE
+    Qt5::Core
+    Qt5::Test
+)
+
+set_target_properties(tst_TrackDataPacketBus PROPERTIES
+    WIN32_EXECUTABLE OFF
+    MACOSX_BUNDLE OFF
+)
+
+add_test(NAME TrackDataPacketBus
+         COMMAND tst_TrackDataPacketBus)
+
+# ----- Bounded asynchronous track storage tests -----
+add_executable(tst_TrackStorage
+    tst_TrackStorage.cpp
+    ${CMAKE_SOURCE_DIR}/core/data/TrackStorage.cpp
+    ${CMAKE_SOURCE_DIR}/core/data/TrackStorage.h
+    ${CMAKE_SOURCE_DIR}/core/data/DataStore.cpp
+    ${CMAKE_SOURCE_DIR}/core/data/DataStore.h
+    ${CMAKE_SOURCE_DIR}/core/bus/SystemBus.cpp
+    ${CMAKE_SOURCE_DIR}/core/bus/SystemBus.h
+    ${CMAKE_SOURCE_DIR}/core/bus/ISystemBus.h
+    ${CMAKE_SOURCE_DIR}/core/bus/GenericPackets.h
+    ${CMAKE_SOURCE_DIR}/core/bus/ThreadSafeQueue.h
+    ${CMAKE_SOURCE_DIR}/core/business/TrackTypes.h
+)
+
+target_include_directories(tst_TrackStorage PRIVATE
+    ${CMAKE_SOURCE_DIR}/core
+    ${CMAKE_SOURCE_DIR}/core/data
+    ${CMAKE_SOURCE_DIR}/core/bus
+    ${CMAKE_SOURCE_DIR}/core/business
+    ${CMAKE_SOURCE_DIR}/core/protocol
+)
+
+target_link_libraries(tst_TrackStorage PRIVATE
+    Qt5::Core
+    Qt5::Sql
+    Qt5::Test
+)
+
+set_target_properties(tst_TrackStorage PROPERTIES
+    WIN32_EXECUTABLE OFF
+    MACOSX_BUNDLE OFF
+)
+
+add_test(NAME TrackStorage COMMAND tst_TrackStorage)
+
+# ----- Initial snapshot + incremental WebSocket track protocol -----
+add_executable(tst_TrackDisplayWebDelta
+    tst_TrackDisplayWebDelta.cpp
+    ${CMAKE_SOURCE_DIR}/core/web/TrackDisplayWebBridge.cpp
+    ${CMAKE_SOURCE_DIR}/core/web/TrackDisplayWebBridge.h
+    ${CMAKE_SOURCE_DIR}/core/web/WebService.cpp
+    ${CMAKE_SOURCE_DIR}/core/web/WebService.h
+    ${CMAKE_SOURCE_DIR}/core/web/HttpParser.cpp
+    ${CMAKE_SOURCE_DIR}/core/web/HttpParser.h
+    ${CMAKE_SOURCE_DIR}/core/bus/SystemBus.cpp
+    ${CMAKE_SOURCE_DIR}/core/bus/SystemBus.h
+    ${CMAKE_SOURCE_DIR}/core/bus/ISystemBus.h
+    ${CMAKE_SOURCE_DIR}/core/bus/GenericPackets.h
+    ${CMAKE_SOURCE_DIR}/core/bus/ThreadSafeQueue.h
+    ${CMAKE_SOURCE_DIR}/core/business/TrackTypes.h
+    ${CMAKE_SOURCE_DIR}/core/metrics/PipelineLatencyMonitor.cpp
+    ${CMAKE_SOURCE_DIR}/core/metrics/PipelineLatencyMonitor.h
+)
+
+target_include_directories(tst_TrackDisplayWebDelta PRIVATE
+    ${CMAKE_SOURCE_DIR}/core
+    ${CMAKE_SOURCE_DIR}/core/web
+    ${CMAKE_SOURCE_DIR}/core/bus
+    ${CMAKE_SOURCE_DIR}/core/business
+    ${CMAKE_SOURCE_DIR}/core/protocol
+    ${CMAKE_SOURCE_DIR}/core/metrics
+)
+
+target_link_libraries(tst_TrackDisplayWebDelta PRIVATE
+    Qt5::Core
+    Qt5::Network
+    Qt5::WebSockets
+    Qt5::Test
+)
+
+set_target_properties(tst_TrackDisplayWebDelta PROPERTIES
+    WIN32_EXECUTABLE OFF
+    MACOSX_BUNDLE OFF
+)
+
+add_test(NAME TrackDisplayWebDelta COMMAND tst_TrackDisplayWebDelta)
+
+# ----- TrackDisplayManager bounded-window diff tests -----
+add_executable(tst_TrackDisplayManagerDelta
+    tst_TrackDisplayManagerDelta.cpp
+    ${CMAKE_SOURCE_DIR}/core/business/TrackDisplayManager.cpp
+    ${CMAKE_SOURCE_DIR}/core/business/TrackDisplayManager.h
+    ${CMAKE_SOURCE_DIR}/core/business/TaskService.cpp
+    ${CMAKE_SOURCE_DIR}/core/business/TaskService.h
+    ${CMAKE_SOURCE_DIR}/core/business/DeviceRegistry.cpp
+    ${CMAKE_SOURCE_DIR}/core/business/DeviceRegistry.h
+    ${CMAKE_SOURCE_DIR}/core/business/TrackTypes.h
+    ${CMAKE_SOURCE_DIR}/core/data/DataStore.cpp
+    ${CMAKE_SOURCE_DIR}/core/data/DataStore.h
+    ${CMAKE_SOURCE_DIR}/core/bus/SystemBus.cpp
+    ${CMAKE_SOURCE_DIR}/core/bus/SystemBus.h
+    ${CMAKE_SOURCE_DIR}/core/bus/ISystemBus.h
+    ${CMAKE_SOURCE_DIR}/core/bus/GenericPackets.h
+    ${CMAKE_SOURCE_DIR}/core/bus/ThreadSafeQueue.h
+    ${CMAKE_SOURCE_DIR}/core/metrics/PipelineLatencyMonitor.cpp
+    ${CMAKE_SOURCE_DIR}/core/metrics/PipelineLatencyMonitor.h
+)
+
+target_include_directories(tst_TrackDisplayManagerDelta PRIVATE
+    ${CMAKE_SOURCE_DIR}/core
+    ${CMAKE_SOURCE_DIR}/core/business
+    ${CMAKE_SOURCE_DIR}/core/data
+    ${CMAKE_SOURCE_DIR}/core/bus
+    ${CMAKE_SOURCE_DIR}/core/protocol
+    ${CMAKE_SOURCE_DIR}/core/metrics
+)
+
+target_link_libraries(tst_TrackDisplayManagerDelta PRIVATE
+    Qt5::Core
+    Qt5::Sql
+    Qt5::Test
+)
+
+set_target_properties(tst_TrackDisplayManagerDelta PROPERTIES
+    WIN32_EXECUTABLE OFF
+    MACOSX_BUNDLE OFF
+)
+
+add_test(NAME TrackDisplayManagerDelta COMMAND tst_TrackDisplayManagerDelta)

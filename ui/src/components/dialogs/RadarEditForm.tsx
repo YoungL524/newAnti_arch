@@ -1,3 +1,9 @@
+/**
+ * @file RadarEditForm.tsx
+ * @brief 编辑雷达端点、厂家型号、经纬高和阵面参数。
+ * @details 阵面绝对朝向是唯一航向来源；位置/姿态区不再维护重复 Yaw，俯仰和横滚仍描述雷达 6DOF 安装姿态。
+ */
+
 import { useEffect, useState } from 'react'
 import type { RadarDevice, RadarBrand, RadarFace } from '../map/types'
 import { BRAND_LABELS, BRAND_OPTIONS } from '../map/types'
@@ -89,6 +95,8 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
     lng: device.lng,
     lat: device.lat,
     altitude: device.altitude,
+    pitch: device.pitch,
+    roll: device.roll,
     maxRange: device.maxRange,
     faces: device.faces.map(f => ({ ...f })),
   })
@@ -347,6 +355,20 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
           </div>
         </div>
 
+        {/* Pitch / Roll; absolute heading is configured per face below. */}
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <div>
+            <div style={labelStyle}>俯仰 Pitch (°)</div>
+            <input style={inputStyle} type="number" step="any" min="-90" max="90"
+              value={form.pitch} onChange={(e) => update('pitch', Number(e.target.value))} />
+          </div>
+          <div>
+            <div style={labelStyle}>横滚 Roll (°)</div>
+            <input style={inputStyle} type="number" step="any" min="-180" max="180"
+              value={form.roll} onChange={(e) => update('roll', Number(e.target.value))} />
+          </div>
+        </div>
+
         {/* ═══ Face Array ═══ */}
         <div className="flex items-center gap-1.5 mb-3 mt-4">
           <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--primaryContainer)' }} />
@@ -358,7 +380,7 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
         {/* Face table header */}
         <div className="grid grid-cols-[auto_1fr_1fr_auto] gap-2 mb-1 px-1">
           <span style={labelStyle}>阵面</span>
-          <span style={labelStyle}>朝向 (°)</span>
+          <span style={labelStyle}>绝对朝向 (°)</span>
           <span style={labelStyle}>扫描范围 (°)</span>
           <span />
         </div>

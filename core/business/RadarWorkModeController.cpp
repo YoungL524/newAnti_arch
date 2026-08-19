@@ -42,6 +42,9 @@ RadarWorkModeController::RadarWorkModeController(uint16_t deviceId,
 
 RadarWorkModeController::~RadarWorkModeController() = default;
 
+/**
+ * @brief 接受正毫秒超时并更新单次转换等待定时器；非正值保持原配置。
+ */
 void RadarWorkModeController::setTransitionTimeoutMs(int ms)
 {
     if (ms < 0) {
@@ -53,6 +56,9 @@ void RadarWorkModeController::setTransitionTimeoutMs(int ms)
     m_transitionTimer.setInterval(ms);
 }
 
+/**
+ * @brief 仅从 Standby 发出工作命令；成功下发后进入 Starting 并等待雷达回显。
+ */
 bool RadarWorkModeController::requestWork()
 {
     switch (m_state) {
@@ -78,6 +84,9 @@ bool RadarWorkModeController::requestWork()
     return false;
 }
 
+/**
+ * @brief 从 Working 或错误恢复路径发出待机命令，进入 Stopping 等待回显。
+ */
 bool RadarWorkModeController::requestStandby()
 {
     switch (m_state) {
@@ -111,6 +120,9 @@ bool RadarWorkModeController::requestStandby()
     return false;
 }
 
+/**
+ * @brief 停止转换计时并把故障/未知状态恢复为初始 Standby，不向设备发送命令。
+ */
 bool RadarWorkModeController::reset()
 {
     if (m_state == State::Fault) {
@@ -122,6 +134,9 @@ bool RadarWorkModeController::reset()
     return false;
 }
 
+/**
+ * @brief 用雷达 workStandby 回显确认 Starting/Stopping；不符合预期的回显不完成转换。
+ */
 void RadarWorkModeController::onWorkModeEcho(uint32_t mode)
 {
     switch (m_state) {
@@ -153,6 +168,9 @@ void RadarWorkModeController::onWorkModeEcho(uint32_t mode)
     }
 }
 
+/**
+ * @brief 等待回显超时后进入 Error，并发出可供 UI 展示的转换失败原因。
+ */
 void RadarWorkModeController::onTransitionTimeout()
 {
     // 仅在过渡态生效；若状态已被外部改变（例如同步进入 Fault），不再触发
@@ -163,6 +181,9 @@ void RadarWorkModeController::onTransitionTimeout()
     }
 }
 
+/**
+ * @brief 只在状态实际变化时更新并发出 old/new 状态信号，避免重复通知。
+ */
 void RadarWorkModeController::transitionTo(State newState)
 {
     if (newState == m_state) {
@@ -176,6 +197,9 @@ void RadarWorkModeController::transitionTo(State newState)
     emit stateChanged(old, newState);
 }
 
+/**
+ * @brief 通过 IWorkModeCommandSender 下发模式，并仅在发送成功时发出 commandIssued。
+ */
 bool RadarWorkModeController::issueCommand(uint32_t mode)
 {
     if (!m_sender) {
@@ -195,6 +219,9 @@ bool RadarWorkModeController::issueCommand(uint32_t mode)
     return ok;
 }
 
+/**
+ * @brief 把状态映射为稳定中文诊断文本，不参与状态判断。
+ */
 QString RadarWorkModeController::stateName(State s)
 {
     switch (s) {
@@ -207,6 +234,9 @@ QString RadarWorkModeController::stateName(State s)
     return QStringLiteral("Unknown");
 }
 
+/**
+ * @brief 把拒绝原因映射为稳定中文诊断文本，供日志和 Web 提示使用。
+ */
 QString RadarWorkModeController::rejectReasonName(RejectReason r)
 {
     switch (r) {

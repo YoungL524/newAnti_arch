@@ -51,5 +51,9 @@ private slots:
     }
 };
 
+/**
+ * @brief 验证 QTEST_MAIN 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 QTEST_MAIN(PipelineLatencyMonitorTest)
 #include "tst_PipelineLatencyMonitor.moc"

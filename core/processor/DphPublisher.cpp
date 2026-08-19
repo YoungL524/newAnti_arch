@@ -1,10 +1,13 @@
-﻿#include "DphPublisher.h"
+#include "DphPublisher.h"
 #include "CommunicationManager.h"
 
 #include <QDateTime>
 #include <QDebug>
 #include <cstring>
 
+/**
+ * @brief 建立默认 50 ms 定时器，并使 timeout 在本对象线程调用 sendOnce()。
+ */
 DphPublisher::DphPublisher(CommunicationManager* commManager, QObject* parent)
     : QObject(parent)
     , m_commManager(commManager)
@@ -14,6 +17,7 @@ DphPublisher::DphPublisher(CommunicationManager* commManager, QObject* parent)
     connect(&m_timer, &QTimer::timeout, this, &DphPublisher::sendOnce);
 }
 
+/** @brief 停止定时器，防止对象销毁过程中继续访问非拥有的 CommunicationManager。 */
 DphPublisher::~DphPublisher()
 {
     stop();
@@ -22,6 +26,9 @@ DphPublisher::~DphPublisher()
                 .arg(m_header.F_UI_Scene_Num);
 }
 
+/**
+ * @brief 分别更新非空端点 ID 和目标名，避免部分配置把有效默认值清空。
+ */
 void DphPublisher::setRoute(const QString& endpointId, const QString& targetName)
 {
     if (!endpointId.isEmpty()) {
@@ -32,6 +39,9 @@ void DphPublisher::setRoute(const QString& endpointId, const QString& targetName
     }
 }
 
+/**
+ * @brief 接受正毫秒周期并交给 QTimer；非正值保持当前周期不变。
+ */
 void DphPublisher::setInterval(int intervalMs)
 {
     if (intervalMs > 0) {
@@ -39,6 +49,9 @@ void DphPublisher::setInterval(int intervalMs)
     }
 }
 
+/**
+ * @brief 幂等启动周期发送；不会在启动瞬间额外发送一包，首次发送等待一个完整周期。
+ */
 void DphPublisher::start()
 {
     if (m_timer.isActive()) {
@@ -50,6 +63,9 @@ void DphPublisher::start()
                 .arg(m_timer.interval());
 }
 
+/**
+ * @brief 幂等停止定时器，同时保留景幅号、运行参数和累计尝试次数供下次恢复。
+ */
 void DphPublisher::stop()
 {
     if (!m_timer.isActive()) {
@@ -59,6 +75,9 @@ void DphPublisher::stop()
     qDebug() << QStringLiteral("[DphPublisher] 已停止");
 }
 
+/**
+ * @brief 更新 DPH 中的频率和波形控制字段，不重置景幅号或定时器相位。
+ */
 void DphPublisher::applyRuntimeSettings(const RadarRuntimeSettings& settings)
 {
     m_header.F_UI_Freq_Ctrl = settings.frequencyControl;
@@ -67,6 +86,11 @@ void DphPublisher::applyRuntimeSettings(const RadarRuntimeSettings& settings)
              << "wave=" << settings.waveControl;
 }
 
+/**
+ * @brief 刷新每周期字段、递增景幅号，并按协议内存布局发送一个完整 DataPackageHeader。
+ * @details 时间码取 Unix 毫秒低 32 位；保存路径每周期清零。sendCount 记录发送尝试，因此日志中的状态
+ *          必须结合 ok 判断，不能把该计数当作成功包数。
+ */
 void DphPublisher::sendOnce()
 {
     if (!m_commManager) {

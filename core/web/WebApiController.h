@@ -1,3 +1,10 @@
+/**
+ * @file WebApiController.h
+ * @brief 声明 REST/WS 接入层到任务、设备、工作模式和运行参数服务的适配器。
+ * @details 本类校验外部 JSON、调用业务服务并组装 DTO；它不直接访问 socket、数据库表或协议结构。
+ *          所有依赖均为非拥有指针/回调，由 AppController 保证生命周期。
+ */
+
 #pragma once
 
 #include <QObject>

@@ -1,3 +1,10 @@
+/**
+ * @file RuntimeSettingsService.h
+ * @brief 校验并保存当前雷达运行参数，通过 SystemBus 通知 DphPublisher 应用。
+ * @details 服务只在值合法且变化时发布 DphParamsChanged；不直接操作定时器或通信端点，从而保持业务命令
+ *          与 50 ms 协议发送机制解耦。
+ */
+
 #pragma once
 
 #include "RuntimeSettingsTypes.h"

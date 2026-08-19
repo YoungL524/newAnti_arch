@@ -1,4 +1,12 @@
-﻿#pragma once
+#pragma once
+
+/**
+ * @file BusToCommRouter.h
+ * @brief 声明反向链路中从类型安全 DataPacket 到通信目标字节流的路由器。
+ * @details SystemBus 回调运行在总线线程，本类先复制消息，再用 queued invoke 转回 QObject 所在线程，
+ *          从而安全调用 CommunicationManager/QUdpSocket。路由键采用 command/payloadType，路由值采用
+ *          endpointId + targetName；本类负责编码已登记协议载荷，但不产生业务命令。
+ */
 
 #include <QObject>
 #include <QMap>
@@ -10,7 +18,7 @@
 class CommunicationManager;
 
 /**
- * @file BusToCommRouter.h
+ * @class BusToCommRouter
  * @brief 总线 → 通信层反向路由器（阶段 B）
  * @details 订阅 SystemBus 中以"设备"为目标的数据包，按载荷类型解包并调用
  *          `CommunicationManager::sendTo` 发送到对应端点/目标。
@@ -90,8 +98,8 @@ private slots:
 
 private:
     /**
-     * @brief 根据 payloadType 提取待发送的字节流
-     * @return 成功返回待发送数据；失败返回空数组
+     * @brief 把已支持的值载荷按厂家协议内存布局编码成完整 UDP 字节串。
+     * @return 命令与载荷一致且属于可下发协议类型时返回字节串；否则返回空数组并拒绝发送。
      */
     QByteArray extractBytes(const DataPacket& packet) const;
 
@@ -102,9 +110,9 @@ private:
 
 private:
     CommunicationManager* m_commManager = nullptr;  ///< 通信管理器（非持有）
-    QMap<uint16_t, Route> m_routes;                  ///< payloadType → Route
+    QMap<uint16_t, Route> m_routes;                  ///< command 数值到端点/目标的显式覆盖路由。
     Route m_defaultRoute;                            ///< 默认路由
-    uint32_t m_subscriptionId = 0;                   ///< SystemBus 订阅 ID
+    uint32_t m_subscriptionId = 0;                   ///< SystemBus 订阅句柄；0 表示未订阅或订阅失败。
     uint64_t m_routedCount = 0;                      ///< 路由成功的包数
     LatencyStats m_downlinkLatency;                  ///< 下行链路延时统计
 };

@@ -5,6 +5,10 @@
 #include <QJsonArray>
 #include <QDebug>
 
+/**
+ * @brief 从磁盘读取 endpoints.json，并跳过缺少稳定 ID 的端点项。
+ * @details 文件打不开或 JSON 语法错误时返回空集合并记录诊断；本层只负责结构转换，完整业务校验由 ConfigManager 完成。
+ */
 QVector<EndpointConfig> EndpointConfigLoader::loadFromJson(const QString& filePath)
 {
     QVector<EndpointConfig> result;
@@ -44,6 +48,10 @@ QVector<EndpointConfig> EndpointConfigLoader::loadFromJson(const QString& filePa
     return result;
 }
 
+/**
+ * @brief 把单个 JSON 对象转换为 EndpointConfig，并应用本地地址、端口和协议默认值。
+ * @details 除显式字符串 tcp 外均映射为 UDP；目标保持 JSON 对象的键作为业务 targetKey。
+ */
 EndpointConfig EndpointConfigLoader::parseEndpoint(const QJsonObject& obj)
 {
     EndpointConfig cfg;
@@ -66,6 +74,9 @@ EndpointConfig EndpointConfigLoader::parseEndpoint(const QJsonObject& obj)
     return cfg;
 }
 
+/**
+ * @brief 把一个端点配置无损转换为可持久化 JSON 对象。
+ */
 QJsonObject EndpointConfigLoader::endpointToJson(const EndpointConfig& cfg)
 {
     QJsonObject obj;
@@ -86,6 +97,9 @@ QJsonObject EndpointConfigLoader::endpointToJson(const EndpointConfig& cfg)
     return obj;
 }
 
+/**
+ * @brief 转换内存中的完整 endpoints 根对象，供 Web 热重载路径复用而无需临时文件。
+ */
 QVector<EndpointConfig> EndpointConfigLoader::parseFromJsonObject(const QJsonObject& root)
 {
     QVector<EndpointConfig> result;
@@ -94,6 +108,9 @@ QVector<EndpointConfig> EndpointConfigLoader::parseFromJsonObject(const QJsonObj
     return result;
 }
 
+/**
+ * @brief 把端点集合包装为以 endpoints 数组为根字段的持久化格式。
+ */
 QJsonObject EndpointConfigLoader::toJsonObject(const QVector<EndpointConfig>& configs)
 {
     QJsonArray endpoints;
@@ -104,6 +121,10 @@ QJsonObject EndpointConfigLoader::toJsonObject(const QVector<EndpointConfig>& co
     return root;
 }
 
+/**
+ * @brief 以缩进 JSON 覆盖写入完整端点配置。
+ * @return 文件成功打开并写入时返回 true；当前实现不提供临时文件原子替换。
+ */
 bool EndpointConfigLoader::saveToJson(const QString& filePath, const QVector<EndpointConfig>& configs)
 {
     const QJsonObject root = toJsonObject(configs);

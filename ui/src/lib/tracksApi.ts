@@ -1,3 +1,9 @@
+/**
+ * @file tracksApi.ts
+ * @brief 封装按任务分页查询持久化历史航迹的 HTTP 接口。
+ * @details 历史查询模型与实时 WebSocket 当前态分离；调用方必须显式提供任务和分页边界。
+ */
+
 export interface TrackHistoryPoint {
   taskId: string
   deviceId: string

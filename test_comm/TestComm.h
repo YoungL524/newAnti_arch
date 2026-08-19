@@ -1,3 +1,10 @@
+/**
+ * @file TestComm.h
+ * @brief 声明用于端到端验证核心通信链路的雷达模拟器。
+ * @details 模拟器监听核心进程发送的 DPH 与工作模式 UDP 报文，并按 CSV 原始节奏回放厂家 GeneralPackage 航迹，
+ *          用于验证“工作命令—雷达上报—核心显示”基本链路，而不是生产运行时组件。
+ */
+
 #pragma once
 
 #include <QObject>
@@ -11,11 +18,11 @@
 #include "StructureReceive.h"
 
 /**
- * @brief 从 CSV 解析的一条航迹记录（已序列化为 UDP 载荷 + 时间偏移）
+ * @brief 从 CSV 解析并预编码的一条航迹回放记录。
  */
 struct CsvTrackRecord {
-    QByteArray payload;       ///< 预序列化的 GeneralPackage
-    int deltaMs = 100;        ///< 距上一条的时间偏移 (ms)
+    QByteArray payload;       ///< 可直接通过 UDP 发送的 GeneralPackage 二进制载荷。
+    int deltaMs = 100;        ///< 相对上一条记录的回放间隔，单位毫秒。
 };
 
 /**
@@ -34,13 +41,22 @@ class TestComm : public QObject
     Q_OBJECT
 
 public:
+    /** @brief 构造尚未绑定 UDP 端口的模拟器。 */
     explicit TestComm(QObject* parent = nullptr);
+    /** @brief 停止回放计时器并释放由本对象拥有的 UDP 套接字。 */
     ~TestComm() override;
 
+    /**
+     * @brief 绑定工作模式和 DPH 接收端口，并连接异步读取回调。
+     * @return 两个端口均成功绑定时为 true；任一失败时为 false。
+     */
     bool initialize(quint16 workmodePort = 1234, quint16 dphPort = 3456);
 
+    /** @brief 设置模拟航迹发送到核心进程的目标地址和端口。 */
     void setTarget(const QString& address, quint16 port);
+    /** @brief 设置未使用 CSV 时间差时的默认航迹发送周期，单位毫秒。 */
     void setTrackReportInterval(int intervalMs);
+    /** @brief 保存初始化阶段尝试加载的 CSV 文件路径。 */
     void setCsvPath(const QString& path) { m_csvPath = path; }
 
     /**
@@ -52,8 +68,11 @@ public:
      */
     bool loadCsv(const QString& path);
 
+    /** @brief 输出累计 DPH 接收量、场景号和统计速率。 */
     void printDphStats();
+    /** @brief 输出工作/待机状态、CSV 加载状态和航迹发送进度。 */
     void printStatus();
+    /** @brief 切换逐包打印 DPH 细节的诊断模式。 */
     void toggleVerbose();
 
 private slots:
@@ -73,7 +92,8 @@ private:
     void handleWorkStandby(const workStandby& cmd);
 
     /**
-     * @brief 从 CSV 数据构造一条 GeneralPackage 并发送
+     * @brief 发送指定下标处已预编码的 GeneralPackage，并安排下一条回放间隔。
+     * @param index m_csvTracks 中的有效记录下标；越界时停止当前回放。
      */
     void sendTrackFromCsv(int index);
 

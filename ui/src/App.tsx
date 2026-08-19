@@ -1,3 +1,9 @@
+/**
+ * @file App.tsx
+ * @brief 组装任务控制、设备管理、地图航迹和底部数据面板的应用根组件。
+ * @details 根组件协调各视图的选择状态与对话框，不复制 CoreApi Provider 和航迹 Hook 所拥有的服务端状态。
+ */
+
 import { useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import './styles/globals.css'
 import TitleBar from './components/layout/TitleBar'
@@ -36,6 +42,7 @@ export default function App() {
   const [viewTaskRunId, setViewTaskRunId] = useState<string | null>(null)
   const [tasksReady, setTasksReady] = useState(false)
   const [tasksBackend, setTasksBackend] = useState(false)
+  const [coreBackendAvailable, setCoreBackendAvailable] = useState<boolean | null>(null)
   const [showTaskDialog, setShowTaskDialog] = useState(false)
   const [taskActionPendingId, setTaskActionPendingId] = useState<string | null>(null)
   const [taskActionError, setTaskActionError] = useState('')
@@ -48,11 +55,28 @@ export default function App() {
   useEffect(() => { activeTaskIdRef.current = activeTaskId }, [activeTaskId])
 
   const backendStatus = useMemo<'loading' | 'online' | 'offline'>(() => {
-    if (deviceRegistryStatus === 'loading') return 'loading'
-    if (deviceRegistryStatus === 'unavailable' && !tasksBackend) return 'offline'
-    if (deviceRegistryStatus === 'available' || tasksBackend) return 'online'
-    return 'offline'
-  }, [deviceRegistryStatus, tasksBackend])
+    if (coreBackendAvailable === null) return 'loading'
+    return coreBackendAvailable ? 'online' : 'offline'
+  }, [coreBackendAvailable])
+
+  useEffect(() => {
+    let cancelled = false
+    const checkCoreBackend = () => {
+      fetch('/api/status')
+        .then(response => {
+          if (!cancelled) setCoreBackendAvailable(response.ok)
+        })
+        .catch(() => {
+          if (!cancelled) setCoreBackendAvailable(false)
+        })
+    }
+    checkCoreBackend()
+    const id = setInterval(checkCoreBackend, 5000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [])
 
   const reloadBackendData = useCallback(() => {
     fetchDevices()

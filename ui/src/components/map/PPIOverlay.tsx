@@ -1,5 +1,12 @@
+/**
+ * @file PPIOverlay.tsx
+ * @brief 绘制雷达量程环、方位刻度和阵面扫描扇区覆盖层。
+ * @details 阵面朝向直接采用设备安装后测得的绝对航向：正北为 0°、顺时针为正，不叠加机体 Yaw。
+ */
+
 import { useEffect, useRef } from 'react'
 import type { RadarDevice } from './types'
+import { absoluteFaceHeading } from '../../lib/radarPose'
 
 interface PPIOverlayProps {
   device: RadarDevice
@@ -112,7 +119,7 @@ export default function PPIOverlay({ device, mapInstance, mapClass, connected, a
       // --- Scan sector boundary lines (dashed) — one per active face ---
       ctx.setLineDash([4, 4])
       device.faces.filter(f => f.active).forEach(face => {
-        const boresightRad = (face.boresightAzimuth * Math.PI) / 180
+        const boresightRad = (absoluteFaceHeading(face.boresightAzimuth) * Math.PI) / 180
         const scanHalfRad = (face.scanAngle * Math.PI) / 180
         for (const sign of [-1, 1]) {
           const boundAngle = boresightRad + sign * scanHalfRad
@@ -171,7 +178,7 @@ export default function PPIOverlay({ device, mapInstance, mapClass, connected, a
             const sweepAlpha = sweepAlphas[Math.min(shadeIdx, 3)]
             const trailMaxAlpha = trailAlphas[Math.min(shadeIdx, 3)]
 
-            const boresightRad = (face.boresightAzimuth * Math.PI) / 180
+            const boresightRad = (absoluteFaceHeading(face.boresightAzimuth) * Math.PI) / 180
             const scanHalfRad = (face.scanAngle * Math.PI) / 180
 
             let primaryAlpha = 1
@@ -245,7 +252,7 @@ export default function PPIOverlay({ device, mapInstance, mapClass, connected, a
 
       // --- Scan sector arc highlight (subtle) — one per active face ---
       device.faces.filter(f => f.active).forEach(face => {
-        const boresightRad = (face.boresightAzimuth * Math.PI) / 180
+        const boresightRad = (absoluteFaceHeading(face.boresightAzimuth) * Math.PI) / 180
         const scanHalfRad = (face.scanAngle * Math.PI) / 180
         ctx.save()
         ctx.translate(cx, cy)

@@ -1,3 +1,9 @@
+/**
+ * @file RuntimeSettingsTypes.h
+ * @brief 定义运行期间可由操作员修改并映射到 DPH 的雷达参数快照。
+ * @details 该对象是 SystemBus 的不可变共享载荷；字段保持厂家协议控制值，不承担设备安装姿态或任务配置。
+ */
+
 #pragma once
 
 #include <cstdint>

@@ -20,11 +20,17 @@ struct OptionalMs {
     qint64 value = 0;
 };
 
+/**
+ * @brief 生成历史航迹查询使用的统一 JSON 错误响应。
+ */
 QJsonObject fail(const QString& msg)
 {
     return {{QStringLiteral("ok"), false}, {QStringLiteral("error"), msg}};
 }
 
+/**
+ * @brief 解析可选 Unix 毫秒边界，拒绝无法完整转换的参数。
+ */
 OptionalMs parseOptionalMs(const QString& raw)
 {
     if (raw.isEmpty())
@@ -36,6 +42,9 @@ OptionalMs parseOptionalMs(const QString& raw)
     return {true, false, v};
 }
 
+/**
+ * @brief 限制历史航迹页大小，保护数据库和 JSON 序列化内存。
+ */
 int clampTrackLimit(const QString& raw)
 {
     if (raw.isEmpty())
@@ -47,6 +56,9 @@ int clampTrackLimit(const QString& raw)
     return qBound(kMinTrackLimit, n, kMaxTrackLimit);
 }
 
+/**
+ * @brief 把 tracks 表标准字段映射为历史 API DTO，保持米、弧度和米每秒单位。
+ */
 QJsonObject rowToJson(const QVariantMap& row)
 {
     QJsonObject j;
@@ -68,6 +80,10 @@ QJsonObject rowToJson(const QVariantMap& row)
 
 } // namespace
 
+/**
+ * @brief 注册参数绑定的任务历史航迹分页查询，排序由时间和主键保证稳定。
+ * @details 请求必须限定任务并通过页大小边界校验；路由只读取持久化历史，不复用实时显示缓存。
+ */
 void registerRoutes(web::WebService* ws, DataStore* store)
 {
     if (!ws || !store)

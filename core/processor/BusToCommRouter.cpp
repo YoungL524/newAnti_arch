@@ -1,4 +1,4 @@
-﻿#include "BusToCommRouter.h"
+#include "BusToCommRouter.h"
 #include "CommunicationManager.h"
 #include "SystemBus.h"
 
@@ -6,6 +6,10 @@
 #include <QDebug>
 #include <cstring>
 
+/**
+ * @brief 保存通信门面并注册 DataPacket Qt 元类型，为总线线程到 QObject 线程的排队投递做准备。
+ * @details 路由表由 AppController 从 processor.json 统一装配，构造函数不偷偷加入业务路由。
+ */
 BusToCommRouter::BusToCommRouter(CommunicationManager* commManager, QObject* parent)
     : QObject(parent)
     , m_commManager(commManager)
@@ -21,12 +25,16 @@ BusToCommRouter::BusToCommRouter(CommunicationManager* commManager, QObject* par
     // 此处不预注册路由，避免与装配器的 registerDefaultRoutes() 重复。
 }
 
+/** @brief 先取消总线订阅，保证析构后不会再有捕获 this 的回调进入队列。 */
 BusToCommRouter::~BusToCommRouter()
 {
     unsubscribe();
     qDebug() << QStringLiteral("[BusToCommRouter] 销毁：共路由 %1 个包").arg(m_routedCount);
 }
 
+/**
+ * @brief 新增或覆盖一个 command 到发送端点的显式路由。
+ */
 void BusToCommRouter::registerRoute(uint16_t payloadType, const Route& route)
 {
     m_routes.insert(payloadType, route);
@@ -34,11 +42,18 @@ void BusToCommRouter::registerRoute(uint16_t payloadType, const Route& route)
                 .arg(payloadType).arg(route.endpointId, route.targetName);
 }
 
+/**
+ * @brief 设置未命中显式路由时使用的兜底端点和目标名。
+ */
 void BusToCommRouter::setDefaultRoute(const Route& route)
 {
     m_defaultRoute = route;
 }
 
+/**
+ * @brief 订阅发往指定设备类型的反向消息，并把处理切回本对象线程。
+ * @details 总线回调只复制 DataPacket 并 queued invoke，不直接访问 QUdpSocket；重复调用返回已有订阅 ID。
+ */
 uint32_t BusToCommRouter::subscribe(uint16_t targetDevice)
 {
     if (m_subscriptionId != 0) {
@@ -66,6 +81,9 @@ uint32_t BusToCommRouter::subscribe(uint16_t targetDevice)
     return m_subscriptionId;
 }
 
+/**
+ * @brief 取消当前反向流订阅并清零句柄，使后续 subscribe() 可以重新登记。
+ */
 void BusToCommRouter::unsubscribe()
 {
     if (m_subscriptionId == 0) return;
@@ -74,16 +92,23 @@ void BusToCommRouter::unsubscribe()
     m_subscriptionId = 0;
 }
 
+/**
+ * @brief 优先返回 command 的显式路由，否则返回装配阶段设置的默认路由。
+ */
 BusToCommRouter::Route BusToCommRouter::resolveRoute(uint16_t payloadType) const
 {
     const auto it = m_routes.find(payloadType);
     return (it != m_routes.end()) ? it.value() : m_defaultRoute;
 }
 
+/**
+ * @brief 把已登记协议值载荷编码为结构体原始布局，或显式透传 QByteArray。
+ * @details workStandby/TargetType 必须通过命令字和 variant 双重检查；未知业务对象不能被误当作原始字节发送。
+ */
 QByteArray BusToCommRouter::extractBytes(const DataPacket& packet) const
 {
     // 按实际 payloadType 提取；均采用模板函数 unpackDataFromPayload 保证类型一致
-    switch (packet.payloadType) {
+    switch (packet.commandValue()) {
     case PAYLOAD_TYPE_WORK_STANDBY: {
         workStandby d;
         if (unpackDataFromPayload(packet, d)) {
@@ -98,24 +123,20 @@ QByteArray BusToCommRouter::extractBytes(const DataPacket& packet) const
         }
         break;
     }
-    case PAYLOAD_TYPE_GENERAL_PACKAGE: {
-        GeneralPackage d;
-        if (unpackDataFromPayload(packet, d)) {
-            return QByteArray(reinterpret_cast<const char*>(&d), sizeof(d));
-        }
-        break;
-    }
     default:
-        // 未知类型：退回到 rawData 原样透传
-        if (packet.payloadSize > 0 && packet.payloadSize <= MAX_PAYLOAD_SIZE) {
-            return QByteArray(reinterpret_cast<const char*>(packet.payload.rawData),
-                              static_cast<int>(packet.payloadSize));
-        }
+        // 只有显式 QByteArray 载荷才允许原样透传。
+        if (const auto raw = std::get_if<QByteArray>(&packet.payload))
+            return *raw;
         break;
     }
     return QByteArray();
 }
 
+/**
+ * @brief 在 QObject 线程完成方向过滤、载荷编码、路由选择和 UDP 发送。
+ * @details sourceType 属于雷达表示上行回显，必须过滤以防数据回环。只有 sendTo 成功才增加 routedCount
+ *          和下行延时样本；无法编码或发送失败都保留明确日志且不伪造成功指标。
+ */
 void BusToCommRouter::handlePacket(const DataPacket& packet)
 {
     if (!m_commManager) return;
@@ -127,12 +148,12 @@ void BusToCommRouter::handlePacket(const DataPacket& packet)
 
     const QByteArray bytes = extractBytes(packet);
     if (bytes.isEmpty()) {
-        qWarning() << QStringLiteral("[BusToCommRouter] 解包失败: payloadType=%1, size=%2")
-                      .arg(packet.payloadType).arg(packet.payloadSize);
+        qWarning() << QStringLiteral("[BusToCommRouter] 解包失败: command=%1")
+                      .arg(packet.commandValue());
         return;
     }
 
-    const Route r = resolveRoute(packet.payloadType);
+    const Route r = resolveRoute(static_cast<uint16_t>(packet.commandValue()));
     const bool ok = m_commManager->sendTo(r.endpointId, r.targetName, bytes);
     if (ok) {
         ++m_routedCount;
@@ -153,8 +174,8 @@ void BusToCommRouter::handlePacket(const DataPacket& packet)
                         .arg(m_downlinkLatency.sampleCount);
         }
 
-        qDebug() << QStringLiteral("[BusToCommRouter] 路由成功: payloadType=%1, %2B → %3/%4, seq=%5")
-                    .arg(packet.payloadType)
+        qDebug() << QStringLiteral("[BusToCommRouter] 路由成功: command=%1, %2B → %3/%4, seq=%5")
+                    .arg(packet.commandValue())
                     .arg(bytes.size())
                     .arg(r.endpointId, r.targetName)
                     .arg(packet.packetSequence);

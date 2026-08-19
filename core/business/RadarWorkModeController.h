@@ -49,7 +49,7 @@ public:
     enum class RejectReason : uint8_t {
         DuplicateRequest = 0,         ///< 已处于目标状态
         TransitionInProgress,         ///< 处于 Starting / Stopping 过渡态
-        FaultRequiresReset,           ///< Fault 状态下只接受 reset
+        FaultRequiresReset,           ///< Error 状态只接受 reset，防止故障未确认时继续下发模式命令。
         ResetIgnoredOutsideFault      ///< 非 Fault 状态下的 reset
     };
     Q_ENUM(RejectReason)

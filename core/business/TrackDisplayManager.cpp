@@ -1,6 +1,6 @@
 #include "TrackDisplayManager.h"
 #include "TaskService.h"
-#include "bus/BusEnvelope.h"
+#include "bus/GenericPackets.h"
 #include "bus/SystemBus.h"
 #include "metrics/MonotonicClock.h"
 #include "metrics/PipelineLatencyMonitor.h"
@@ -11,11 +11,14 @@
 #include <algorithm>
 #include <memory>
 
-static constexpr int kMaxSnapshotPoints = 600;
-static constexpr int kMaxCachedPointsAcrossTracks = 50000;
-static constexpr int kSnapshotIntervalMs = 1000;
-static constexpr qint64 kTrackStaleMs = 5000;
+static constexpr int kMaxPublishedPoints = 600; //最大同时发布点数
+static constexpr int kMaxCachedPointsAcrossTracks = 50000; // 最大缓存航迹
+static constexpr int kDisplayUpdateIntervalMs = 1000; // 刷新间隔
+static constexpr qint64 kTrackStaleMs = 5000; // 5s旧航迹回收
 
+/**
+ * @brief 创建一秒刷新定时器，并把超时处理固定在缓存所属 QObject 线程。
+ */
 TrackDisplayManager::TrackDisplayManager(QObject* parent)
     : QObject(parent)
 {
@@ -25,28 +28,46 @@ TrackDisplayManager::TrackDisplayManager(QObject* parent)
         const qint64 now = QDateTime::currentMSecsSinceEpoch();
         syncActiveTaskContext();
         pruneStaleTracks(now);
-        deliverSnapshot(snapshot(now));
+        publishCurrent(m_forceSnapshot);
     });
 }
 
+/**
+ * @brief 幂等订阅 Track 与交互命令；回调只复制载荷并排队回本对象线程。
+ * @details 两项订阅都登记后才启动刷新，任一失败会保留 forceSnapshot 以便恢复后建立权威基线。
+ */
 void TrackDisplayManager::start()
 {
     m_acceptCommands.store(true, std::memory_order_release);
+    if (m_trackSubId == 0) {
+        QPointer<TrackDisplayManager> guard(this);
+        m_trackSubId = SystemBus::getInstance().subscribeByTarget(
+            DISPATCH_TRACK_DISPLAY_MANAGER,
+            [guard](const DataPacket* packet) {
+                if (guard && packet && packet->command == DataCommand::Track)
+                    guard->onTrackPacket(*packet);
+            });
+        if (m_trackSubId == 0)
+            qWarning() << "[TrackDisplayManager] 订阅 DataCommand::Track 失败";
+    }
     if (m_cmdSubId == 0) {
         QPointer<TrackDisplayManager> guard(this);
-        m_cmdSubId = SystemBus::getInstance().subscribeEnvelope(
+        m_cmdSubId = SystemBus::getInstance().subscribe(
             SOURCE_WEB_API,
             DISPATCH_TRACK_DISPLAY_MANAGER,
-            [guard](const BusEnvelope& env) {
-                if (guard)
-                    guard->onInteractionCommand(env);
+            [guard](const DataPacket* packet) {
+                if (guard && packet)
+                    guard->onInteractionCommand(*packet);
             });
         if (m_cmdSubId == 0)
             qWarning() << "[TrackDisplayManager] 订阅 TrackInteractionCommand 失败";
     }
-    m_timer->start(kSnapshotIntervalMs);
+    m_timer->start(kDisplayUpdateIntervalMs);
 }
 
+/**
+ * @brief 先关闭跨线程接收闩锁，再取消订阅和定时器，防止关闭期间继续排队新任务。
+ */
 void TrackDisplayManager::stop()
 {
     m_acceptCommands.store(false, std::memory_order_release);
@@ -55,14 +76,25 @@ void TrackDisplayManager::stop()
         SystemBus::getInstance().unsubscribe(m_cmdSubId);
         m_cmdSubId = 0;
     }
+    if (m_trackSubId != 0) {
+        SystemBus::getInstance().unsubscribe(m_trackSubId);
+        m_trackSubId = 0;
+    }
 }
 
+/**
+ * @brief 在缓存线程清空任务投影并立即尝试发布空快照，使客户端删除旧点。
+ */
 void TrackDisplayManager::clear()
 {
     m_timer->stop();
     resetCacheState();
+    publishCurrent(true);
 }
 
+/**
+ * @brief 清空缓存、FIFO 和交互状态，并把下一次发布标记为快照恢复。
+ */
 void TrackDisplayManager::resetCacheState()
 {
     m_caches.clear();
@@ -70,19 +102,37 @@ void TrackDisplayManager::resetCacheState()
     m_pointOrder.clear();
     m_nextPointSequence = 0;
     m_cachedPointCount = 0;
+    m_forceSnapshot = true;
 }
 
+/**
+ * @brief 切回对象线程强制发布当前完整窗口，用于 Web 重连或 revision gap。
+ */
+void TrackDisplayManager::publishReset()
+{
+    publishCurrent(true);
+}
+
+/**
+ * @brief 更新任务解析依赖后立即同步活动上下文，防止继续使用旧设备集合。
+ */
 void TrackDisplayManager::setTaskService(TaskService* taskService)
 {
     m_taskService = taskService;
     syncActiveTaskContext();
 }
 
+/**
+ * @brief 替换可选延时采集器；不改变现有缓存或显示修订。
+ */
 void TrackDisplayManager::setLatencyMonitor(PipelineLatencyMonitor* latencyMonitor)
 {
     m_latencyMonitor = latencyMonitor;
 }
 
+/**
+ * @brief 从 TaskService 读取活动任务快照，并在任务 ID 或成员设备变化时重置显示窗口。
+ */
 void TrackDisplayManager::syncActiveTaskContext()
 {
     QString activeId;
@@ -101,24 +151,48 @@ void TrackDisplayManager::syncActiveTaskContext()
     resetCacheState();
 }
 
-bool TrackDisplayManager::isPointVisible(const TrackPoint& pt) const
+/**
+ * @brief 要求航迹已完成识别、taskId 等于活动任务且 deviceId 位于成员集合。
+ */
+bool TrackDisplayManager::isTrackVisible(const TrackPacket& track) const
 {
-    if (pt.deviceId.isEmpty() || m_activeTaskId.isEmpty())
+    if (track.deviceId.isEmpty() || m_activeTaskId.isEmpty())
         return false;
-    if (pt.taskId.isEmpty())
+    if (track.taskId.isEmpty())
         return false;
-    return pt.taskId == m_activeTaskId && m_activeDeviceIds.contains(pt.deviceId);
+    return track.taskId == m_activeTaskId && m_activeDeviceIds.contains(track.deviceId);
 }
 
-void TrackDisplayManager::addPoint(const TrackPoint& pt)
+/**
+ * @brief 在总线线程验证 Track 命令和非空共享载荷，再复制到 QObject 线程处理。
+ */
+void TrackDisplayManager::onTrackPacket(const DataPacket& packet)
+{
+    if (!m_acceptCommands.load(std::memory_order_acquire))
+        return;
+    auto track = packet.sharedPayloadAs<TrackPacket>();
+    if (!track || track->recognitionStatus != RecognitionStatus::Completed)
+        return;
+
+    QPointer<TrackDisplayManager> guard(this);
+    QMetaObject::invokeMethod(this, [guard, track]() {
+        if (guard && guard->m_acceptCommands.load(std::memory_order_acquire))
+            guard->addTrack(*track);
+    }, Qt::QueuedConnection);
+}
+
+/**
+ * @brief 为可见航迹追加绝对点号和全局序号，记录显示就绪时间并执行全局容量淘汰。
+ */
+void TrackDisplayManager::addTrack(const TrackPacket& track)
 {
     const qint64 processingStartedNs = monotonicNowNs();
     syncActiveTaskContext();
 
-    TrackPoint scoped = pt;
+    TrackPacket scoped = track;
     if (scoped.taskId.isEmpty() && m_taskService)
         scoped.taskId = m_taskService->resolveTaskIdForDevice(scoped.deviceId);
-    if (!isPointVisible(scoped))
+    if (!isTrackVisible(scoped))
         return;
 
     TrackKey key{scoped.deviceId, scoped.trackId};
@@ -127,8 +201,8 @@ void TrackDisplayManager::addPoint(const TrackPoint& pt)
 
     auto& cache = m_caches[key];
     const uint64_t sequence = m_nextPointSequence++;
-    cache.points.push_back({scoped, cache.nextPointIndex++, sequence});
-    cache.lastUpdateMs = scoped.timestampMs;
+    cache.points.push_back({scoped, cache.nextPointIndex++, sequence, 0});
+    cache.lastUpdateMs = scoped.receivedAtMs;
     m_pointOrder.push_back({key, sequence});
     ++m_cachedPointCount;
     enforceGlobalCacheBudget();
@@ -136,7 +210,7 @@ void TrackDisplayManager::addPoint(const TrackPoint& pt)
     const qint64 processingCompletedNs = monotonicNowNs();
     auto completedCache = m_caches.find(key);
     if (completedCache != m_caches.end() && !completedCache->points.empty())
-        completedCache->points.back().point.displayReadySteadyNs = processingCompletedNs;
+        completedCache->points.back().displayReadySteadyNs = processingCompletedNs;
     if (m_latencyMonitor) {
         if (scoped.ingressSteadyNs > 0) {
             m_latencyMonitor->recordNs(PipelineLatencyStage::IngressToDisplay,
@@ -147,6 +221,9 @@ void TrackDisplayManager::addPoint(const TrackPoint& pt)
     }
 }
 
+/**
+ * @brief 沿全局 FIFO 淘汰有效队首点；跳过因单航迹提前删除而失效的旧索引项。
+ */
 void TrackDisplayManager::enforceGlobalCacheBudget()
 {
     while (m_cachedPointCount > kMaxCachedPointsAcrossTracks && !m_pointOrder.empty()) {
@@ -168,6 +245,9 @@ void TrackDisplayManager::enforceGlobalCacheBudget()
     }
 }
 
+/**
+ * @brief 按最后 Unix 更新时间删除过期航迹，并同步修正总点数和交互状态。
+ */
 void TrackDisplayManager::pruneStaleTracks(qint64 nowMs)
 {
     QList<TrackKey> toRemove;
@@ -196,11 +276,6 @@ void TrackDisplayManager::pruneStaleTracks(qint64 nowMs)
     }
 }
 
-TrackDisplaySnapshot TrackDisplayManager::snapshot() const
-{
-    return snapshot(QDateTime::currentMSecsSinceEpoch());
-}
-
 void TrackDisplayManager::applyStyle(
     TrackDisplayPoint& dp, uint32_t pointIndex,
     const TrackDisplayPoint::Interaction& interaction) const
@@ -224,13 +299,17 @@ void TrackDisplayManager::applyStyle(
     }
 }
 
-TrackDisplaySnapshot TrackDisplayManager::snapshot(qint64 nowMs) const
+TrackDisplayUpdate TrackDisplayManager::buildUpdate(
+    qint64 nowMs, bool forceSnapshot,
+    QHash<TrackDisplayPointKey, TrackDisplayPoint>& nextPublished) const
 {
     const qint64 buildStartedNs = monotonicNowNs();
-    Q_UNUSED(nowMs);
-    TrackDisplaySnapshot snap;
-    snap.timestamp = nowMs;
-    snap.snapshotBuildStartedSteadyNs = buildStartedNs;
+    TrackDisplayUpdate update;
+    update.mode = forceSnapshot
+        ? TrackDisplayUpdateMode::Snapshot
+        : TrackDisplayUpdateMode::Delta;
+    update.timestamp = nowMs;
+    update.buildStartedSteadyNs = buildStartedNs;
 
     struct Candidate {
         TrackDisplayPoint dp;
@@ -247,59 +326,86 @@ TrackDisplaySnapshot TrackDisplayManager::snapshot(qint64 nowMs) const
         auto interaction = m_interactions.value(key);
 
         for (const auto& cp : cache.points) {
-            TrackPoint pt = cp.point;
-            if (pt.taskId.isEmpty() && m_taskService)
-                pt.taskId = m_taskService->resolveTaskIdForDevice(pt.deviceId);
-            if (!isPointVisible(pt))
+            TrackPacket track = cp.track;
+            if (track.taskId.isEmpty() && m_taskService)
+                track.taskId = m_taskService->resolveTaskIdForDevice(track.deviceId);
+            if (!isTrackVisible(track))
                 continue;
 
             TrackDisplayPoint dp;
-            dp.trackId      = pt.trackId;
-            dp.deviceId     = pt.deviceId;
-            dp.taskId       = pt.taskId;
-            dp.timestamp    = pt.timestampMs;
-            dp.range        = pt.range;
-            dp.azimuth      = pt.azimuth;
-            dp.elevation    = pt.elevation;
-            dp.x            = pt.x;
-            dp.y            = pt.y;
-            dp.z            = pt.z;
-            dp.radialSpeed  = pt.radialSpeed;
-            dp.rcs          = pt.rcs;
-            dp.altitude     = pt.altitude;
+            dp.trackId      = track.trackId;
+            dp.deviceId     = track.deviceId;
+            dp.taskId       = track.taskId;
+            dp.timestamp    = track.receivedAtMs;
+            dp.range        = track.rangeM;
+            dp.azimuth      = track.azimuthRad;
+            dp.elevation    = track.elevationRad;
+            dp.x            = track.xM;
+            dp.y            = track.yM;
+            dp.z            = track.zM;
+            dp.radialSpeed  = track.radialSpeedMps;
+            dp.rcs          = track.rcs;
+            dp.altitude     = track.altitudeM;
             dp.pointIndex   = cp.pointIndex;
             dp.interaction  = interaction;
             applyStyle(dp, cp.pointIndex, interaction);
-            candidates.append({dp, pt.timestampMs, pt.ingressSteadyNs, pt.displayReadySteadyNs});
+            candidates.append({dp, track.receivedAtMs, track.ingressSteadyNs,
+                               cp.displayReadySteadyNs});
         }
     }
 
-    if (candidates.size() > kMaxSnapshotPoints) {
+    if (candidates.size() > kMaxPublishedPoints) {
         std::nth_element(candidates.begin(),
-                         candidates.begin() + kMaxSnapshotPoints,
+                         candidates.begin() + kMaxPublishedPoints,
                          candidates.end(),
                          [](const Candidate& a, const Candidate& b) { return a.ts > b.ts; });
-        candidates.resize(kMaxSnapshotPoints);
+        candidates.resize(kMaxPublishedPoints);
     }
 
     std::sort(candidates.begin(), candidates.end(),
               [](const Candidate& a, const Candidate& b) { return a.ts < b.ts; });
 
     for (auto& c : candidates) {
-        snap.tracks.append(std::move(c.dp));
-        if (c.displayReadySteadyNs > snap.latestDisplayReadySteadyNs) {
-            snap.latestDisplayReadySteadyNs = c.displayReadySteadyNs;
-            snap.latestIngressSteadyNs = c.ingressSteadyNs;
+        const TrackDisplayPointKey key{c.dp.deviceId, c.dp.trackId, c.dp.pointIndex};
+        nextPublished.insert(key, c.dp);
+        const auto previous = m_publishedPoints.constFind(key);
+        if (forceSnapshot || previous == m_publishedPoints.constEnd()
+            || !sameDisplayPoint(previous.value(), c.dp)) {
+            update.upserts.append(std::move(c.dp));
+        }
+        if (c.displayReadySteadyNs > update.latestDisplayReadySteadyNs) {
+            update.latestDisplayReadySteadyNs = c.displayReadySteadyNs;
+            update.latestIngressSteadyNs = c.ingressSteadyNs;
         }
     }
 
-    snap.builtSteadyNs = monotonicNowNs();
-    if (m_latencyMonitor) {
-        m_latencyMonitor->recordNs(PipelineLatencyStage::SnapshotBuild,
-                                   snap.builtSteadyNs - buildStartedNs);
+    if (!forceSnapshot) {
+        for (auto it = m_publishedPoints.constBegin(); it != m_publishedPoints.constEnd(); ++it) {
+            if (!nextPublished.contains(it.key()))
+                update.removals.append(it.key());
+        }
     }
 
-    return snap;
+    update.builtSteadyNs = monotonicNowNs();
+    if (m_latencyMonitor) {
+        m_latencyMonitor->recordNs(PipelineLatencyStage::DisplayUpdateBuild,
+                                   update.builtSteadyNs - buildStartedNs);
+    }
+
+    return update;
+}
+
+bool TrackDisplayManager::sameDisplayPoint(const TrackDisplayPoint& a,
+                                           const TrackDisplayPoint& b)
+{
+    return a.trackId == b.trackId && a.deviceId == b.deviceId && a.taskId == b.taskId
+        && a.timestamp == b.timestamp && a.range == b.range && a.azimuth == b.azimuth
+        && a.elevation == b.elevation && a.altitude == b.altitude
+        && a.radialSpeed == b.radialSpeed && a.pointIndex == b.pointIndex
+        && a.style.color == b.style.color && a.style.size == b.style.size
+        && a.style.opacity == b.style.opacity
+        && a.interaction.selected == b.interaction.selected
+        && a.interaction.trackingEnabled == b.interaction.trackingEnabled;
 }
 
 void TrackDisplayManager::setInteraction(
@@ -325,16 +431,20 @@ void TrackDisplayManager::setInteraction(
     auto& interaction = m_interactions[key];
     interaction.selected = selected;
     interaction.trackingEnabled = trackingEnabled;
-    deliverSnapshot(snapshot(QDateTime::currentMSecsSinceEpoch()));
+    publishCurrent(false);
 }
 
-void TrackDisplayManager::onInteractionCommand(const BusEnvelope& env)
+/**
+ * @brief 验证交互命令共享载荷后排队执行，关闭闩锁置位时丢弃迟到回调。
+ */
+void TrackDisplayManager::onInteractionCommand(const DataPacket& packet)
 {
     if (!m_acceptCommands.load(std::memory_order_acquire))
         return;
 
-    auto cmdPtr = env.payloadAs<TrackInteractionCommand>(
-        BusPayloadKind::TrackInteractionCommand);
+    if (packet.command != DataCommand::TrackInteractionCommand)
+        return;
+    auto cmdPtr = packet.sharedPayloadAs<TrackInteractionCommand>();
     if (!cmdPtr)
         return;
 
@@ -347,10 +457,32 @@ void TrackDisplayManager::onInteractionCommand(const BusEnvelope& env)
     }, Qt::QueuedConnection);
 }
 
-void TrackDisplayManager::deliverSnapshot(TrackDisplaySnapshot&& snap)
+/**
+ * @brief 构建下一修订并发布不可变更新；仅在总线成功接纳后提交 revision 和窗口基线。
+ * @details 失败时不推进基线并置 forceSnapshot，避免下次增量建立在客户端从未收到的状态上。
+ */
+void TrackDisplayManager::publishCurrent(bool forceSnapshot)
 {
-    snap.publishedSteadyNs = monotonicNowNs();
-    auto shared = std::make_shared<TrackDisplaySnapshot>(std::move(snap));
-    SystemBus::getInstance().publish(
-        BusEnvelope::makeTrackDisplaySnapshot(std::move(shared)));
+    QHash<TrackDisplayPointKey, TrackDisplayPoint> nextPublished;
+    TrackDisplayUpdate update = buildUpdate(QDateTime::currentMSecsSinceEpoch(),
+                                            forceSnapshot, nextPublished);
+    update.revision = m_displayRevision + 1;
+    update.publishedSteadyNs = monotonicNowNs();
+    auto shared = std::make_shared<TrackDisplayUpdate>(std::move(update));
+    static std::atomic<uint32_t> seq{0};
+    DataPacket packet;
+    packet.sourceType = SOURCE_TRACK_DISPLAY;
+    packet.dispatchTarget = UI_OUTPUTWIDGET;
+    packet.packetSequence = ++seq;
+    packet.timeStamp = shared ? static_cast<uint64_t>(shared->timestamp) : 0;
+    packet.command = DataCommand::TrackDisplayUpdate;
+    packet.payload = std::shared_ptr<const TrackDisplayUpdate>(shared);
+    if (SystemBus::getInstance().publish(std::move(packet))) {
+        m_publishedPoints = std::move(nextPublished);
+        m_displayRevision = shared->revision;
+        m_forceSnapshot = false;
+    } else {
+        m_forceSnapshot = true;
+        qWarning() << "[TrackDisplayManager] 显示更新发布失败，下周期强制全量重同步";
+    }
 }

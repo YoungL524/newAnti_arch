@@ -127,6 +127,35 @@ private slots:
         QCOMPARE(static_cast<int>(after.status), static_cast<int>(before.status));
     }
 
+    void radarPoseRoundTripsThroughRegistry()
+    {
+        DeviceInfo radar;
+        radar.id = QStringLiteral("radar_pose");
+        radar.name = QStringLiteral("radar_pose");
+        radar.kind = DeviceKind::Radar;
+        radar.endpointId = QStringLiteral("radar_cpu");
+        radar.lng = 118.65309;
+        radar.lat = 31.93502;
+        radar.altitude = 42.5;
+        radar.pitch = 12.5;
+        radar.roll = -7.25;
+        QVERIFY(m_devices->create(radar));
+
+        auto stored = m_devices->get(radar.id).value();
+        QCOMPARE(stored.lng, radar.lng);
+        QCOMPARE(stored.lat, radar.lat);
+        QCOMPARE(stored.altitude, radar.altitude);
+        QCOMPARE(stored.pitch, radar.pitch);
+        QCOMPARE(stored.roll, radar.roll);
+
+        stored.pitch = -5.0;
+        stored.roll = 3.0;
+        QVERIFY(m_devices->update(stored));
+        const auto updated = m_devices->get(radar.id).value();
+        QCOMPARE(updated.pitch, -5.0);
+        QCOMPARE(updated.roll, 3.0);
+    }
+
     void deletingDraftOnlyDeviceRemovesDraftBinding()
     {
         createRadar(QStringLiteral("radar_1"));
@@ -163,5 +192,9 @@ private:
     TaskService* m_tasks = nullptr;
 };
 
+/**
+ * @brief 验证 QTEST_MAIN 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 QTEST_MAIN(TestTaskService)
 #include "tst_TaskService.moc"

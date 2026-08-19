@@ -1,3 +1,9 @@
+/**
+ * @file SubDeviceEditForm.tsx
+ * @brief 编辑非雷达子设备的名称、类型和通信绑定信息。
+ * @details 组件只生成设备草稿并回传上层，实际唯一性校验与持久化由核心设备台账完成。
+ */
+
 import { useState } from 'react'
 import type { SubDevice, RadarDevice, RadarBrand } from '../map/types'
 import { BRAND_LABELS, BRAND_OPTIONS } from '../map/types'

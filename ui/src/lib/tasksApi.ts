@@ -1,3 +1,9 @@
+/**
+ * @file tasksApi.ts
+ * @brief 封装任务 CRUD 以及开始、停止等生命周期命令。
+ * @details 客户端只提交意图并展示服务端结果，合法状态迁移和设备绑定约束由 TaskService 判定。
+ */
+
 import type { Task, TaskStatus } from './taskTypes'
 
 const BASE = '/api/tasks'

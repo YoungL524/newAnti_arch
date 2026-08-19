@@ -1,6 +1,5 @@
 #include "WebApiController.h"
 #include "WebService.h"
-#include "bus/BusEnvelope.h"
 #include "bus/SystemBus.h"
 #include "bus/GenericPackets.h"
 #include "RadarWorkModeController.h"
@@ -13,6 +12,7 @@
 #include <limits>
 #include <optional>
 #include <memory>
+#include <atomic>
 #include <QDateTime>
 #include <QDebug>
 #include <QJsonArray>
@@ -22,6 +22,9 @@
 
 namespace {
 
+/**
+ * @brief 将旧版毫秒 LatencyStats 转换为健康接口兼容 JSON。
+ */
 QJsonObject latencyStatsToJson(const PipelineLatencyStats& stats)
 {
     return QJsonObject{
@@ -36,6 +39,9 @@ QJsonObject latencyStatsToJson(const PipelineLatencyStats& stats)
     };
 }
 
+/**
+ * @brief 将微秒滑动窗口各阶段指标转换为带单位和容量的诊断 JSON。
+ */
 QJsonObject pipelineLatencyToJson(const PipelineLatencySnapshot& snapshot)
 {
     QJsonObject stages;
@@ -49,12 +55,18 @@ QJsonObject pipelineLatencyToJson(const PipelineLatencySnapshot& snapshot)
     };
 }
 
+/**
+ * @brief 把工作模式状态机状态归约为前端需要的“采集活跃”布尔值。
+ */
 bool wmcAcquisitionActive(RadarWorkModeController::State st)
 {
     return st == RadarWorkModeController::State::Starting
         || st == RadarWorkModeController::State::Working;
 }
 
+/**
+ * @brief 综合设备台账状态、端点打开状态和工作模式控制器生成雷达运行状态。
+ */
 QJsonObject composeRadarDeviceStatus(RadarWorkModeController* wmc, bool endpointOpen)
 {
     QJsonObject dev;
@@ -70,6 +82,9 @@ QJsonObject composeRadarDeviceStatus(RadarWorkModeController* wmc, bool endpoint
     return dev;
 }
 
+/**
+ * @brief 从设备台账解析 endpointId；设备不存在或未绑定时返回空。
+ */
 QString resolveDeviceEndpointId(const QString& deviceId, const QString& endpointId)
 {
     if (!endpointId.isEmpty())
@@ -105,6 +120,10 @@ WebApiController::WebApiController(web::WebService* ws,
 
 WebApiController::~WebApiController() { shutdown(); }
 
+/**
+ * @brief 注册状态、设备、工作模式、运行参数、日志和航迹交互等核心 REST 命令。
+ * @details 路由闭包只持有控制器提供的服务对象，通过统一 JSON 结果映射业务成功与失败；注册本身不启动监听器。
+ */
 void WebApiController::registerRestRoutes()
 {
     // GET /api/status
@@ -230,7 +249,7 @@ void WebApiController::registerRestRoutes()
 
     // 航迹交互命令：校验 REST 请求后发布 TrackInteractionCommand 到总线。
     // 成功响应 ok/accepted/mode=queued 仅表示命令已入队，不代表 Manager 已应用；
-    // 最终 interaction 状态以 WebSocket tracks snapshot 为准（见 05-核心流程 §2）。
+    // 最终 interaction 状态以 WebSocket tracks 权威更新为准（见 05-核心流程 §3）。
     auto handleTrackInteraction = [this](const QString& suffix, const QJsonObject& body) -> std::optional<QJsonObject> {
         const auto parts = suffix.split(QChar('/'), Qt::SkipEmptyParts);
         if (parts.size() != 4
@@ -268,8 +287,15 @@ void WebApiController::registerRestRoutes()
         cmd->selected = selected;
         cmd->trackingEnabled = trackingEnabled;
         cmd->timestamp = QDateTime::currentMSecsSinceEpoch();
-        if (!SystemBus::getInstance().publish(
-                BusEnvelope::makeTrackInteractionCommand(std::move(cmd)))) {
+        static std::atomic<uint32_t> interactionSequence{0};
+        DataPacket packet;
+        packet.sourceType = SOURCE_WEB_API;
+        packet.dispatchTarget = DISPATCH_TRACK_DISPLAY_MANAGER;
+        packet.packetSequence = ++interactionSequence;
+        packet.timeStamp = static_cast<uint64_t>(cmd->timestamp);
+        packet.command = DataCommand::TrackInteractionCommand;
+        packet.payload = std::shared_ptr<const TrackInteractionCommand>(std::move(cmd));
+        if (!SystemBus::getInstance().publish(std::move(packet))) {
             return QJsonObject{{QStringLiteral("ok"), false},
                                {QStringLiteral("error"), QStringLiteral("航迹交互命令发布失败")}};
         }
@@ -298,6 +324,8 @@ void WebApiController::registerRestRoutes()
             j[QStringLiteral("lng")] = dev.lng;
             j[QStringLiteral("lat")] = dev.lat;
             j[QStringLiteral("altitude")] = dev.altitude;
+            j[QStringLiteral("pitch")] = dev.pitch;
+            j[QStringLiteral("roll")] = dev.roll;
             j[QStringLiteral("maxRange")] = dev.maxRange;
             j[QStringLiteral("facesJson")] = dev.facesJson;
             j[QStringLiteral("endpointId")] = dev.endpointId;
@@ -327,6 +355,8 @@ void WebApiController::registerRestRoutes()
             d.lng          = body[QStringLiteral("lng")].toDouble();
             d.lat          = body[QStringLiteral("lat")].toDouble();
             d.altitude     = body[QStringLiteral("altitude")].toDouble();
+            d.pitch        = body[QStringLiteral("pitch")].toDouble();
+            d.roll         = body[QStringLiteral("roll")].toDouble();
             d.maxRange     = body[QStringLiteral("maxRange")].toDouble();
             d.facesJson    = body[QStringLiteral("facesJson")].toString(QStringLiteral("[]"));
             d.endpointId   = body[QStringLiteral("endpointId")].toString();
@@ -345,6 +375,10 @@ void WebApiController::registerRestRoutes()
                 return QStringLiteral("longitude 必须在 [-180, 180] 范围内");
             if (d.lat < -90 || d.lat > 90)
                 return QStringLiteral("latitude 必须在 [-90, 90] 范围内");
+            if (d.pitch < -90 || d.pitch > 90)
+                return QStringLiteral("pitch 必须在 [-90, 90] 范围内");
+            if (d.roll < -180 || d.roll > 180)
+                return QStringLiteral("roll 必须在 [-180, 180] 范围内");
             if (d.kind == DeviceKind::Radar && !d.facesJson.isEmpty()) {
                 QJsonParseError err;
                 QJsonDocument::fromJson(d.facesJson.toUtf8(), &err);
@@ -505,6 +539,9 @@ void WebApiController::registerRestRoutes()
 
 }
 
+/**
+ * @brief 接通状态定时推送、日志回调和业务事件到 WebSocket 的低频消息链路。
+ */
 void WebApiController::connectWebPush()
 {
     auto* ws = m_ws;
@@ -553,11 +590,18 @@ void WebApiController::connectWebPush()
     timer->start(1000);
 }
 
+/**
+ * @brief 解除 Logger 到 WebSocket 日志广播的外部回调。
+ * @details 必须在 Web 服务或本控制器销毁前调用，防止后续任意线程产生日志时回调已失效的 Web 对象；传空回调可重复执行。
+ */
 void WebApiController::shutdown()
 {
     Logger::instance().setExternalCallback(nullptr);
 }
 
+/**
+ * @brief 为全部设备生成包含绑定端点和采集状态的即时状态数组。
+ */
 QJsonArray WebApiController::buildDeviceStatusArray(const AppHealth& health) const
 {
     QJsonArray arr;
@@ -604,12 +648,18 @@ QJsonArray WebApiController::buildDeviceStatusArray(const AppHealth& health) con
     return arr;
 }
 
+/**
+ * @brief 判断设备是否最终映射到 radar_cpu 控制端点，用于选择唯一工作模式控制器。
+ */
 bool WebApiController::mapsToRadarCpu(const QString& deviceId, const QString& endpointId) const
 {
     return deviceId == QStringLiteral("radar_cpu")
         || endpointId == QStringLiteral("radar_cpu");
 }
 
+/**
+ * @brief 收集当前绑定 radar_cpu 的雷达业务 ID，供多控制器冲突检测。
+ */
 QSet<QString> WebApiController::radarCpuDeviceIds() const
 {
     QSet<QString> ids;
@@ -624,6 +674,9 @@ QSet<QString> WebApiController::radarCpuDeviceIds() const
 }
 
 WebApiController::SingleControllerDeviceResolution
+/**
+ * @brief 要求请求设备集合唯一落到本进程控制器；无映射或多映射时返回可诊断错误。
+ */
 WebApiController::resolveSingleControllerDeviceIds(const QJsonArray& deviceIds) const
 {
     SingleControllerDeviceResolution resolution;

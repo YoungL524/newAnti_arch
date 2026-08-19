@@ -1,3 +1,9 @@
+/**
+ * @file DataTableFilterBar.tsx
+ * @brief 根据列定义生成表格筛选控件并回传规范化过滤条件。
+ * @details 筛选栏不拥有数据行；列键和取值语义必须与 columns.ts 的列定义保持一致。
+ */
+
 import type { ColumnDef, FilterValue } from '../../lib/columns'
 import type { DeviceDataRow } from '../../lib/protocol'
 

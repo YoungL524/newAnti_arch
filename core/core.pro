@@ -12,7 +12,8 @@ INCLUDEPATH += \
     $$PWD/protocol \
     $$PWD/bus \
     $$PWD/processor \
-    $$PWD/data
+    $$PWD/data \
+    $$PWD/business
 
 HEADERS += \
     comm/CommTypes.h \
@@ -31,6 +32,8 @@ HEADERS += \
     processor/DphPublisher.h \
     data/ConfigManager.h \
     data/DataStore.h \
+    data/TrackStorage.h \
+    business/TrackTypes.h \
     AppController.h \
     StdinReader.h
 
@@ -46,4 +49,5 @@ SOURCES += \
     processor/DphPublisher.cpp \
     data/ConfigManager.cpp \
     data/DataStore.cpp \
+    data/TrackStorage.cpp \
     AppController.cpp

@@ -1,3 +1,9 @@
+/**
+ * @file TaskCreateDialog.tsx
+ * @brief 收集任务名称、操作员、描述和设备绑定并创建任务。
+ * @details 对话框维护未提交草稿并执行必填校验；核心创建成功前不会把草稿加入任务列表。
+ */
+
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Task } from '../../lib/taskTypes'

@@ -1,3 +1,9 @@
+/**
+ * @file DeviceTypeSelector.tsx
+ * @brief 让用户按设备数据类型切换底部表格的数据集合。
+ * @details 组件输出协议层 DeviceType 值，不自行过滤航迹或保存设备记录。
+ */
+
 import { DeviceType } from '../../lib/protocol'
 
 export interface SelectorOption {

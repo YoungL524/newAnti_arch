@@ -1,3 +1,9 @@
+/**
+ * @file MapRadarView.tsx
+ * @brief 在地图上组合雷达阵面、实时航迹、历史轨迹和交互覆盖层。
+ * @details 地图实例由本组件创建和销毁；子图层只接收规范化设备与航迹数据，不直接请求核心 API。
+ */
+
 import { useEffect, useRef, useState } from 'react'
 import AMapLoader from '@amap/amap-jsapi-loader'
 import PPIOverlay from './PPIOverlay'

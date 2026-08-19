@@ -1,4 +1,12 @@
-﻿#pragma once
+#pragma once
+
+/**
+ * @file DphPublisher.h
+ * @brief 声明独立于航迹事件的固定周期 DataPackageHeader 发送器。
+ * @details DPH 是雷达协议要求的 50 ms 周期大包头，不适合由“有数据才触发”的 SystemBus 链路驱动。
+ *          本类在 QObject 线程使用 QTimer 维护连续景幅号和运行参数快照，经 CommunicationManager
+ *          直接发送；发送失败不停止定时器，下个周期会继续尝试。sendCount 统计发送尝试次数而非成功次数。
+ */
 
 #include <QObject>
 #include <QTimer>
@@ -10,7 +18,7 @@
 class CommunicationManager;
 
 /**
- * @file DphPublisher.h
+ * @class DphPublisher
  * @brief DPH 定时发送器
  * @details 负责独立维护 `DataPackageHeader` 状态，并按固定周期通过
  *          `CommunicationManager` 发送到指定端点目标。
@@ -47,8 +55,8 @@ public:
     void setRoute(const QString& endpointId, const QString& targetName);
 
     /**
-     * @brief 配置发送周期
-     * @param intervalMs 周期（毫秒）
+     * @brief 配置 QTimer 周期。
+     * @param[in] intervalMs 周期毫秒数；应为正值，生产默认值为 50 ms。
      */
     void setInterval(int intervalMs);
 
@@ -87,8 +95,8 @@ private slots:
 private:
     CommunicationManager* m_commManager = nullptr;  ///< 通信管理器（非持有）
     QTimer m_timer;                                  ///< 周期发送定时器
-    QString m_endpointId = QStringLiteral("radar_cpu");
-    QString m_targetName = QStringLiteral("dph");
-    DataPackageHeader m_header{};                    ///< 持久 DPH 状态
-    uint64_t m_sendCount = 0;                        ///< 累计发送次数
+    QString m_endpointId = QStringLiteral("radar_cpu"); ///< DPH 所使用的通信端点 ID。
+    QString m_targetName = QStringLiteral("dph");       ///< 端点下的具名 UDP 目标。
+    DataPackageHeader m_header{};                    ///< 跨发送周期保留的协议头与景幅号。
+    uint64_t m_sendCount = 0;                        ///< 定时器触发并尝试发送的累计次数，包含失败尝试。
 };

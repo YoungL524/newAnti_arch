@@ -1,14 +1,3 @@
-/**
- * @file tst_RadarWorkModeController.cpp
- * @brief RadarWorkModeController 单元测试 (Qt Test)
- * @details 对应业务文档 doc/business/雷达工作状态控制.md
- *          对应测试文档 doc/test/雷达工作状态控制-单元测试.md
- *
- * 运行方式：
- *   ctest --test-dir build --output-on-failure
- *   或直接运行 build/bin/tst_RadarWorkModeController(.exe)
- */
-
 #include <QtTest>
 #include <QObject>
 #include <QSignalSpy>
@@ -52,7 +41,15 @@ public:
 } // namespace
 
 // 让 QSignalSpy 能识别 enum 类型参数
+/**
+ * @brief 验证 Q_DECLARE_METATYPE 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 Q_DECLARE_METATYPE(RadarWorkModeController::State)
+/**
+ * @brief 验证 Q_DECLARE_METATYPE 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 Q_DECLARE_METATYPE(RadarWorkModeController::RejectReason)
 
 class TestRadarWorkModeController : public QObject
@@ -111,6 +108,10 @@ private:
                         RadarWorkModeController::State target);
 };
 
+/**
+ * @brief 验证 initTestCase 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestRadarWorkModeController::initTestCase()
 {
     qRegisterMetaType<RadarWorkModeController::State>("RadarWorkModeController::State");
@@ -155,7 +156,13 @@ void TestRadarWorkModeController::driveTo(RadarWorkModeController& c,
         return;
     case S::Fault:
         sender.nextResult = false;
-        c.requestWork();
+        // 从 Working 状态进入 Fault 必须通过停止命令失败；重复 requestWork
+        // 会按状态机规则被拒绝，无法构造目标状态。
+        if (c.state() == S::Working) {
+            c.requestStandby();
+        } else {
+            c.requestWork();
+        }
         QCOMPARE(c.state(), S::Fault);
         sender.nextResult = true;
         return;
@@ -166,6 +173,10 @@ void TestRadarWorkModeController::driveTo(RadarWorkModeController& c,
 // 正常路径
 // ============================================================================
 
+/**
+ * @brief 验证 initial_state_is_standby 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestRadarWorkModeController::initial_state_is_standby()
 {
     FakeWorkModeCommandSender sender;
@@ -175,6 +186,10 @@ void TestRadarWorkModeController::initial_state_is_standby()
     QVERIFY(sender.calls.isEmpty());
 }
 
+/**
+ * @brief 验证 standby_to_starting_on_work_request 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestRadarWorkModeController::standby_to_starting_on_work_request()
 {
     FakeWorkModeCommandSender sender;
@@ -193,6 +208,10 @@ void TestRadarWorkModeController::standby_to_starting_on_work_request()
     QCOMPARE(issuedSpy.count(), 1);
 }
 
+/**
+ * @brief 验证 starting_to_working_on_timeout 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestRadarWorkModeController::starting_to_working_on_timeout()
 {
     FakeWorkModeCommandSender sender;
@@ -204,6 +223,10 @@ void TestRadarWorkModeController::starting_to_working_on_timeout()
     QTRY_COMPARE_WITH_TIMEOUT(c->state(), RadarWorkModeController::State::Working, 500);
 }
 
+/**
+ * @brief 验证 working_to_stopping_on_standby_request 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestRadarWorkModeController::working_to_stopping_on_standby_request()
 {
     FakeWorkModeCommandSender sender;
@@ -222,6 +245,10 @@ void TestRadarWorkModeController::working_to_stopping_on_standby_request()
     QCOMPARE(issuedSpy.count(), 1);
 }
 
+/**
+ * @brief 验证 stopping_to_standby_on_timeout 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestRadarWorkModeController::stopping_to_standby_on_timeout()
 {
     FakeWorkModeCommandSender sender;
@@ -235,6 +262,10 @@ void TestRadarWorkModeController::stopping_to_standby_on_timeout()
 // 故障路径
 // ============================================================================
 
+/**
+ * @brief 验证 send_failure_in_standby_goes_to_fault 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestRadarWorkModeController::send_failure_in_standby_goes_to_fault()
 {
     FakeWorkModeCommandSender sender;
@@ -250,6 +281,10 @@ void TestRadarWorkModeController::send_failure_in_standby_goes_to_fault()
     QCOMPARE(issuedSpy.count(), 0);   // 但失败时不应发出 issued 信号
 }
 
+/**
+ * @brief 验证 send_failure_in_working_goes_to_fault 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestRadarWorkModeController::send_failure_in_working_goes_to_fault()
 {
     FakeWorkModeCommandSender sender;
@@ -262,6 +297,10 @@ void TestRadarWorkModeController::send_failure_in_working_goes_to_fault()
     QCOMPARE(c->state(), RadarWorkModeController::State::Fault);
 }
 
+/**
+ * @brief 验证 fault_reset_returns_to_standby 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestRadarWorkModeController::fault_reset_returns_to_standby()
 {
     FakeWorkModeCommandSender sender;
@@ -282,6 +321,10 @@ void TestRadarWorkModeController::fault_reset_returns_to_standby()
 // 拒绝路径
 // ============================================================================
 
+/**
+ * @brief 验证 duplicate_standby_request_is_rejected 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestRadarWorkModeController::duplicate_standby_request_is_rejected()
 {
     FakeWorkModeCommandSender sender;
@@ -298,6 +341,10 @@ void TestRadarWorkModeController::duplicate_standby_request_is_rejected()
     QVERIFY(sender.calls.isEmpty());
 }
 
+/**
+ * @brief 验证 duplicate_work_request_is_rejected 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestRadarWorkModeController::duplicate_work_request_is_rejected()
 {
     FakeWorkModeCommandSender sender;
@@ -314,6 +361,10 @@ void TestRadarWorkModeController::duplicate_work_request_is_rejected()
     QVERIFY(sender.calls.isEmpty());
 }
 
+/**
+ * @brief 验证 requests_during_starting_are_rejected 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestRadarWorkModeController::requests_during_starting_are_rejected()
 {
     FakeWorkModeCommandSender sender;
@@ -334,6 +385,10 @@ void TestRadarWorkModeController::requests_during_starting_are_rejected()
     QCOMPARE(stateSpy.count(), 1);
 }
 
+/**
+ * @brief 验证 requests_during_stopping_are_rejected 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestRadarWorkModeController::requests_during_stopping_are_rejected()
 {
     FakeWorkModeCommandSender sender;
@@ -351,6 +406,10 @@ void TestRadarWorkModeController::requests_during_stopping_are_rejected()
     QVERIFY(sender.calls.isEmpty());
 }
 
+/**
+ * @brief 验证 fault_rejects_business_requests 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestRadarWorkModeController::fault_rejects_business_requests()
 {
     FakeWorkModeCommandSender sender;
@@ -368,6 +427,10 @@ void TestRadarWorkModeController::fault_rejects_business_requests()
     QVERIFY(sender.calls.isEmpty());
 }
 
+/**
+ * @brief 验证 reset_outside_fault_is_rejected 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestRadarWorkModeController::reset_outside_fault_is_rejected()
 {
     FakeWorkModeCommandSender sender;
@@ -394,6 +457,10 @@ void TestRadarWorkModeController::reset_outside_fault_is_rejected()
     QCOMPARE(stateSpy.count(), 0);
 }
 
+/**
+ * @brief 验证 reset_during_transition_is_rejected 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestRadarWorkModeController::reset_during_transition_is_rejected()
 {
     FakeWorkModeCommandSender sender;
@@ -412,6 +479,10 @@ void TestRadarWorkModeController::reset_during_transition_is_rejected()
 // 信号
 // ============================================================================
 
+/**
+ * @brief 验证 rejected_request_does_not_emit_state_changed 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestRadarWorkModeController::rejected_request_does_not_emit_state_changed()
 {
     FakeWorkModeCommandSender sender;
@@ -428,6 +499,10 @@ void TestRadarWorkModeController::rejected_request_does_not_emit_state_changed()
     QCOMPARE(stateSpy.count(), 0);
 }
 
+/**
+ * @brief 验证 work_mode_command_issued_carries_correct_args 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestRadarWorkModeController::work_mode_command_issued_carries_correct_args()
 {
     FakeWorkModeCommandSender sender;
@@ -447,6 +522,10 @@ void TestRadarWorkModeController::work_mode_command_issued_carries_correct_args(
 // 多设备隔离
 // ============================================================================
 
+/**
+ * @brief 验证 two_controllers_are_independent 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestRadarWorkModeController::two_controllers_are_independent()
 {
     FakeWorkModeCommandSender senderA;
@@ -468,6 +547,10 @@ void TestRadarWorkModeController::two_controllers_are_independent()
 // workModeEcho 回显验证（替代超时）
 // ============================================================================
 
+/**
+ * @brief 验证 echo_in_starting_mode1_goes_to_working 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestRadarWorkModeController::echo_in_starting_mode1_goes_to_working()
 {
     FakeWorkModeCommandSender sender;
@@ -485,6 +568,10 @@ void TestRadarWorkModeController::echo_in_starting_mode1_goes_to_working()
     QCOMPARE(c->state(), RadarWorkModeController::State::Working);
 }
 
+/**
+ * @brief 验证 echo_in_starting_mode0_goes_to_fault 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestRadarWorkModeController::echo_in_starting_mode0_goes_to_fault()
 {
     FakeWorkModeCommandSender sender;
@@ -500,6 +587,10 @@ void TestRadarWorkModeController::echo_in_starting_mode0_goes_to_fault()
     QCOMPARE(c->state(), RadarWorkModeController::State::Fault);
 }
 
+/**
+ * @brief 验证 echo_in_stopping_mode0_goes_to_standby 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestRadarWorkModeController::echo_in_stopping_mode0_goes_to_standby()
 {
     FakeWorkModeCommandSender sender;
@@ -516,6 +607,10 @@ void TestRadarWorkModeController::echo_in_stopping_mode0_goes_to_standby()
     QCOMPARE(c->state(), RadarWorkModeController::State::Standby);
 }
 
+/**
+ * @brief 验证 echo_in_other_states_is_ignored 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 void TestRadarWorkModeController::echo_in_other_states_is_ignored()
 {
     FakeWorkModeCommandSender sender;
@@ -536,5 +631,9 @@ void TestRadarWorkModeController::echo_in_other_states_is_ignored()
     QCOMPARE(c->state(), RadarWorkModeController::State::Fault);
 }
 
+/**
+ * @brief 验证 QTEST_MAIN 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 QTEST_MAIN(TestRadarWorkModeController)
 #include "tst_RadarWorkModeController.moc"

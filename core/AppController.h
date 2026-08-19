@@ -1,3 +1,16 @@
+/**
+ * @file AppController.h
+ * @brief 定义无界面的应用组合根，统一装配核心实时链路及其外围服务。
+ * @details AppController 是进程启动后创建各子系统的唯一入口。它从配置文件和数据库恢复运行环境，
+ *          依次建立“UDP 接收 → 厂家协议解析 → DataPacket 总线 → 航迹显示/存储”正向链路，
+ *          以及“业务命令 → DataPacket 总线 → UDP 发送”反向链路。类本身不解析协议、不保存航迹、
+ *          不生成 Web DTO，只负责对象所有权、依赖注入、启动顺序、降级策略和反向关闭顺序。
+ *
+ * @par 新人阅读入口
+ * 先阅读 initialize() 了解对象装配顺序，再阅读 start()/stop() 区分“数据采集运行态”和
+ * Web、数据库、总线等进程级服务；最终退出顺序见 shutdown()。
+ */
+
 #pragma once
 
 #include <QObject>
@@ -22,6 +35,7 @@ class TaskService;
 class RuntimeSettingsService;
 class TrackDisplayManager;
 class TrackDisplayWebBridge;
+class TrackStorage;
 class QTimer;
 
 namespace web { class WebService; }
@@ -31,13 +45,14 @@ class WebApiController;
 
 /**
  * @brief 应用总控类（非GUI）
- * @details 从旧的 NewAntiDrone(QMainWindow) 中抽出业务逻辑部分
- *          负责初始化通信层、SystemBus、数据处理等核心服务
- *          不依赖 Qt Widgets，可在 headless 环境运行
+ * @details 该类不依赖 Qt Widgets，可在无界面环境运行。除 SystemBus 单例外，核心组件主要由
+ *          unique_ptr 持有；传给子组件的裸指针均为非拥有关系，生命周期由本类的成员声明顺序及
+ *          shutdown() 的显式停止顺序保证。
  *
  * 职责：
  * - 管理 CommunicationManager 生命周期
- * - 管理 RadarDataProcessor 生命周期（正向流解析/写库）
+ * - 管理 RadarDataProcessor 生命周期（正向流解析/发布）
+ * - 管理 TrackStorage 生命周期（独立有界归档分支）
  * - 管理 BusToCommRouter 生命周期（反向流路由）
  * - 周期性发送雷达数据包头 (DPH)
  * - 统一协调各层组件启动/停止
@@ -47,22 +62,33 @@ class AppController : public QObject
     Q_OBJECT
 
 public:
+    /**
+     * @brief 创建尚未初始化的应用组合根。
+     * @param[in] parent Qt 父对象；通常为空，由 QCoreApplication 所在作用域管理本对象。
+     * @note 构造函数不访问配置、数据库或网络，实际装配由 initialize() 完成。
+     */
     explicit AppController(QObject* parent = nullptr);
+    /** @brief 执行进程级关闭，并在所有订阅者退出后关闭 SystemBus。 */
     ~AppController() override;
 
     /**
-     * @brief 初始化核心服务
-     * @return 是否初始化成功
+     * @brief 按依赖顺序装配核心服务，但不打开通信端点。
+     * @details 依次初始化数据访问、通信对象、处理/路由管线、业务服务、设备与任务台账、航迹存储和
+     *          显示管理器。数据库不可用时允许部分功能降级；配置、通信对象或核心处理管线失败则返回失败。
+     * @return 全部不可降级的核心组件装配成功时返回 true。
+     * @post 成功后可调用 start() 打开采集链路，也可先调用 startWebService() 建立管理界面。
      */
     bool initialize();
 
     /**
-     * @brief 启动运行态（通信端点、DPH）
+     * @brief 打开全部通信端点并启动 50 ms DPH 周期发送，进入数据采集运行态。
+     * @note 可重复调用；已经运行时不重复打开端点或创建定时任务。
      */
     void start();
 
     /**
-     * @brief 停止运行态（通信端点、DPH）；保留总线订阅、Web、数据库
+     * @brief 停止数据采集运行态，同时保留总线订阅、Web 服务和数据库连接。
+     * @details 用于任务暂停或设备维护后的快速恢复；它与进程退出使用的 shutdown() 不同。
      */
     void stop();
 
@@ -108,8 +134,16 @@ public:
      */
     WebServiceResult startWebService(quint16 httpPort = 8088, quint16 wsPort = 8089);
 
+    /** @brief 返回当前持久化的 endpoints.json 根对象，不代表端点此刻一定已打开。 */
     QJsonObject endpointsConfigJson();
+    /**
+     * @brief 校验、热重载并持久化完整端点配置。
+     * @param[in] root 新的 endpoints.json 根对象。
+     * @param[out] errorOut 可选错误文本接收位置。
+     * @return 运行时重载和配置落盘均成功时返回 true；失败时尽量恢复旧运行时配置。
+     */
     bool updateEndpointsConfig(const QJsonObject& root, QString* errorOut = nullptr);
+    /** @brief 合并一个端点后复用完整配置更新事务，路径 id 与请求体 id 不一致时拒绝更新。 */
     bool updateEndpointConfig(const QString& id, const QJsonObject& endpoint, QString* errorOut = nullptr);
 
 private slots:
@@ -264,6 +298,7 @@ private:
     void wireTrackDisplayPipeline();
     void printStartupDiagnostics() const;
 
+    /** @brief stop() 的幂等实现，只关闭通信端点和 DPH 定时发送。 */
     void stopRuntime();
     /**
      * @brief 释放 AppController 持有的 Web/TrackDisplay/订阅等资源（幂等）。
@@ -273,28 +308,30 @@ private:
     void shutdown();
 
 private:
-    PipelineLatencyMonitor m_pipelineLatency;                       ///< 进程内分段时延聚合
-    QMap<QString, uint64_t> m_lastPersistedLatencyCounts;
-    QTimer* m_latencyPersistTimer = nullptr;
+    PipelineLatencyMonitor m_pipelineLatency;              ///< 聚合接收、处理、显示和发送链路的进程内单调时钟延时。
+    QMap<QString, uint64_t> m_lastPersistedLatencyCounts;  ///< 各阶段上次落库的样本数，用于跳过没有新样本的周期。
+    QTimer* m_latencyPersistTimer = nullptr;               ///< 由本对象作为 Qt parent 持有的指标落库定时器。
     ConfigManager m_configManager;                          ///< 配置管理器（数据访问层）
+    QJsonObject m_databaseConfig;                           ///< 已解析绝对路径的线程连接配置
     std::unique_ptr<DataStore> m_dataStore;                 ///< 数据存储（数据访问层）
     std::unique_ptr<CommunicationManager> m_commManager;    ///< 通信管理器
     std::unique_ptr<RadarDataProcessor> m_radarProcessor;   ///< 正向流处理器（阶段 A）
     std::unique_ptr<BusToCommRouter> m_busRouter;           ///< 反向流路由器（阶段 B）
-    std::unique_ptr<DphPublisher> m_dphPublisher;           ///< DPH 定时发送器（阶段 D3）
+    std::unique_ptr<DphPublisher> m_dphPublisher;           ///< 以配置周期发送协议大包头；默认周期为 50 ms。
     std::unique_ptr<IWorkModeCommandSender> m_workModeSender;    ///< 工作模式命令发送器
     std::unique_ptr<RadarWorkModeController> m_workModeController; ///< 工作模式状态机
     std::unique_ptr<DeviceRegistry> m_deviceRegistry;              ///< 设备台账
     std::unique_ptr<TaskService> m_taskService;                  ///< 任务台账
     std::unique_ptr<RuntimeSettingsService> m_runtimeSettings;      ///< 运行时参数
     std::unique_ptr<TrackDisplayManager> m_trackDisplayManager;      ///< 航迹显示管理
-    std::unique_ptr<TrackDisplayWebBridge> m_trackDisplayWebBridge;  ///< 航迹 snapshot 总线→WS
-    uint16_t m_reverseTargetDevice = DEVICE_RADAR_NH_KU_1;
-    bool m_dphEnabled = true;
-    bool m_running = false;
-    bool m_shutdown = false;
+    std::unique_ptr<TrackDisplayWebBridge> m_trackDisplayWebBridge;  ///< 航迹初始快照/增量总线→WS
+    std::unique_ptr<TrackStorage> m_trackStorage;                    ///< 有界异步航迹归档
+    uint16_t m_reverseTargetDevice = DEVICE_RADAR_NH_KU_1; ///< 反向命令默认目标设备类型。
+    bool m_dphEnabled = true;                              ///< processor.json 是否启用周期 DPH。
+    bool m_running = false;                                ///< 通信端点和 DPH 是否处于运行态。
+    bool m_shutdown = false;                               ///< 进程级关闭幂等闩锁；置位后不再重复释放资源。
 
-    std::unique_ptr<web::WebService> m_webService;       ///< HTTP/WS 服务
-    std::unique_ptr<WebApiController> m_webApi;           ///< REST 路由 + WS 消息组装
-    SubscriptionId m_runtimeSettingsSubId = 0;             ///< RuntimeSettings SystemBus 订阅 id
+    std::unique_ptr<web::WebService> m_webService;       ///< HTTP/WebSocket 传输服务；不拥有业务服务。
+    std::unique_ptr<WebApiController> m_webApi;          ///< REST 路由及状态推送适配层。
+    SubscriptionId m_runtimeSettingsSubId = 0;           ///< 运行参数变更到 DPH 的总线订阅；0 表示未订阅。
 };

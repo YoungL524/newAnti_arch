@@ -1,3 +1,9 @@
+/**
+ * @file taskLogsApi.ts
+ * @brief 查询与指定任务关联的结构化日志记录。
+ * @details 接口保留服务端时间、级别和设备归属字段，供任务复盘使用，不替代实时日志推送。
+ */
+
 import type { LogEntry } from './protocol'
 
 interface TaskLogsResponse {

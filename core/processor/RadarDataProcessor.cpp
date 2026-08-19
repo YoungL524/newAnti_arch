@@ -2,23 +2,24 @@
 #include "CommunicationManager.h"
 #include "DeviceRegistry.h"
 #include "TaskService.h"
-#include "DataStore.h"
 #include "SystemBus.h"
 #include "log/LogContext.h"
 #include "metrics/MonotonicClock.h"
 #include "metrics/PipelineLatencyMonitor.h"
+#include "TrackPacketMapper.h"
 
 #include <QDateTime>
 #include <QDebug>
-#include <QVariantMap>
 #include <cstring>
 
+/**
+ * @brief 绑定通信层的原始报文信号，使解析工作在本对象所在线程串行执行。
+ * @details Qt 自动连接会根据两个 QObject 的线程亲和性选择直接或队列投递；构造时不打开端点。
+ */
 RadarDataProcessor::RadarDataProcessor(CommunicationManager* commManager,
-                                       DataStore* dataStore,
                                        QObject* parent)
     : QObject(parent)
     , m_commManager(commManager)
-    , m_dataStore(dataStore)
 {
     Q_ASSERT(m_commManager != nullptr);
 
@@ -26,42 +27,44 @@ RadarDataProcessor::RadarDataProcessor(CommunicationManager* commManager,
     connect(m_commManager, &CommunicationManager::dataReceived,
             this, &RadarDataProcessor::onCommDataReceived);
 
-    // 定期 flush 定时器：即使数据流低于阈值也不会饿死
-    m_flushTimer = new QTimer(this);
-    connect(m_flushTimer, &QTimer::timeout, this, &RadarDataProcessor::flushTracks);
-    m_flushTimer->start(kFlushIntervalMs);
-
     qDebug() << QStringLiteral("[RadarDataProcessor] 已创建，订阅 CommunicationManager::dataReceived");
 }
 
+/**
+ * @brief 注入端点到业务设备的热路径映射服务，不转移所有权。
+ */
 void RadarDataProcessor::setDeviceRegistry(DeviceRegistry* reg)
 {
     m_deviceReg = reg;
 }
 
+/**
+ * @brief 注入接收时设备到活动任务的归属解析服务，不转移所有权。
+ */
 void RadarDataProcessor::setTaskService(TaskService* taskService)
 {
     m_taskService = taskService;
 }
 
+/**
+ * @brief 注入可选分段延时采集器；为空时关闭精细阶段指标但不影响处理链路。
+ */
 void RadarDataProcessor::setLatencyMonitor(PipelineLatencyMonitor* latencyMonitor)
 {
     m_latencyMonitor = latencyMonitor;
 }
 
+/** @brief 输出生命周期累计处理量；依赖服务由 AppController 负责在本对象之后释放。 */
 RadarDataProcessor::~RadarDataProcessor()
 {
-    // 析构前确保缓冲数据落盘
-    if (m_flushTimer) {
-        m_flushTimer->stop();
-    }
-    flushTracks();
-
-    qDebug() << QStringLiteral("[RadarDataProcessor] 销毁：共处理 GeneralPackage=%1, 写入 tracks=%2")
-                .arg(m_generalPackageCount)
-                .arg(m_trackInsertCount);
+    qDebug() << QStringLiteral("[RadarDataProcessor] 销毁：共处理 GeneralPackage=%1")
+                .arg(m_generalPackageCount);
 }
 
+/**
+ * @brief 建立协议端点到 DeviceType 的显式来源映射，供 DataPacket.sourceType 使用。
+ * @details 同一 endpointId 重复登记会覆盖旧值；业务 deviceId 由 DeviceRegistry 独立解析。
+ */
 void RadarDataProcessor::registerEndpointSource(const QString& endpointId,
                                                 uint16_t sourceType)
 {
@@ -70,6 +73,9 @@ void RadarDataProcessor::registerEndpointSource(const QString& endpointId,
                 .arg(endpointId).arg(sourceType);
 }
 
+/**
+ * @brief 查询端点的协议来源类型；未登记端点明确返回 DEVICE_UNKNOWN。
+ */
 uint16_t RadarDataProcessor::resolveSourceType(const QString& endpointId) const
 {
     const auto it = m_endpointSourceMap.find(endpointId);
@@ -79,6 +85,11 @@ uint16_t RadarDataProcessor::resolveSourceType(const QString& endpointId) const
     return it.value();
 }
 
+/**
+ * @brief 以固定协议结构尺寸识别完整 UDP 报文，并统计合法包的入口处理延时。
+ * @details 只接受与 GeneralPackage 或 workStandby 完全等长的报文，避免部分包和版本漂移被误解析；
+ *          未知长度给出与已知结构的近似诊断。只有已识别包进入延时统计。
+ */
 void RadarDataProcessor::onCommDataReceived(const QString& endpointId,
                                             const QByteArray& data,
                                             qint64 receivedMs,
@@ -131,6 +142,11 @@ void RadarDataProcessor::onCommDataReceived(const QString& endpointId,
     }
 }
 
+/**
+ * @brief 把厂家总包转换为带设备/任务归属的已识别权威航迹，并只发布一次。
+ * @details 先从内存缓存解析归属并记录 Decode 延时，再生成 traceId 和标准字段；识别失败时不发布。
+ *          成功后使用 shared_ptr<const TrackPacket> 让显示与存储分支共享同一不可变事实。
+ */
 void RadarDataProcessor::handleGeneralPackage(const QString& endpointId,
                                               const GeneralPackage& gp,
                                               qint64 receivedMs,
@@ -157,56 +173,37 @@ void RadarDataProcessor::handleGeneralPackage(const QString& endpointId,
 
     LogContext::Scope logScope(deviceId, taskId);
 
-    // 1) 缓冲航迹，攒批写入（仅归属当前 active task 的设备）
-    if (m_dataStore && m_dataStore->isConnected()) {
-        if (!taskId.isEmpty()) {
-            bufferTrack(receivedMs, endpointId, deviceId, taskId, tgt, sceneNum);
-        } else {
-            ++m_trackArchiveSkipCount;
-            if (m_trackArchiveSkipCount == 1 || m_trackArchiveSkipCount % 100 == 0) {
-                qDebug() << QStringLiteral("[RadarDataProcessor] 不属于当前任务，跳过归档 endpoint=%1 device=%2 skipped=%3")
-                            .arg(endpointId, deviceId.isEmpty() ? QStringLiteral("(未映射)") : deviceId)
-                            .arg(m_trackArchiveSkipCount);
-            }
-        }
+    // 厂家协议直接映射成标准航迹，完成同步识别后只发布一次。
+    TrackPacketSourceContext context;
+    context.traceId = ++m_traceSequence;
+    context.endpointId = endpointId;
+    context.deviceId = deviceId;
+    context.taskId = taskId;
+    context.receivedAtMs = receivedMs;
+    context.ingressSteadyNs = receivedSteadyNs;
+    context.normalizedSteadyNs = normalizedSteadyNs;
+    context.sceneNumber = sceneNum;
+
+    TrackPacket track = mapGeneralPackageToTrackPacket(gp, context);
+    if (!m_trackRecognizer.recognize(track)) {
+        qWarning() << QStringLiteral("[RadarDataProcessor] 航迹识别失败, traceId=%1 trackId=%2")
+                      .arg(track.traceId).arg(track.trackId);
+        return;
     }
 
-    // 2) 发布到 SystemBus，供 UI 等订阅
+    auto sharedTrack = std::make_shared<const TrackPacket>(std::move(track));
     DataPacket packet;
     packet.sourceType     = resolveSourceType(endpointId);
-    packet.dispatchTarget = UI_OUTPUTWIDGET;
+    packet.dispatchTarget = DISPATCH_TRACK_DISPLAY_MANAGER;
     packet.packetSequence = ++m_sequence;
     packet.timeStamp      = static_cast<uint64_t>(receivedMs);
-    packDataToPayload(packet, gp);
+    packet.traceId        = sharedTrack->traceId;
+    packet.command        = DataCommand::Track;
+    packet.payload        = std::move(sharedTrack);
 
     if (!SystemBus::getInstance().publish(std::move(packet))) {
-        qWarning() << QStringLiteral("[RadarDataProcessor] 发布 GeneralPackage 到总线失败, seq=%1")
+        qWarning() << QStringLiteral("[RadarDataProcessor] 发布标准航迹到总线失败, seq=%1")
                       .arg(m_sequence);
-    }
-
-    // 3) 输出业务 TrackPoint（供 TrackDisplayManager / 全量 snapshot 使用）
-    if (!deviceId.isEmpty()) {
-        TrackPoint pt;
-        pt.traceId       = ++m_traceSequence;
-        pt.ingressSteadyNs = receivedSteadyNs;
-        pt.normalizedSteadyNs = normalizedSteadyNs;
-        pt.deviceId     = deviceId;
-        pt.taskId       = taskId;
-        pt.trackId      = tgt.TargetID;
-        pt.timestampMs  = receivedMs;
-        pt.range        = tgt.Range;
-        pt.azimuth      = tgt.Azimuth;
-        pt.elevation    = tgt.Elevation;
-        pt.radialSpeed  = tgt.RadialSpeed;
-        pt.rcs          = tgt.RCS;
-        pt.altitude     = tgt.Altitude;
-        pt.x            = tgt.x;
-        pt.y            = tgt.y;
-        pt.z            = tgt.z;
-        pt.sceneNumber  = sceneNum;
-        emit trackPointReady(pt);
-    } else if (m_deviceReg) {
-        qDebug() << "[RadarDataProcessor] endpointId" << endpointId << "未绑定雷达业务设备，跳过 TrackPoint";
     }
 
     // 低频采样打印，避免刷屏
@@ -220,6 +217,10 @@ void RadarDataProcessor::handleGeneralPackage(const QString& endpointId,
     }
 }
 
+/**
+ * @brief 同时把雷达工作模式回显送入状态机和 SystemBus 诊断链路。
+ * @details radarWorkModeEcho 用于结束命令等待状态；DataPacket 允许其他订阅者观察同一回显。
+ */
 void RadarDataProcessor::handleWorkStandby(const QString& endpointId,
                                            const workStandby& cmd,
                                            qint64 receivedMs)
@@ -242,58 +243,4 @@ void RadarDataProcessor::handleWorkStandby(const QString& endpointId,
         qWarning() << QStringLiteral("[RadarDataProcessor] 发布 workStandby 到总线失败, seq=%1")
                       .arg(m_sequence);
     }
-}
-
-void RadarDataProcessor::bufferTrack(qint64 tsMs,
-                                     const QString& endpointId,
-                                     const QString& deviceId,
-                                     const QString& taskId,
-                                     const TargetType& tgt,
-                                     uint32_t sceneNum)
-{
-    QVariantMap row;
-    row.insert(QStringLiteral("ts_ms"),        tsMs);
-    row.insert(QStringLiteral("source"),       endpointId);
-    row.insert(QStringLiteral("task_id"),      taskId);
-    row.insert(QStringLiteral("device_id"),    deviceId);
-    row.insert(QStringLiteral("scene_num"),    sceneNum);
-    row.insert(QStringLiteral("target_id"),    tgt.TargetID);
-    row.insert(QStringLiteral("range_m"),      tgt.Range);
-    row.insert(QStringLiteral("azimuth_rad"),  tgt.Azimuth);
-    row.insert(QStringLiteral("elevation_rad"),tgt.Elevation);
-    row.insert(QStringLiteral("radial_speed"), tgt.RadialSpeed);
-    row.insert(QStringLiteral("altitude_m"),   tgt.Altitude);
-    row.insert(QStringLiteral("x"),            tgt.x);
-    row.insert(QStringLiteral("y"),            tgt.y);
-    row.insert(QStringLiteral("z"),            tgt.z);
-
-    m_trackBuffer.append(std::move(row));
-    ++m_trackArchiveCount;
-    if (m_trackArchiveCount == 1 || m_trackArchiveCount % 50 == 0) {
-        qDebug() << QStringLiteral("[RadarDataProcessor] 航迹归属 task=%1 device=%2 endpoint=%3 archived=%4")
-                    .arg(taskId, deviceId, endpointId)
-                    .arg(m_trackArchiveCount);
-    }
-
-    // 达到阈值 → 立即 flush
-    if (m_trackBuffer.size() >= kFlushThreshold) {
-        flushTracks();
-    }
-}
-
-void RadarDataProcessor::flushTracks()
-{
-    if (m_trackBuffer.isEmpty() || !m_dataStore || !m_dataStore->isConnected()) {
-        return;
-    }
-    const auto batch = m_trackBuffer;   // 先拷贝，不直接用成员
-    const int n = batch.size();
-    if (m_dataStore->insertBatch(QStringLiteral("tracks"), batch)) {
-        m_trackInsertCount += n;
-        m_trackBuffer.clear();
-        qDebug() << QStringLiteral("[RadarDataProcessor] 批量写入 tracks: %1 条").arg(n);
-    } else {
-        qWarning() << QStringLiteral("[RadarDataProcessor] 批量写入 tracks 失败: %1 条").arg(n);
-    }
-    
 }

@@ -9,6 +9,13 @@
 
 #include <cstring>
 
+/**
+ * @brief 将工作/待机模式编码为总线 DataPacket 并发布给目标雷达设备。
+ * @param deviceId 目标设备标识，用于总线路由选择。
+ * @param mode 协议定义的工作待机值，当前 1 表示工作、0 表示待机。
+ * @return 载荷装入数据包且总线接受发布时为 true；编码或发布失败时为 false。
+ * @details 本机经纬高字段目前保持与旧链路一致的零值占位，后续应由 RuntimeSettings 的稳定快照提供。
+ */
 bool BusWorkModeSender::sendWorkMode(uint16_t deviceId, uint32_t mode)
 {
     workStandby cmd;

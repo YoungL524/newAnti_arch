@@ -12,6 +12,10 @@
 #include "log/Logger.h"
 
 #ifdef Q_OS_WIN
+/**
+ * @brief 将 Windows 控制台的输入、输出代码页切换为 UTF-8。
+ * @details 必须在首次输出 Qt 日志之前调用，否则中文横幅和诊断信息可能按系统本地代码页显示为乱码。
+ */
 static void configureWindowsConsoleEncoding()
 {
     SetConsoleOutputCP(65001);
@@ -19,6 +23,10 @@ static void configureWindowsConsoleEncoding()
 }
 #endif
 
+/**
+ * @brief 输出核心进程名称和版本横幅。
+ * @details 横幅经 Qt 日志系统输出，因此既出现在控制台，也进入当日日志文件。
+ */
 static void printBanner()
 {
     qDebug() << QStringLiteral("========================================");
@@ -26,6 +34,10 @@ static void printBanner()
     qDebug() << QStringLiteral("========================================");
 }
 
+/**
+ * @brief 输出雷达工作模式的命令行操作说明。
+ * @details 列出工作、待机、帮助和退出命令，并说明 DPH 周期发送与雷达航迹上报之间的关系。
+ */
 static void printUsage()
 {
     qDebug() << QStringLiteral("\n========================================");
@@ -43,6 +55,13 @@ static void printUsage()
     qDebug() << QStringLiteral("========================================\n");
 }
 
+/**
+ * @brief 将一行控制台输入转换为工作模式命令或进程控制命令。
+ * @param controller 已完成初始化的应用控制器，用于取得工作模式控制器。
+ * @param input 已去除首尾空白的命令文本；命令名称不区分大小写。
+ * @details `work`、`standby` 只发起模式请求，不直接操作通信端点；控制器未就绪时记录告警。
+ *          `quit` 通过 Qt 事件循环发起退出，以便 `aboutToQuit` 回调完成有序停机。
+ */
 static void handleConsoleCommand(AppController& controller, const QString& input)
 {
     const QString cmd = input.toLower();
@@ -64,6 +83,14 @@ static void handleConsoleCommand(AppController& controller, const QString& input
     }
 }
 
+/**
+ * @brief 组装并运行 NewAntiDrone 核心进程。
+ * @param argc 命令行参数个数。
+ * @param argv 命令行参数数组。
+ * @return 事件循环退出码；应用控制器初始化失败时返回 1。
+ * @details 启动顺序为日志系统、核心控制器、Web 服务和标准输入线程。退出时先停止核心运行时，
+ *          再终止并等待输入线程，避免通信、定时任务或后台输入在对象析构期间继续访问资源。
+ */
 int main(int argc, char *argv[])
 {
 #ifdef Q_OS_WIN
@@ -115,4 +142,3 @@ int main(int argc, char *argv[])
 
     return app.exec();
 }
-

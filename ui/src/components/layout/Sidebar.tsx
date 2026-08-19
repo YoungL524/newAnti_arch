@@ -1,3 +1,9 @@
+/**
+ * @file Sidebar.tsx
+ * @brief 提供任务创建、设备管理和主要业务页面的侧边导航。
+ * @details 组件根据核心可用性和任务状态控制入口是否可操作，具体对话框与命令由上层回调执行。
+ */
+
 import { useEffect, useMemo, useState } from 'react'
 import type { RadarDevice, SubDevice, AppDevice, RadarFace, RadarBrand } from '../map/types'
 import { BRAND_LABELS, BRAND_OPTIONS } from '../map/types'
@@ -46,6 +52,7 @@ type FormKind = 'radar' | 'opto' | 'level' | 'gps'
 
 const RADAR_DEFAULTS: Omit<RadarDevice, 'id'> = {
   name: '', brand: 'YHF', lng: 118.6, lat: 31.9, altitude: 0,
+  pitch: 0, roll: 0,
   maxRange: 5,
   faces: [{ label: 'A', boresightAzimuth: 0, scanAngle: 45, active: true }],
 }
@@ -408,13 +415,19 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                           <input type="number" placeholder="距离km" style={inputStyle}
                             value={radarForm.maxRange} onChange={e => setRadarForm({ ...radarForm, maxRange: Number(e.target.value) })} />
                         </div>
+                        <div className="grid grid-cols-2 gap-1">
+                          <input type="number" step="any" min="-90" max="90" placeholder="俯仰°" style={inputStyle}
+                            value={radarForm.pitch} onChange={e => setRadarForm({ ...radarForm, pitch: Number(e.target.value) })} />
+                          <input type="number" step="any" min="-180" max="180" placeholder="横滚°" style={inputStyle}
+                            value={radarForm.roll} onChange={e => setRadarForm({ ...radarForm, roll: Number(e.target.value) })} />
+                        </div>
 
                         {/* Face config table */}
                         <div className="text-[9px] font-semibold mt-1" style={{ color: 'var(--secondary)' }}>阵面配置</div>
                         {radarForm.faces.map((face, fi) => (
                           <div key={fi} className="grid grid-cols-[auto_1fr_1fr_auto] gap-1 items-center">
                             <span className="text-[9px] font-medium" style={{ color: 'var(--ink)', minWidth: 16 }}>{face.label}</span>
-                            <input type="number" step="any" placeholder="朝向°" style={inputStyle}
+                            <input type="number" step="any" placeholder="绝对朝向°" style={inputStyle}
                               value={face.boresightAzimuth} onChange={e => updateFaceInForm(fi, 'boresightAzimuth', Number(e.target.value))} />
                             <input type="number" step="any" placeholder="范围°" style={inputStyle}
                               value={face.scanAngle} onChange={e => updateFaceInForm(fi, 'scanAngle', Number(e.target.value))} />

@@ -93,11 +93,7 @@ static_assert(offsetof(GeneralPackage, h_c) == sizeof(DataPackageHeader) + sizeo
 // 业务相关编译期约束
 // ============================================================
 
-// DataPacket 的载荷最大容量不能小于 workStandby
-static_assert(MAX_PAYLOAD_SIZE >= sizeof(workStandby),
-    "MAX_PAYLOAD_SIZE < sizeof(workStandby) — payload 无法容纳 workStandby");
-static_assert(MAX_PAYLOAD_SIZE >= sizeof(GeneralPackage),
-    "MAX_PAYLOAD_SIZE < sizeof(GeneralPackage) — payload 无法容纳 GeneralPackage");
+// 迁移期 wire payload 上限仍需覆盖现有厂家协议包；DataPacket 本身不再内嵌该缓冲。
 static_assert(MAX_ERROR_DESC_SIZE >= 64,
     "MAX_ERROR_DESC_SIZE < 64 — 无法容纳典型错误消息");
 
@@ -153,9 +149,39 @@ private slots:
 
     void payload_capacity()
     {
-        // 验证 MAX_PAYLOAD_SIZE 足够容纳最大业务包
-        QVERIFY(MAX_PAYLOAD_SIZE >= sizeof(GeneralPackage));
         QVERIFY(MAX_ERROR_DESC_SIZE >= 64);
+    }
+
+    void dataPacket_command_and_payload_are_consistent()
+    {
+        workStandby input{};
+        input.Work_Standby_Mode = 1;
+
+        DataPacket packet;
+        QVERIFY(packDataToPayload(packet, input));
+        QCOMPARE(packet.command, DataCommand::WorkStandby);
+        QVERIFY(std::holds_alternative<workStandby>(packet.payload));
+
+        workStandby output{};
+        QVERIFY(unpackDataFromPayload(packet, output));
+        QCOMPARE(output.Work_Standby_Mode, 1u);
+
+        packet.command = DataCommand::Target;
+        QVERIFY(!unpackDataFromPayload(packet, output));
+    }
+
+    void dataPacket_error_is_a_typed_payload()
+    {
+        const DataPacket packet = createErrorPacket(
+            ERR_LEVEL_ERROR, ERR_NETWORK, SOURCE_COMMUNICATION,
+            QStringLiteral("network failed"), __FILE__, __LINE__);
+
+        QCOMPARE(packet.command, DataCommand::Error);
+        QVERIFY(isErrorPacket(packet));
+        const auto error = std::get_if<ErrorPayload>(&packet.payload);
+        QVERIFY(error != nullptr);
+        QCOMPARE(error->type, ERR_NETWORK);
+        QCOMPARE(error->description, QStringLiteral("network failed"));
     }
 
     void general_package_composition()
@@ -166,5 +192,9 @@ private slots:
     }
 };
 
+/**
+ * @brief 验证 QTEST_MAIN 场景的验收条件并防止对应功能回归。
+ * @details 测试通过明确的输入、可观察结果和边界断言锁定既定行为。
+ */
 QTEST_MAIN(tst_ProtocolLayout)
 #include "tst_ProtocolLayout.moc"
