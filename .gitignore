@@ -1,0 +1,9 @@
+/build*/
+/.cache/
+/.vscode/
+*.user
+*.autosave
+/ui/node_modules/
+/ui/dist/
+/ui/.env
+/ui/*.tsbuildinfo

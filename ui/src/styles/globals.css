@@ -1,0 +1,161 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --canvas: #f9faf7;
+  --surface: #f9faf7;
+  --surfaceCard: #ffffff;
+  --surfaceHigh: #e7e8e6;
+  --surfaceLow: #f3f4f1;
+  --surfaceContainer: #edeeeb;
+  --surfaceDim: #d9dad7;
+  --primary: #003527;
+  --primaryBright: #064e3b;
+  --primaryContainer: #064e3b;
+  --onPrimary: #ffffff;
+  --onPrimaryContainer: #80bea6;
+  --ink: #191c1b;
+  --body: #191c1b;
+  --secondary: #575e70;
+  --hairline: #bfc9c3;
+  --hairlineStrong: #707974;
+  --outlineVariant: #bfc9c3;
+  --outline: #707974;
+  --onSurfaceVariant: #404944;
+  --error: #ba1a1a;
+  --errorContainer: #ffdad6;
+  --targetGrep: #16a34a;
+  --targetRead: #2563eb;
+  --targetThinking: #ca8a04;
+  --emeraldSubtle: rgba(16, 185, 129, 0.1);
+  --tertiary: #003623;
+  --tertiaryContainer: #004f34;
+  --glassBg: rgba(255, 255, 255, 0.45);
+  --glassBorder: rgba(255, 255, 255, 0.3);
+  --stone200: #E5E7E2;
+}
+
+.glass-panel {
+  background: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.04);
+}
+
+.precision-shadow {
+  box-shadow: 0 4px 20px -2px rgba(0, 53, 39, 0.03), 0 2px 8px -1px rgba(0, 53, 39, 0.02);
+}
+
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  vertical-align: middle;
+}
+
+.map-gradient-overlay {
+  background: radial-gradient(circle at center, transparent 0%, rgba(249, 250, 247, 0.2) 100%);
+  pointer-events: none;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: 'Inter', 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  font-size: 14px;
+  background-color: var(--canvas);
+  color: var(--body);
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--hairlineStrong);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--secondary);
+}
+
+input[type=range] {
+  -webkit-appearance: none;
+  width: 100%;
+  background: transparent;
+  margin: 0;
+  padding: 0;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  height: 12px;
+  width: 12px;
+  border-radius: 50%;
+  background: var(--primaryBright);
+  cursor: pointer;
+  margin-top: -4px;
+}
+input[type=range]::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 4px;
+  cursor: pointer;
+  background: var(--hairline);
+  border-radius: 2px;
+}
+
+/* Amap logo hide (best-effort) */
+.amap-logo {
+  display: none !important;
+}
+.amap-copyright {
+  display: none !important;
+}
+
+@keyframes marker-ping {
+  0%, 100% { transform: scale(1); opacity: 0.6; }
+  50% { transform: scale(1.5); opacity: 0.2; }
+}
+
+@keyframes alert-flash {
+  0%   { background-color: transparent; }
+  15%  { background-color: rgba(239,68,68,0.18); }
+  30%  { background-color: transparent; }
+  45%  { background-color: rgba(239,68,68,0.12); }
+  60%  { background-color: transparent; }
+  75%  { background-color: rgba(239,68,68,0.06); }
+  100% { background-color: transparent; }
+}
+
+.animate-alert-flash {
+  animation: alert-flash 1.2s ease-in-out;
+}
+

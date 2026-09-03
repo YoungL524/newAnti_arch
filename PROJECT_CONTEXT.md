@@ -100,7 +100,7 @@ newAnti_arch/
 │  ├─ processor/                  Mapper、同步识别和轻量一对一流水线
 │  ├─ control/                    DeviceController、Task owner、每设备命令 FIFO
 │  ├─ readers/
-│  │  ├─ display/                 DisplayReader 和显示投影
+│  │  ├─ web/                     WebReader 和浏览器序列化边界
 │  │  ├─ storage/                 StorageReader
 │  │  ├─ web/                     WebReader 和 WebBridge
 │  │  └─ plugin/                  PluginReader 与插件能力边界
@@ -108,7 +108,7 @@ newAnti_arch/
 │  ├─ metrics/                    Topic 水位、cursor lag、gap 和时延指标
 │  └─ main.cpp
 ├─ tests/                         新架构单元、集成、压力和耐久测试
-├─ tools/                         test_comm、协议抓包和数据生成工具
+├─ tools/                         协议抓包和数据生成工具（按真实需要新增）
 ├─ ui/                            React 前端；可在后端基座稳定后迁入
 └─ doc/                           architecture、contracts、migration、test、decisions
 ```
@@ -194,22 +194,24 @@ RadarWorkModeController
 - `RadarWorkModeController` 当前超时可能把 Starting/Stopping 乐观推进到 Working/Standby；新控制平面禁止无 ACK 伪成功。
 - `DataPacket/SystemBus` 仍承担显示、存储、Web、参数、错误和命令用途，不能一次性删除。
 - 当前存储链是中央 FIFO 加存储 FIFO 两级排队。
-- 当前只存在可用 `TrackPacket`；`PointPacket`、`OpticalPacket`、Device/Task/System State 和统一 SystemEvent 需要真实合同后再实现。
-- 系统统一度量衡文档尚需补齐，特别是坐标系、绝对航向、俯仰、横滚、时间基准和高度定义。
-- 新共享数据域接口目前只完成架构文档，生产代码尚未实现。
+- 当前存在可用 `TrackPacket` 和统一 `SystemEvent`；上位机不存在独立点迹链，禁止实现
+  `PointPacket/PointTopic`。`OpticalPacket` 与 Device/Task/System State 仍须等待真实合同。
+- 统一度量衡与 TrackPacket 字段合同已在新仓库冻结；厂家 RCS 单位、Altitude 垂直基准、径向速度原始符号和时间同步能力仍需协议证据确认。
+- `HistoryTopic` 已迁移为构造期预分配的内嵌槽位，Reader 使用固定 `TopicScratchBuffer`；
+  WebReader 已接入共享 ExecutionLane，不再保存每 Reader 调度合并状态。
 
 ## 9. 新仓库第一阶段实施顺序
 
-1. 建立 CMake、Qt 5.14.2/C++17、测试入口和 `core/datadomain/` 目录；
-2. 实现 `TopicTypes`、非模板 `TopicDoorbell`、`HistoryTopic<T>`、`LatestState<T>`、`EventTopic<T>`；
-3. 用 `HistoryTopic<TrackPacket>` 完成容量覆盖、`latest()`、分页 `readAfter()`、Gap/Ahead、多 cursor、共享只读对象和 Doorbell 测试；
-4. 建立最小通信入口和严格 `RadarProtocolAdapter`，同步调用 Mapper 与 Recognizer；
-5. 实现 `DisplayReader`，维护每 Topic cursor 和显示投影；
-6. 实现 `StorageReader`，数据库 commit 成功后推进 committed cursor；
-7. 实现 `DeviceController` 与每设备命令 FIFO，再迁移 ACK/状态/Event；
-8. 最后迁移 Web、插件、DPH、历史查询和其他分支。
+1. 定义数值型 `EndpointId/DeviceId/TaskId/AcquisitionId`；
+2. 重写紧凑定长 `SampleMeta/TrackPacket/TrackKey` 合同；
+3. 用 `sizeof`、字段偏移和复制基准验证布局；（已完成）
+4. 将 `HistoryTopic` 改为内嵌预分配槽位和调用方固定 ScratchBuffer；（已完成）
+5. 实现使用原子 pending bitmask 的合并唤醒 `ExecutionLane`；（已完成）
+6. 简化当时的 `TrackDisplayReader`，删除其 `scheduled/running/requestedWatermark` 调度状态；（历史步骤，后因只保留 Web 前端而删除该类）
+7. 完成持续发布、慢 Consumer、gap、内存上限和运行期分配测试；
+8. 在该基线稳定后再接入协议、归档、Command、Web 和插件分支。
 
-第一阶段不要创建空 `PointPacket/OpticalPacket/State/Event` 只为让架构图可编译，也不要复制旧 `core/bus/` 作为过渡基础。
+第一阶段禁止创建 `PointPacket/PointTopic`；不要创建空 `OpticalPacket/State/Event` 只为让架构图可编译，也不要复制旧 `core/bus/` 作为过渡基础。
 
 ## 10. 第一阶段 Topic 验收标准
 
@@ -219,10 +221,10 @@ RadarWorkModeController
 - cursor 大于当前 newest 时返回 `Ahead`，不能永久空等；
 - 两个 Reader 使用不同 cursor，互不修改、互不阻塞；
 - 读取不从 Topic 删除数据；
-- 多 Reader 得到同一个不可变业务对象，只复制只读句柄；
+- Topic 使用预分配内嵌槽位；Reader 只复制到固定、可复用 ScratchBuffer，不持有槽位地址；
 - `LatestState` 连续 set 只保留最后完整值，revision 单调；
 - `EventTopic` 顺序读取并准确报告覆盖 gap，不暴露会误导状态语义的 `latest()`；
-- Doorbell 不携带业务数据，合并通知后版本不倒退；
+- Doorbell 不携带业务数据；突发更新由 ExecutionLane 合并，同一 Lane 最多保留一个待执行 Qt 唤醒；
 - Reader 阻塞或数据库失败时 Producer 仍可继续覆盖 RingBuffer；
 - 所有共享结构使用有界容量，锁内不执行 GUI、数据库、Web 或插件业务。
 
@@ -246,3 +248,48 @@ RadarWorkModeController
 - 前端生产构建：`tsc -b && vite build` 通过。
 
 以上结果证明旧版在自动化覆盖范围内可编译、可测试，可作为新架构迁移的行为对照基线；它不等同于四设备实机并发、真实厂家报文联试或 7×24 小时耐久验收。旧仓库冻结后只用于查阅、差异比较和必要回退，不再承接新架构开发。
+
+## 13. 新仓库当前实施进度
+
+- 已实现 Qt 5.14.2/C++17/CMake/QtTest 构建骨架；
+- 已实现内嵌预分配语义的 `HistoryTopic<T>`、`TopicScratchBuffer<T>`、`TopicDoorbell` 和基础测试；
+- 已验证有界覆盖、Gap/Ahead、多 Reader 和 Doorbell 行为；HistoryTopic 内嵌预分配槽位、Reader 固定
+  ScratchBuffer 和 ExecutionLane pending bitmask 合并唤醒均已落地；
+- 已建立一键 Doxygen 审计、构建和 CTest 基线脚本；
+- 已冻结 `doc/contracts/统一单位坐标时间契约.md` 与 `doc/contracts/TrackPacket契约.md`；
+- 已实现 `SampleMeta`、真实 `TrackPacket/TrackKey`、`CoreDataDomain::trackTopic` 与 `TrackPublisher` 发布前门禁；
+- 已定义零额外存储开销的强类型 `EndpointId/DeviceId/TaskId/AcquisitionId`，并完成紧凑
+  `SampleMeta/TrackPacket/TrackKey` 迁移；FaceId 已因与 DeviceId 重复而删除；
+- 当前 MinGW x64 实测 `SampleMeta/TrackPacket/TrackKey` 分别为 48/72/16 字节，角度、抵近正速度和厂家
+  double 幅值门禁已由测试冻结；
+- 已确认产品不提供 Qt 原生地图，原 `TrackDisplayReader` 及其专属测试已删除；实时显示唯一出口为
+  `TrackWebSocketService -> React`，避免两套显示派生状态并存；
+- 已删除没有真实来源的局部三轴位置/速度和 RFU 临时显示结构，复杂度预算已写入 `AGENTS.md`；
+- 已冻结 `SystemEvent` 错误模型合同，实现 56 字节定长事实、Device/Track/System/Control 首批稳定事件码、
+  `SystemEventPublisher` 发布门禁及 `CoreDataDomain::eventTopic`；四类事件共享同一 sequence 空间；
+- 已增加实时链路压力验收：10 万条单 Producer/独立 cursor Reader 并发运行并最终追平；慢 Consumer 在
+  ScratchBuffer 上停顿时 Producer 仍完成额外 1 万条发布，随后精确报告覆盖 gap；
+- 4096 条 TrackTopic 槽位与 256 条显示 ScratchBuffer 当前合计 557056 字节（544 KiB），低于冻结的
+  600 KiB 有效槽位预算，地址和容量在运行期保持不变；
+- 四线程向八个 ExecutionLane slot 发出的 16 万次请求合并为一个初始 Qt 唤醒，证明唤醒数量不随请求数增长；
+- 已实现 `core/archive/ArchiveReader`：Track/Event 共用一个存储 Lane slot，但分别维护 committed cursor、
+  固定 ScratchBuffer、gap 与提交失败计数；一个 Topic 提交失败不阻止另一个 Topic；
+- 已定义 `IArchiveRepository` 强类型同步事务端口，只有整批提交成功后 Reader 才推进对应 cursor；当前使用
+  Fake Repository 完成回归验证，具体 SQLite/文件实现及表结构尚未冻结；
+- 已形成 `doc/contracts/归档数据库契约.md` 设计草案：建议第一版采用 SQLite 单文件、WAL、单存储写连接、
+  强类型事实表和稳定实体外键；保留期限、磁盘上限及是否全量保存 50 ms 观测仍待用户确认；
+- 当前上位机不存在独立点迹链；光学与 State 只有真实合同形成后才能加入数据域；
+- 已从冻结旧仓库提取雷达真实上行线缆布局：`GeneralPackage=1025 B`、`DataPackageHeader=768 B`、
+  `TargetType=144 B`、航迹区偏移 836；当前协议只存在握手字和声明长度，没有包尾或 CRC 字段；
+- 曾以旧设备 1025 字节报文完成 `UDP -> ProtocolAdapter -> TrackPublisher -> trackTopic` 端到端验证；
+  浏览器确认航迹正常显示后，旧协议结构、UDP Producer、模拟器及专属测试已按决策删除；
+- 已迁移旧 React UI 源码并通过 2 个 Vitest 文件 8/8 用例及生产构建；`.env` 密钥与 tsbuildinfo 未迁移；
+- UI 目前是复用基线而非已接通的新后端：REST/WebSocket owner、`acquisitionId` 实时键和最终显示投影的收敛项见
+  `doc/migration/旧UI迁移与新后端对接清单.md`；其中 `acquisitionId` Web 键和首版 WebReader 已完成；
+- 已实现 `TrackWebSocketService` 独立 cursor、固定 ScratchBuffer、ExecutionLane 合并唤醒、每航迹 20 点尾迹与
+  256 目标容量上限；新连接取 snapshot，稳态取 upsert/removal delta；
+- 已增加协议无关的真实 QWebSocket 回归：直接发布标准 TrackPacket，验收初始 snapshot、增量字段、独立
+  cursor 不消费共享历史、目标容量淘汰 removal 以及新客户端当前态快照；
+- 进程级联试及用户目视验收已证明 WebSocket snapshot/delta 能驱动 React 地图正常显示；
+- 下一步等待正式设备协议后新增边界 Adapter，并由 DeviceConfigService/TaskService 正式 owner 提供 HTTP 视图，
+  继续实现 Command 控制平面；不得为兼容旧 UI 恢复 DataPacket/SystemBus 或制造第二条航迹链。

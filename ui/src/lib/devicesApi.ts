@@ -1,0 +1,150 @@
+/**
+ * @file devicesApi.ts
+ * @brief 封装设备台账的读取、创建、更新和删除接口。
+ * @details 雷达 6DOF、阵面绝对朝向与端点绑定均按核心 JSON 契约传输，客户端不额外换算航向角。
+ */
+
+export type DeviceRegistryStatus = 'loading' | 'available' | 'unavailable'
+
+import type { RadarDevice, SubDevice, RadarBrand } from '../components/map/types'
+
+const BASE = '/api/devices'
+
+export interface ApiResult<T = boolean> {
+  ok: boolean
+  error?: string
+  data?: T
+}
+
+export interface ApiDevice {
+  id: string; name: string; brand: string; kind: number
+  lng: number; lat: number; altitude: number; maxRange: number
+  pitch: number; roll: number
+  facesJson: string; endpointId: string; linkedRadarId: string
+  mountOffsetAzimuth: number; coordinateSystem: string; status: number
+}
+
+export interface CreateDeviceResponse {
+  ok: boolean
+  device: ApiDevice
+  migratedDeviceIds?: string[]
+}
+
+export interface UpdateDeviceResponse {
+  ok: boolean
+  device?: ApiDevice
+  migratedDeviceIds?: string[]
+}
+
+const LEGACY_BRANDS: Record<string, RadarBrand> = {
+  cetc38: 'YHF',
+  cetc14: 'YF',
+  leiying: 'BW',
+}
+
+function normalizeBrand(raw: string): RadarBrand {
+  if (raw in LEGACY_BRANDS) return LEGACY_BRANDS[raw]
+  if (raw === 'YHF' || raw === 'YF' || raw === 'BW') return raw
+  return 'YHF'
+}
+
+async function apiCall(url: string, options?: RequestInit): Promise<ApiResult<any>> {
+  try {
+    const res = await fetch(url, options)
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` }
+    const data = await res.json()
+    if (!data.ok) return { ok: false, error: data.error || 'API 返回失败' }
+    return { ok: true, data }
+  } catch (e: any) {
+    return { ok: false, error: e?.message || '网络错误' }
+  }
+}
+
+export function apiDeviceToRadar(item: ApiDevice): RadarDevice | null {
+  if (item.kind !== 0) return null
+  let faces: any[] = []
+  try { faces = JSON.parse(item.facesJson || '[]') } catch {}
+  return {
+    id: item.id,
+    name: item.name,
+    brand: normalizeBrand(item.brand || 'YHF'),
+    lng: item.lng,
+    lat: item.lat,
+    altitude: item.altitude,
+    pitch: item.pitch ?? 0,
+    roll: item.roll ?? 0,
+    maxRange: item.maxRange || 5,
+    faces: faces.length > 0 ? faces : [{ label: 'A', boresightAzimuth: 0, scanAngle: 45, active: true }],
+    endpointId: item.endpointId || undefined,
+    backendManaged: true,
+  }
+}
+
+export function apiDeviceToSub(item: ApiDevice): SubDevice | null {
+  if (item.kind === 0) return null
+  const kinds = ['opto', 'level', 'gps'] as const
+  return {
+    id: item.id,
+    name: item.name,
+    kind: kinds[item.kind - 1] ?? 'opto',
+    brand: normalizeBrand(item.brand || 'YHF'),
+    linkedRadarId: item.linkedRadarId || undefined,
+    mountOffsetAzimuth: item.mountOffsetAzimuth,
+    coordinateSystem: item.coordinateSystem || 'WGS-84',
+  }
+}
+
+export async function fetchDevices(): Promise<{ radars: RadarDevice[]; subs: SubDevice[] } & ApiResult> {
+  const result = await apiCall(BASE)
+  const radars: RadarDevice[] = []
+  const subs: SubDevice[] = []
+  if (result.ok && result.data?.devices) {
+    for (const item of result.data.devices) {
+      const r = apiDeviceToRadar(item)
+      if (r) radars.push(r)
+      const s = apiDeviceToSub(item)
+      if (s) subs.push(s)
+    }
+  }
+  return { ...result, radars, subs }
+}
+
+export function radarToApiPayload(id: string, d: RadarDevice): any {
+  return {
+    id, name: d.name, brand: d.brand, kind: 0,
+    lng: d.lng, lat: d.lat, altitude: d.altitude,
+    pitch: d.pitch, roll: d.roll,
+    maxRange: d.maxRange, facesJson: JSON.stringify(d.faces),
+    endpointId: d.endpointId || '',
+  }
+}
+
+export function subToApiPayload(id: string, d: SubDevice): any {
+  const kindMap = { opto: 1, level: 2, gps: 3 }
+  return {
+    id, name: d.name, brand: d.brand, kind: kindMap[d.kind] ?? 0,
+    linkedRadarId: d.linkedRadarId, mountOffsetAzimuth: d.mountOffsetAzimuth,
+    coordinateSystem: d.coordinateSystem,
+  }
+}
+
+export async function createDevice(payload: any): Promise<ApiResult<CreateDeviceResponse>> {
+  return apiCall(BASE, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function updateDevice(id: string, payload: any): Promise<ApiResult<UpdateDeviceResponse>> {
+  return apiCall(`${BASE}/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function deleteDeviceApi(id: string): Promise<ApiResult> {
+  return apiCall(`${BASE}/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+

@@ -28,6 +28,9 @@ flowchart LR
     ProtocolAdapter --> DeviceController
     DeviceController -->|已确认状态/已发生事实| Domain
 ```
+固定总览图为 `doc/architecture/新架构3.png`，后续模块划分、箭头方向和职责边界均不得偏离该图；
+`doc/architecture/09-共享强类型数据域与游标读取模型.md` 负责补充图片无法承载的读取、内存和并发合同。
+旧版 `新架构.png`、`新架构2.png` 及其他生成过程图片仅是历史材料，不得作为编码依据。
 
 箭头语义不得颠倒：
 
@@ -40,18 +43,24 @@ flowchart LR
 ### 数据平面硬规则
 
 1. `CoreDataDomain` 只包含强类型数据对象：
-   - `HistoryTopic<TrackPacket/PointPacket/OpticalPacket>`；
+   - 当前已落地且有真实合同的 `HistoryTopic<TrackPacket>`；
+   - 未来只有在真实设备协议和消费场景明确后才允许新增 `HistoryTopic<OpticalPacket>` 等强类型对象；
    - `LatestState<DeviceState/TaskState/SystemState>`；
    - `EventTopic<SystemEvent>`。
-2. 数据本体只由 Topic/State 持有一份不可变实例；Reader 只能短暂持有只读句柄。
+2. 数据本体只在 Topic/State 中持久驻留一份；`HistoryTopic<T>` 使用启动期预分配的内嵌槽位，Reader 只能把
+   有界批次复制到自身固定、可复用的 `ScratchBuffer`，不得把临时副本演化为第二份长期历史。
 3. `HistoryTopic<T>` 负责共享有界 RingBuffer、`publish()`、`latest()`、`readAfter()`、sequence gap 和覆盖统计。
 4. `LatestState<T>` 只负责 KeepLast(1)、`set()`、`latest()` 和 revision。
 5. `EventTopic<SystemEvent>` 是有界事件日志；Info、Warning、Error、Fault、Alarm 第一版不拆 Topic。
 6. 每个 HistoryTopic 有独立 sequence 空间；同一 Reader 读取多个 Topic 时必须为每个 Topic 分别维护 cursor。
 7. Topic retention 与 Reader cursor 无关；慢 Reader 不能阻塞 Producer，落后时必须显式处理 gap。
-8. 第一版使用 `QMutex` 保护短临界区；Producer 解锁后才触发 Doorbell，Reader 解锁后才做 GUI、数据库、Web 或插件工作。
-9. Qt signal/slot 只允许传递 `newestSequence/revision` 等 Doorbell 水位，不得传递完整业务对象。
-10. Topic 不保存 Consumer、Executor 或 per-consumer Mailbox，不执行 Consumer 回调，也不创建中央工作线程。
+8. 使用 `QMutex` 保护预分配槽位和水位的短临界区；Producer 解锁后才报告 Doorbell，Reader 取得有界副本并
+   解锁后才做 GUI、数据库、Web 或插件工作。未经实测不得改成 lock-free。
+9. Doorbell 只向 `ExecutionLane` 报告更新提示；每个 Lane 使用原子 pending bitmask 合并突发更新，同一 Lane
+   同时最多保留一个待执行 Qt 唤醒，不允许按每条 Sample 累积 queued event。
+10. Consumer 只持有 cursor/revision、最终派生状态和固定 `ScratchBuffer`；调度合并状态属于 ExecutionLane，
+    禁止每个 Consumer 自建 `scheduled/running/requestedWatermark`、线程、定时轮询或完整消息 Queue。
+11. Topic 不保存 Consumer、Executor 或 per-consumer Mailbox，不执行 Consumer 回调，也不创建中央工作线程。
 
 ### Command 控制平面硬规则
 
@@ -82,7 +91,37 @@ UI/API
 - signal/slot 直接传输完整实时业务数据；
 - Topic 内的协议解析、业务状态机、数据库写入、Command dispatch；
 - 为了画面完整而提前创建没有真实字段契约的 `PointPacket`、`OpticalPacket`、State 或 Event 空壳类型；
+- 引入 `PointEndpoint`、`PointPacket` 或 `PointTopic`；当前上位机只接收雷达航迹，不存在独立点迹数据链；
 - 未经实测提前引入 DDS 全套能力、复杂 QoS、lock-free 或跨进程共享内存。
+
+### 复杂度预算与类型收敛
+
+任何新增结构体、类、队列、缓存、DTO、适配层或数据转换阶段都必须证明它解决的是当前真实需求，而不是为
+假设中的未来扩展预留位置。代码评审默认拒绝增加链路长度和公开类型数量，除非提交同时说明上游输入、下游
+输出、不能复用现有类型的原因、生命周期与删除条件。
+
+- 一条实时数据链原则上保持 `Producer -> Shared Typed Topic <- Consumer`；Doorbell 只增加调度提示，不增加数据层。
+- 每类 Producer 只输出一种权威业务事实；协议 DTO 只能是边界内短生命周期临时对象，不得进入 Topic。
+- Consumer 只能形成一个面向自身最终职责的派生状态；禁止固化“标准事实 -> 临时视图 -> 中间视图 -> 最终视图”。
+- Topic 的 `TopicRecord/HistoryReadResult/SequenceGap` 属于统一读取协议；读取记录只能存在于调用方预分配的
+  `ScratchBuffer`，不得包装成新的业务消息或跨轮次积压。
+- 没有真实输入字段的可选子结构、没有当前 Consumer 的 Topic、只为图示完整存在的空类型，一律不实现。
+- 同一信息不得在多个长期对象中以不同结构重复保存；Reader 短暂读取 Sample 后，只能保留完成最终职责必需的派生状态。
+- 新增公开数据结构前必须先更新对应合同；若一个功能需要增加两个以上公开业务结构，必须先与用户讨论复杂度。
+- 存储归档可以消费多种强类型 Topic，但每个 Topic 必须使用独立 cursor 和映射器；禁止为统一落库重新引入万能归档包。
+- 删除无真实需求的类型和层级优先于用注释解释其“未来可能用途”。
+
+### 实时链路资源预算
+
+- 热路径业务结构必须定长、连续、可预分配；字符串业务标识使用注册表分配的数值句柄，禁止在每条
+  `TrackPacket` 中重复保存 `QString`。
+- 热路径可选字段使用明确的 validity/flags 表达，不得无评估堆叠 `std::optional`、动态容器或隐式堆对象。
+- `HistoryTopic<T>` 在启动时完成固定容量分配；正常 publish/readAfter 不得逐条进行常规堆分配。
+- 不使用 `#pragma pack` 牺牲对齐；必须通过字段排序、`sizeof`/`alignof`/字段偏移测试和基准数据收敛布局。
+- 一个 ExecutionLane 可以串行运行多个有状态 Consumer；同一 Consumer 不得并发执行，不要求“一 Reader 一线程”。
+- GUI/Web 复用已有事件循环；归档启用时最多懒启动一个共享存储 Lane；插件未启用时不得创建插件线程。
+- 空闲时不得轮询 Topic；突发 publish 必须被合并为有界唤醒，Producer 永远不等待 Consumer。
+- `SampleMeta`、`TrackPacket`、`TrackKey`、RingBuffer 总内存、每次批量上限和运行期分配次数必须有自动化验收。
 
 ### 新旧代码隔离
 

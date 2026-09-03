@@ -1,0 +1,48 @@
+add_library(NewAntiDrone_datadomain STATIC
+    archive/ArchiveReader.cpp
+    archive/ArchiveReader.h
+    archive/IArchiveRepository.h
+    archive/SqliteArchiveRepository.cpp
+    archive/SqliteArchiveRepository.h
+    config/DeviceConfiguration.h
+    config/DeviceConfigService.cpp
+    config/DeviceConfigService.h
+    datadomain/CoreDataDomain.cpp
+    datadomain/CoreDataDomain.h
+    datadomain/EventTopic.h
+    datadomain/HistoryTopic.h
+    datadomain/LatestState.h
+    datadomain/TopicDoorbell.cpp
+    datadomain/TopicDoorbell.h
+    datadomain/TopicTypes.h
+    execution/ExecutionLane.cpp
+    execution/ExecutionLane.h
+    model/EntityIds.h
+    model/Sample.h
+    model/SystemEvent.h
+    model/TrackPacket.h
+    persistence/SqliteRuntimeRepository.cpp
+    persistence/SqliteRuntimeRepository.h
+    producer/SystemEventPublisher.cpp
+    producer/SystemEventPublisher.h
+    producer/TrackPublisher.cpp
+    producer/TrackPublisher.h
+    task/TaskDefinition.h
+    task/TaskService.cpp
+    task/TaskService.h
+    web/TrackWebSocketService.cpp
+    web/TrackWebSocketService.h
+)
+
+target_include_directories(NewAntiDrone_datadomain
+    PUBLIC
+        ${PROJECT_SOURCE_DIR}
+)
+
+target_link_libraries(NewAntiDrone_datadomain
+    PUBLIC
+        Qt5::Core
+        Qt5::Network
+        Qt5::Sql
+        Qt5::WebSockets
+)
