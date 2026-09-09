@@ -201,3 +201,48 @@ set_target_properties(tst_TrackWebSocketService PROPERTIES
 )
 
 add_test(NAME web.TrackWebSocketService COMMAND $<TARGET_FILE:tst_TrackWebSocketService>)
+
+add_executable(tst_RuntimeStateGate
+    tst_RuntimeStateGate.cpp
+)
+
+target_link_libraries(tst_RuntimeStateGate
+    PRIVATE
+        NewAntiDrone_datadomain
+        Qt5::Test
+)
+
+set_target_properties(tst_RuntimeStateGate PROPERTIES
+    WIN32_EXECUTABLE OFF
+    MACOSX_BUNDLE OFF
+)
+
+add_test(NAME state.RuntimeStateGate COMMAND $<TARGET_FILE:tst_RuntimeStateGate>)
+
+add_executable(tst_DcmpProtocolTypes
+    tst_DcmpProtocolTypes.cpp
+)
+
+target_link_libraries(tst_DcmpProtocolTypes
+    PRIVATE
+        NewAntiDrone_datadomain
+        Qt5::Test
+)
+
+set_target_properties(tst_DcmpProtocolTypes PROPERTIES
+    WIN32_EXECUTABLE OFF
+    MACOSX_BUNDLE OFF
+)
+
+add_test(NAME protocol.DcmpProtocolTypes COMMAND $<TARGET_FILE:tst_DcmpProtocolTypes>)
+
+add_executable(tst_UdpEndpoint tst_UdpEndpoint.cpp)
+target_link_libraries(tst_UdpEndpoint PRIVATE NewAntiDrone_datadomain Qt5::Test)
+add_test(NAME comm.UdpEndpoint COMMAND $<TARGET_FILE:tst_UdpEndpoint>)
+
+add_executable(tst_DcmpProtocolAdapter tst_DcmpProtocolAdapter.cpp)
+target_link_libraries(tst_DcmpProtocolAdapter PRIVATE NewAntiDrone_datadomain Qt5::Test)
+add_test(NAME protocol.DcmpProtocolAdapter COMMAND $<TARGET_FILE:tst_DcmpProtocolAdapter>)
+add_executable(tst_HeartbeatPath tst_HeartbeatPath.cpp)
+target_link_libraries(tst_HeartbeatPath PRIVATE NewAntiDrone_datadomain Qt5::Test)
+add_test(NAME integration.HeartbeatPath COMMAND $<TARGET_FILE:tst_HeartbeatPath>)

@@ -1,5 +1,25 @@
 # 项目上下文与新仓库启动交接
 
+> 2026-09-09 core收敛：ApplicationRuntime统一拥有心跳链依赖和端口启动、失败回滚、关闭顺序。
+> main只创建Qt应用和运行时；已验证Web端口冲突释放UDP、重复启动保持已有绑定、停止再启动。
+> 本版为心跳后端基线；React主界面状态对接、Command、事件归档装配仍待后续实现。
+
+> 2026-09-09 心跳链已装配：NewAntiDrone可执行入口绑定127.0.0.1:7788，
+> UDP -> DcmpProtocolAdapter -> HeartbeatStateOwner -> DeviceState -> ExecutionLane -> StateWebSocketService。
+> 状态出口ws://127.0.0.1:8090，联试页面ui/heartbeat.html；2秒迟到黄、5秒超时灰、重新上线绿。
+> CoreDataDomain包含三个LatestState；本轮仅DeviceState写入，Task/System等待真实owner。
+> 当前入口不包含命令、归档装配或完整React台账API，不代表完整产品已完成。以下历史进度以本条为准。
+
+> 2026-09-09：已新增 core/comm/UdpEndpoint，支持独占绑定、唯一同步原始数据入口、显式目标发送、
+> 固定接收缓冲及每轮64包预算；真实UDP回归已通过。尚未装配sock2Internal运行实例、心跳Codec、
+> 状态owner或Web状态出口；不得把传输类完成当作心跳端到端完成。
+> 心跳DcmpProtocolAdapter已实现：小端解码0x0101/0x0303，严格校验封装及载荷，真实UDP测试通过。
+> 统一线协议已确认小端；目前只同步交付强类型心跳，尚未连接状态owner与Web指示灯。
+
+> 2026-09-08 文档收敛：当前阅读入口为 `doc/architecture/00-架构索引.md`。
+> 以下旧链路和启动步骤是历史记录；当前线协议按 `doc/contracts/DCMP统一报文封装契约.md`。
+> 公共封装与四类载荷已实现，DP 返回已嵌入224字节 DpTrack，完整载荷608字节，Adapter映射待接入；不能把旧 DPH 周期或字段当作当前协议。
+
 > 快照日期：2026-08-21
 > 用途：在切换目录、仓库或新会话后恢复当前项目背景、已确认架构、旧系统现状和下一步工作。
 > 目标读者：第一次接触本项目的后端开发者或自动化开发代理。
@@ -58,9 +78,6 @@ D:\NewAntiDrone-newArch\
 | `AGENTS.md` | 编码规则、中文 Doxygen、架构图、数据平面和 Command 禁止项 |
 | `PROJECT_CONTEXT.md` | 恢复当前对话上下文、旧系统现状、迁移顺序和已知问题 |
 | `doc/architecture/09-共享强类型数据域与游标读取模型.md` | `HistoryTopic/LatestState/EventTopic/Doorbell/cursor` 权威规范 |
-| `doc/architecture/01-业务架构.md` | 保留不依赖 SystemBus 的业务范围和角色 |
-| `doc/architecture/03-数据架构.md` | 核心数据所有权和共享数据域总览 |
-| `doc/architecture/04-技术架构.md` | Qt/C++、线程、端口和目标内部技术结构 |
 
 ### 4.2 新仓库创建后立即补齐
 
@@ -288,6 +305,8 @@ RadarWorkModeController
   `doc/migration/旧UI迁移与新后端对接清单.md`；其中 `acquisitionId` Web 键和首版 WebReader 已完成；
 - 已实现 `TrackWebSocketService` 独立 cursor、固定 ScratchBuffer、ExecutionLane 合并唤醒、每航迹 20 点尾迹与
   256 目标容量上限；新连接取 snapshot，稳态取 upsert/removal delta；
+- 已冻结并实现 DeviceState 多设备完整快照、单活动任务 TaskState 和 SystemState 类型；三者共用
+  RuntimeStateGate，已锁定元数据、容量、状态组合、尺寸、对齐和字段偏移门禁；尚未接入 CoreDataDomain；
 - 已增加协议无关的真实 QWebSocket 回归：直接发布标准 TrackPacket，验收初始 snapshot、增量字段、独立
   cursor 不消费共享历史、目标容量淘汰 removal 以及新客户端当前态快照；
 - 进程级联试及用户目视验收已证明 WebSocket snapshot/delta 能驱动 React 地图正常显示；

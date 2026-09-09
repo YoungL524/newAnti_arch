@@ -1,4 +1,12 @@
 add_library(NewAntiDrone_datadomain STATIC
+    app/ApplicationRuntime.h
+    app/ApplicationRuntime.cpp
+    producer/HeartbeatStateOwner.cpp
+    producer/HeartbeatStateOwner.h
+    web/StateWebSocketService.cpp
+    web/StateWebSocketService.h
+    comm/UdpEndpoint.cpp
+    comm/UdpEndpoint.h
     archive/ArchiveReader.cpp
     archive/ArchiveReader.h
     archive/IArchiveRepository.h
@@ -18,6 +26,7 @@ add_library(NewAntiDrone_datadomain STATIC
     execution/ExecutionLane.cpp
     execution/ExecutionLane.h
     model/EntityIds.h
+    model/RuntimeState.h
     model/Sample.h
     model/SystemEvent.h
     model/TrackPacket.h
@@ -25,14 +34,23 @@ add_library(NewAntiDrone_datadomain STATIC
     persistence/SqliteRuntimeRepository.h
     producer/SystemEventPublisher.cpp
     producer/SystemEventPublisher.h
+    producer/RuntimeStateGate.cpp
+    producer/RuntimeStateGate.h
     producer/TrackPublisher.cpp
     producer/TrackPublisher.h
+    protocol/DcmpProtocolTypes.h
+    protocol/DcmpProtocolAdapter.h
+    protocol/DcmpProtocolAdapter.cpp
+    protocol/DcmpPayloads.h
     task/TaskDefinition.h
     task/TaskService.cpp
     task/TaskService.h
     web/TrackWebSocketService.cpp
     web/TrackWebSocketService.h
 )
+
+add_executable(NewAntiDrone main.cpp)
+target_link_libraries(NewAntiDrone PRIVATE NewAntiDrone_datadomain)
 
 target_include_directories(NewAntiDrone_datadomain
     PUBLIC

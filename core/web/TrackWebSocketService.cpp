@@ -33,7 +33,7 @@ TrackWebSocketService::TrackWebSocketService(
         throw std::invalid_argument("TrackWebSocketService limits must be greater than zero");
     }
     QObject::connect(trackTopic.doorbell(), &core::domain::TopicDoorbell::advanced,
-                     this, &TrackWebSocketService::onTrackTopicAdvanced);
+                     this, &TrackWebSocketService::onTrackTopicAdvanced, Qt::DirectConnection);
     QObject::connect(&executionLane, &core::execution::ExecutionLane::executeRequested,
                      this, &TrackWebSocketService::onExecutionRequested);
     QObject::connect(&m_server, &QWebSocketServer::newConnection,
@@ -101,7 +101,7 @@ qsizetype TrackWebSocketService::clientCount() const noexcept
 }
 
 /**
- * @brief 合并任意数量的 Doorbell 水位提示为本 Reader 的一个 Lane pending 位。
+ * @brief 在Doorbell线程仅向线程安全Lane置位，不访问Web状态，避免跨线程通知堆积。
  */
 void TrackWebSocketService::onTrackTopicAdvanced(quint64 newestSequence)
 {
@@ -127,6 +127,11 @@ void TrackWebSocketService::onNewConnection()
     while (m_server.hasPendingConnections()) {
         QWebSocket *client = m_server.nextPendingConnection();
         if (client == nullptr) {
+            continue;
+        }
+        if (m_clients.size() >= 8) {
+            client->abort();
+            client->deleteLater();
             continue;
         }
         m_clients.insert(client);
@@ -306,7 +311,12 @@ void TrackWebSocketService::sendSnapshot(QWebSocket &client) const
     message.insert(QStringLiteral("revision"), static_cast<double>(m_revision));
     message.insert(QStringLiteral("timestamp"), static_cast<double>(QDateTime::currentMSecsSinceEpoch()));
     message.insert(QStringLiteral("tracks"), tracks);
-    client.sendTextMessage(QString::fromUtf8(QJsonDocument(message).toJson(QJsonDocument::Compact)));
+    const auto bytes = QJsonDocument(message).toJson(QJsonDocument::Compact);
+    if (client.bytesToWrite() + bytes.size() > 4 * 1024 * 1024) {
+        client.abort();
+        return;
+    }
+    client.sendTextMessage(QString::fromUtf8(bytes));
 }
 
 /**
@@ -326,8 +336,14 @@ void TrackWebSocketService::broadcastDelta(const QJsonArray &upserts, const QJso
     message.insert(QStringLiteral("upserts"), upserts);
     message.insert(QStringLiteral("removals"), removals);
     const QString payload = QString::fromUtf8(QJsonDocument(message).toJson(QJsonDocument::Compact));
-    for (QWebSocket *client : m_clients) {
-        client->sendTextMessage(payload);
+    const auto payloadBytes = payload.toUtf8().size();
+    const auto clients = m_clients;
+    for (QWebSocket *client : clients) {
+        if (client->bytesToWrite() + payloadBytes > 4 * 1024 * 1024) {
+            client->abort();
+        } else {
+            client->sendTextMessage(payload);
+        }
     }
 }
 

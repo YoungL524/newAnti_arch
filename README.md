@@ -14,6 +14,7 @@
 - 不暴露 `latest()` 的 `EventTopic<T>` 有界事件日志；
 - 不携带业务数据、支持跨线程合并水位的 `TopicDoorbell`；
 - 紧凑 `SampleMeta/TrackPacket/TrackKey/SystemEvent` 及其发布前门禁；
+- `DeviceState/TaskState/SystemState` 完整状态类型、统一门禁与布局基准；
 - Web 侧 `TrackWebSocketService` 与共享 `ExecutionLane` 合并调度；
 - 存储侧 `ArchiveReader` 的双 Topic 独立 cursor、固定 ScratchBuffer 和提交后推进语义；
 - `SqliteArchiveRepository` 的六表初始化、WAL、运行实例诊断和强类型批量事务；
@@ -52,16 +53,17 @@
 3. `doc/architecture/00-架构索引.md`：现行文档、优先级和待补合同；
 4. `doc/contracts/统一单位坐标时间契约.md`：SI、RFU/ENU/WGS-84、6DOF 和 UTC/steady；
 5. `doc/contracts/TrackPacket契约.md`：SampleMeta、标准航迹、TrackKey 和发布门禁；
-6. `core/model/Sample.h`：Topic 共享事实的当前最小实现；
-7. `core/datadomain/TopicTypes.h`：cursor、gap、记录和统计合同；
-8. `core/datadomain/HistoryTopic.h`：RingBuffer 写入与主动读取；
-9. `core/datadomain/TopicDoorbell.h`：只通知水位的 Qt Doorbell；
-10. `core/archive/ArchiveReader.h`：双 Topic cursor 与提交后推进边界；
-11. `core/archive/SqliteArchiveRepository.h`：真实 QSQLITE 单写者归档实现。
-12. `core/config/DeviceConfigService.h`：设备 revision 与运行时句柄 owner；
-13. `core/task/TaskService.h`：任务和多次采集会话 owner。
-14. `core/web/TrackWebSocketService.h`：协议无关的 TrackTopic Web Consumer；
-15. `doc/migration/旧UI迁移与新后端对接清单.md`：React UI 的复用边界与待接 API。
+6. `doc/contracts/运行状态模型契约.md`：三类完整 State、唯一 Owner 和状态转换；
+7. `core/model/Sample.h`：Topic 共享事实的当前最小实现；
+8. `core/datadomain/TopicTypes.h`：cursor、gap、记录和统计合同；
+9. `core/datadomain/HistoryTopic.h`：RingBuffer 写入与主动读取；
+10. `core/datadomain/TopicDoorbell.h`：只通知水位的 Qt Doorbell；
+11. `core/archive/ArchiveReader.h`：双 Topic cursor 与提交后推进边界；
+12. `core/archive/SqliteArchiveRepository.h`：真实 QSQLITE 单写者归档实现。
+13. `core/config/DeviceConfigService.h`：设备 revision 与运行时句柄 owner；
+14. `core/task/TaskService.h`：任务和多次采集会话 owner。
+15. `core/web/TrackWebSocketService.h`：协议无关的 TrackTopic Web Consumer；
+16. `doc/migration/旧UI迁移与新后端对接清单.md`：React UI 的复用边界与待接 API。
 
 UI 独立验收：
 
@@ -79,3 +81,12 @@ npm run build
 2026-09-03 曾以旧设备协议和 CSV 模拟器作为一次性输入夹具，验证
 `UDP -> ProtocolAdapter -> TrackPublisher -> TrackTopic <- TrackWebSocketService -> React` 全链路，浏览器地图已正常显示真实报文映射出的航迹。旧协议结构、模拟器、硬编码 HTTP 视图及其测试随后全部清退；该结果只作为架构验收证据，不再作为可运行入口。
 其后新增的 WebSocket 测试直接构造标准 TrackPacket，持续保护初始 snapshot、增量 upsert/removal、独立 cursor 和有界 Web 派生状态，不再依赖任何厂家协议夹具。
+# 心跳链联试
+
+运行 `scripts/test_baseline.ps1 -BuildDir build-baseline` 后，在包含 Qt 5.14.2 bin 的 PATH 环境中
+启动 `build-baseline/core/NewAntiDrone.exe`。内部UDP绑定 `127.0.0.1:7788`，接收正式
+`0x0101/0x0303` 心跳。打开 `ui/heartbeat.html` 查看正式状态域输出；WebSocket为
+`ws://127.0.0.1:8090`。无需启动旧后端。页面只展示状态，不产生模拟心跳。
+
+绿色为在线，黄色为主动离线或2秒迟到，灰色为未收到或5秒超时。DP/SP独立判定，位图低四位
+对应1～4号阵面。当前可执行入口只装配心跳链，其他服务仍按后续步骤接入。

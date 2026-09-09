@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><title>心跳状态联试</title>
+<style>body{font:18px sans-serif;margin:40px;background:#eef2f1}p{padding:16px;background:white;border-radius:8px}span{font-weight:bold}</style>
+<h1>内部设备心跳</h1><div id="status">连接中</div><p>DP：<span id="dp">未知</span></p><p>SP：<span id="sp">未知</span></p><p id="fp">等待FP状态</p>
+<script>
+/** @brief 只展示正式State Web出口，断线后标记不可用；不接收UDP或在浏览器判定心跳超时。 */
+function connectState() {
+ const socket = new WebSocket('ws://127.0.0.1:8090');
+ socket.onopen = () => { document.getElementById('status').textContent = '状态服务已连接'; };
+ socket.onmessage = event => {
+  const value = JSON.parse(event.data);
+  if (value.type !== 'deviceState') return;
+  for (const name of ['dp','sp']) {
+   const code = value[name+'Heartbeat']; const element = document.getElementById(name);
+   element.textContent = ['未知/超时','在线','离线/迟到'][code]; element.style.color = ['#777','#078451','#af8200'][code];
+  }
+  document.getElementById('fp').textContent = Array.from({length:4}, (_,i) =>
+   (i+1)+'号阵面：FP '+(value.dpHeartbeat===0?'未知':(value.fpOnlineMask&(1<<i)?'在线':'离线'))+
+   ' / 数据 '+(value.spHeartbeat===0?'未知':(value.fpDataMask&(1<<i)?'有':'无'))).join('；');
+ };
+ socket.onclose = () => { document.getElementById('status').textContent = '状态服务断开，显示值已失效'; setTimeout(connectState,1000); };
+}
+connectState();
+</script></html>

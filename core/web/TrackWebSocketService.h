@@ -26,7 +26,8 @@ namespace core::web {
 
 /**
  * @brief 将 TrackTopic 折叠为有界浏览器显示态，并向所有已连接客户端发送快照或增量。
- * @warning 所有公开方法和 Qt 槽必须在对象所属线程调用；Topic 与 ExecutionLane 生命周期必须覆盖本对象。
+ * @warning 除只执行Lane原子置位的onTrackTopicAdvanced外，方法均须在所属线程调用；依赖必须覆盖本对象。
+ * @note 最多8连接；增量发送积压超过4MiB断开慢连接，重连后取快照。
  */
 class TrackWebSocketService final : public QObject
 {

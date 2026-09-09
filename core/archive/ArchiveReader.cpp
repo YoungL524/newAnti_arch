@@ -27,12 +27,12 @@ ArchiveReader::ArchiveReader(
         trackTopic.doorbell(),
         &core::domain::TopicDoorbell::advanced,
         this,
-        &ArchiveReader::onTopicAdvanced);
+        &ArchiveReader::onTopicAdvanced, Qt::DirectConnection);
     QObject::connect(
         eventTopic.doorbell(),
         &core::domain::TopicDoorbell::advanced,
         this,
-        &ArchiveReader::onTopicAdvanced);
+        &ArchiveReader::onTopicAdvanced, Qt::DirectConnection);
     QObject::connect(
         &executionLane,
         &core::execution::ExecutionLane::executeRequested,
@@ -120,7 +120,7 @@ void ArchiveReader::refresh()
 }
 
 /**
- * @brief 丢弃不可跨 Topic 比较的 Doorbell 水位，只合并本 Reader 的 Lane 请求。
+ * @brief 在Doorbell线程只调用线程安全Lane置位，不访问cursor或Repository，避免存储阻塞时累积通知事件。
  */
 void ArchiveReader::onTopicAdvanced(quint64 newestSequence)
 {

@@ -13,13 +13,15 @@
 #include "core/datadomain/EventTopic.h"
 #include "core/model/SystemEvent.h"
 #include "core/model/TrackPacket.h"
+#include "core/model/RuntimeState.h"
+#include "core/datadomain/LatestState.h"
 
 namespace core::domain {
 
 /**
  * @brief 集中拥有进程内共享强类型 Topic，但不承担中央消息路由或执行调度。
  * @details 当前只建立具有真实字段合同的 TrackPacket 历史和 SystemEvent 有界日志；Point、Optical 与
- * State 类型在各自合同冻结前不会以空壳形式加入。对象由应用组合根拥有，Consumer 只能借用 Topic 引用。
+ * 三类State按已冻结合同保留最后值，无owner时保持未设置。对象由应用组合根拥有，Consumer只能借用只读引用。
  */
 class CoreDataDomain final
 {
@@ -70,7 +72,23 @@ public:
      */
     const EventTopic<core::model::SystemEvent>& eventTopic() const noexcept;
 
+public:
+    /** @brief 返回设备完整快照；心跳阶段唯一写入者为HeartbeatStateOwner，读取方使用const重载。 */
+    LatestState<core::model::DeviceState>& deviceState() noexcept { return m_deviceState; }
+    /** @brief 返回设备状态只读入口，生命周期由数据域拥有。 */
+    const LatestState<core::model::DeviceState>& deviceState() const noexcept { return m_deviceState; }
+    /** @brief 返回任务状态，后续由TaskService唯一写入；当前未设置不伪造运行任务。 */
+    LatestState<core::model::TaskState>& taskState() noexcept { return m_taskState; }
+    /** @brief 返回任务状态只读入口。 */
+    const LatestState<core::model::TaskState>& taskState() const noexcept { return m_taskState; }
+    /** @brief 返回系统状态，后续由SystemStateOwner唯一写入。 */
+    LatestState<core::model::SystemState>& systemState() noexcept { return m_systemState; }
+    /** @brief 返回系统状态只读入口。 */
+    const LatestState<core::model::SystemState>& systemState() const noexcept { return m_systemState; }
 private:
+    LatestState<core::model::DeviceState> m_deviceState; ///< 唯一设备完整状态。
+    LatestState<core::model::TaskState> m_taskState; ///< 唯一任务完整状态。
+    LatestState<core::model::SystemState> m_systemState; ///< 唯一系统完整状态。
     HistoryTopic<core::model::TrackPacket> m_trackTopic; ///< 航迹本体唯一驻留位置；容量与 Reader cursor 无关。
     EventTopic<core::model::SystemEvent> m_eventTopic; ///< 四类已发生事件的唯一有界内存日志。
 };

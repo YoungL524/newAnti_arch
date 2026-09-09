@@ -31,7 +31,7 @@ UI Command
 | `/api/devices` | `DeviceConfigService` 的 HTTP 边界 | 保留页面，待定义 JSON 与 revision 冲突响应 |
 | `/api/tasks` | `TaskService` 的 HTTP 边界 | 保留页面；删除必须是软删除 |
 | `/api/start|stop|reset` | `ApplicationController -> DeviceController` | 保留按钮，禁止映射到普通 Topic |
-| `/api/status` | `LatestState<DeviceState/TaskState/SystemState>` 的 Web/HTTP Reader | State 合同冻结后接入 |
+| `/api/status` | `LatestState<DeviceState/TaskState/SystemState>` 的 Web/HTTP Reader | State 类型合同已定义，待正式 owner 接入 |
 | `/api/tracks/history` | SQLite 查询服务 | 保留页面，分页字段需与六表 Schema 对齐 |
 | `/api/system-events` | SQLite `system_events` 查询服务 | 保留页面 |
 | 8089 `tracks` WebSocket | `TrackWebSocketService` | 已接通初始快照 + 有界尾迹增量 upsert/removal |
@@ -40,7 +40,7 @@ UI Command
 
 1. Web 航迹键现已包含 `acquisitionId + deviceId + trackId + pointIndex`，避免设备重启后复用 `trackId` 串轨。
 2. `TrackWebSocketService` 只从紧凑 TrackPacket 生成地图所需字段；旧 `x/y/z/rcs` 没有重新塞回权威事实。
-3. `DeviceState/TaskState/SystemState` 尚未按真实控制流程冻结，因此 `/api/status` 尚无正式实现，不得用硬编码联试视图冒充 State。
+3. `DeviceState/TaskState/SystemState` 类型及门禁已定义，但正式状态 owner 仍待接入，因此 `/api/status` 尚无正式实现，不得用硬编码联试视图冒充 State。
 4. 地图 Key 与安全密钥从 `ui/.env.example` 创建本机 `.env`；真实密钥不提交仓库。
 5. 一次性硬编码 HTTP 联试服务已经删除；创建任务、启动/停止和设备配置必须等待正式 owner 接入。
 
