@@ -4,9 +4,12 @@
 #include "core/protocol/DcmpProtocolAdapter.h"
 #include "core/producer/HeartbeatStateOwner.h"
 #include "core/web/StateWebSocketService.h"
+#include "core/web/WebSocketGateway.h"
 #include <QtTest>
+#include <QTemporaryDir>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QWebSocket>
 /** @brief 验收真实UDP经Adapter与状态域到Web，无直连业务消息捷径。 */
 class HeartbeatPathTest : public QObject {
     Q_OBJECT
@@ -63,29 +66,30 @@ void HeartbeatPathTest::network()
         [&owner](const auto&,const auto& p,qint64 u,qint64 s){owner.accept(true,p.spOnline,p.fpDataMask,u,s);});
     core::comm::UdpEndpoint endpoint([&adapter](const char* p,qint64 n,const QHostAddress&,quint16,qint64 u,qint64 s){adapter.onDatagram(p,n,u,s);});
     QVERIFY(endpoint.start(QHostAddress::LocalHost,0));
-    core::web::StateWebSocketService web(domain.deviceState(),lane);
-    QVERIFY(web.start(0));
+    core::web::WebSocketGateway gateway;
+    core::web::StateWebSocketService web(domain.deviceState(),lane,gateway);
+    QVERIFY(gateway.start(0));
     QWebSocket client;
     QSignalSpy messages(&client,&QWebSocket::textMessageReceived);
-    client.open(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(web.port())));
+    client.open(QUrl(QStringLiteral("ws://127.0.0.1:%1/ws/v1").arg(gateway.port())));
     QTRY_VERIFY(messages.count()>0);
-    QCOMPARE(QJsonDocument::fromJson(messages.last().at(0).toString().toUtf8()).object()["dpHeartbeat"].toInt(),0);
-    QByteArray bytes=QByteArray::fromHex("1a1aa1a178000000010100002c283501");
+    QCOMPARE(QJsonDocument::fromJson(messages.last().at(0).toString().toUtf8()).object()["payload"].toObject()["dpHeartbeat"].toString(),QStringLiteral("unknownOrTimedOut"));
+    QByteArray bytes=QByteArray::fromHex("1a1aa1a1780000000101000033283501");
     bytes.append(QByteArray(28,0)); bytes.append(QByteArray::fromHex("01000500")); bytes.append(QByteArray(80,0)); bytes.append(QByteArray::fromHex("a2a1b2b1"));
     QUdpSocket sender;
     QCOMPARE(sender.writeDatagram(bytes,QHostAddress::LocalHost,endpoint.localPort()),qint64(132));
     QTRY_COMPARE(domain.deviceState().latest()->sample->value.dpHeartbeat,quint8(1));
     QTRY_VERIFY(messages.count()>1);
     const auto json=QJsonDocument::fromJson(messages.last().at(0).toString().toUtf8()).object();
-    QCOMPARE(json["fpOnlineMask"].toInt(),5);
-    QCOMPARE(json["spHeartbeat"].toInt(),0);
+    QCOMPARE(json["payload"].toObject()["fpOnlineMask"].toInt(),5);
+    QCOMPARE(json["payload"].toObject()["spHeartbeat"].toString(),QStringLiteral("unknownOrTimedOut"));
     bytes[8]=3; bytes[9]=3;
     QCOMPARE(sender.writeDatagram(bytes,QHostAddress::LocalHost,endpoint.localPort()),qint64(132));
     QTRY_COMPARE(domain.deviceState().latest()->sample->value.spHeartbeat,quint8(1));
     // 实际owner定时器应在5秒期限后的一个检查周期内发出灰色状态，额外容差用于CI调度。
     QTRY_COMPARE_WITH_TIMEOUT(domain.deviceState().latest()->sample->value.dpHeartbeat,quint8(0),6500);
     QTRY_COMPARE_WITH_TIMEOUT(domain.deviceState().latest()->sample->value.spHeartbeat,quint8(0),1500);
-    QTRY_COMPARE(QJsonDocument::fromJson(messages.last().at(0).toString().toUtf8()).object()["spHeartbeat"].toInt(),0);
+    QTRY_COMPARE(QJsonDocument::fromJson(messages.last().at(0).toString().toUtf8()).object()["payload"].toObject()["spHeartbeat"].toString(),QStringLiteral("unknownOrTimedOut"));
 }
 /**
  * @brief 用端口冲突验收组合根全有或全无启动，并验证停止与重启不泄漏绑定。
@@ -94,17 +98,21 @@ void HeartbeatPathTest::lifecycle()
 {
     QWebSocketServer blocker(QStringLiteral("blocker"),QWebSocketServer::NonSecureMode);
     QVERIFY(blocker.listen(QHostAddress::LocalHost,0));
-    core::app::ApplicationRuntime runtime;
-    QVERIFY(!runtime.start(0,blocker.serverPort()));
+    QTemporaryDir storageDirectory;
+    QVERIFY(storageDirectory.isValid());
+    core::app::ApplicationRuntime runtime(
+        storageDirectory.filePath(QStringLiteral("runtime.db")),
+        QStringLiteral("heartbeat-test"));
+    QVERIFY(!runtime.start(0,blocker.serverPort(),0));
     QCOMPARE(runtime.internalPort(),quint16(0));
     QVERIFY(!runtime.lastError().isEmpty());
-    QVERIFY(runtime.start(0,0));
+    QVERIFY(runtime.start(0,0,0));
     const auto port=runtime.internalPort();
-    QVERIFY(!runtime.start(0,0));
+    QVERIFY(!runtime.start(0,0,0));
     QCOMPARE(runtime.internalPort(),port);
     runtime.stop(); runtime.stop();
     QCOMPARE(runtime.internalPort(),quint16(0));
-    QVERIFY(runtime.start(port,0));
+    QVERIFY(runtime.start(port,0,0));
 }
 /**
  * @brief 在Qt事件循环中运行真实网络与确定性期限验收。

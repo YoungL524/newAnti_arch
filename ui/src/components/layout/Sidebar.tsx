@@ -27,7 +27,6 @@ interface SidebarProps {
   allDevices: AppDevice[]
   onAddDevice: (d: Omit<RadarDevice, 'id'>) => Promise<boolean>
   onRemoveDevice: (id: string) => Promise<boolean>
-  onUpdateDevice: (id: string, updates: Partial<RadarDevice>) => Promise<boolean>
   onAddSubDevice: (d: Omit<SubDevice, 'id'>) => Promise<boolean>
   onRemoveSubDevice: (id: string) => Promise<boolean>
   onEditDevice: (d: AppDevice) => void
@@ -51,10 +50,13 @@ interface SidebarProps {
 type FormKind = 'radar' | 'opto' | 'level' | 'gps'
 
 const RADAR_DEFAULTS: Omit<RadarDevice, 'id'> = {
-  name: '', brand: 'YHF', lng: 118.6, lat: 31.9, altitude: 0,
-  pitch: 0, roll: 0,
+  revision: 0, name: '', brand: 'YHF', model: 'YHF-YZ-KU', protocolAdapterKey: 'dcmp.dp.v1',
+  lng: 118.65303, lat: 31.93494, altitude: 63.9288, heading: 0, pitch: 0, roll: 0,
   maxRange: 5,
   faces: [{ label: 'A', boresightAzimuth: 0, scanAngle: 45, active: true }],
+  endpointId: 'radar_cpu',
+  endpoint: { id: 'radar_cpu', protocol: 'udp', localAddress: '127.0.0.1', localPort: 7788,
+    description: 'DCMP内部DP/SP通信', targets: {} },
 }
 
 const FACE_PRESETS: { label: string; faces: Omit<RadarFace, 'active'>[] }[] = [
@@ -79,15 +81,6 @@ function kindIcon(kind: FormKind) {
   return { radar: 'sensors', opto: 'videocam', level: 'balance', gps: 'satellite_alt' }[kind]
 }
 
-function nextFaceLabel(faces: RadarFace[]) {
-  const used = new Set(faces.map(f => f.label))
-  for (let i = 0; i < 26; i++) {
-    const label = String.fromCharCode(65 + i)
-    if (!used.has(label)) return label
-  }
-  return `F${faces.length + 1}`
-}
-
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '4px 6px', borderRadius: 4,
   border: '1px solid var(--hairline)', background: '#fff', color: 'var(--ink)',
@@ -96,6 +89,7 @@ const inputStyle: React.CSSProperties = {
 
 const STATUS_META: Record<string, { icon: string; label: string }> = {
   draft: { icon: 'edit_note', label: '草稿' },
+  ready: { icon: 'pending_actions', label: '已就绪' },
   active: { icon: 'radio_button_checked', label: '进行中' },
   completed: { icon: 'check_circle', label: '已完成' },
   archived: { icon: 'archive', label: '已归档' },
@@ -108,7 +102,7 @@ function formatTaskTime(task: Task) {
   })
 }
 
-export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevice, onUpdateDevice, onAddSubDevice, onRemoveSubDevice, onEditDevice, activeTask, viewTaskRunId, tasks, deviceRegistryStatus, deviceListEmpty, onNewTask, onCompleteTask, onArchiveTask, onDeleteTask, onRerunTask, onViewTaskRun, onReturnToActiveView, canDeleteTask, taskActionPendingId, taskActionError }: SidebarProps) {
+export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevice, onAddSubDevice, onRemoveSubDevice, onEditDevice, activeTask, viewTaskRunId, tasks, deviceRegistryStatus, deviceListEmpty, onNewTask, onCompleteTask, onArchiveTask, onDeleteTask, onRerunTask, onViewTaskRun, onReturnToActiveView, canDeleteTask, taskActionPendingId, taskActionError }: SidebarProps) {
   const [activeNav, setActiveNav] = useState('devices')
   const [formExpanded, setFormExpanded] = useState(false)
   const [formKind, setFormKind] = useState<FormKind>('radar')
@@ -121,7 +115,7 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
     [tasks, activeTask],
   )
   const isHistoryView = !!viewTaskRunId && viewTaskRunId !== activeTask?.id
-  const { devices: deviceStates, checkedDeviceIds, noSelectionHint, acquisition, state: globalState, setCheckedDevices } = useCore()
+  const { checkedDeviceIds, noSelectionHint, setCheckedDevices } = useCore()
 
   // Collapse add form when backend unavailable
   useEffect(() => {
@@ -143,20 +137,13 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
     setFormExpanded(false)
   }
 
-  const kindChips: FormKind[] = ['radar', 'opto', 'level', 'gps']
+  /** 主链路台账只登记本系统直接负责的雷达；其他设备后续由插件独立提供。 */
+  const kindChips: FormKind[] = ['radar']
 
   // --- Face helpers for the add form ---
   const updateFaceInForm = (idx: number, field: keyof RadarFace, value: any) => {
     const newFaces = radarForm.faces.map((f, i) => i === idx ? { ...f, [field]: value } : f)
     setRadarForm({ ...radarForm, faces: newFaces })
-  }
-  const addFaceToForm = () => {
-    const label = nextFaceLabel(radarForm.faces)
-    setRadarForm({ ...radarForm, faces: [...radarForm.faces, { label, boresightAzimuth: 0, scanAngle: 45, active: true }] })
-  }
-  const removeFaceFromForm = (idx: number) => {
-    if (radarForm.faces.length <= 1) return
-    setRadarForm({ ...radarForm, faces: radarForm.faces.filter((_, i) => i !== idx) })
   }
   const applyFacePreset = (preset: Omit<RadarFace, 'active'>[]) => {
     setRadarForm({ ...radarForm, faces: preset.map(f => ({ ...f, active: true })) })
@@ -239,7 +226,7 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                         {STATUS_META[activeTask.status]?.label} &middot; {activeTask.operator || '未指定'}
                       </div>
                     </div>
-                    {activeTask.status === 'active' && (
+                    {(activeTask.status === 'ready' || activeTask.status === 'active') && (
                       <button
                         className="px-1.5 py-0.5 rounded text-[8px] font-semibold border cursor-pointer"
                         style={{ borderColor: 'var(--primaryContainer)', color: 'var(--primaryContainer)', background: 'transparent' }}
@@ -270,12 +257,6 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                   if (isRadar(d)) {
                     const checked = checkedDeviceIds.includes(d.id)
                     const controllable = d.backendManaged === true && !!d.endpointId
-                    const deviceRuntime = deviceStates.find(s => s.id === d.id)
-                    const stateColor = !checked ? '#94a3b8' :
-                      globalState === 'Fault' ? '#ef4444' :
-                      acquisition || deviceRuntime?.acquisition ? '#22c55e' : '#94a3b8'
-                    const stateTitle = !checked ? '未选中'
-                      : deviceRuntime?.state ?? (deviceStates.length > 0 ? globalState : '未连接')
                     return (
                       <div key={d.id}>
                         <div className="flex items-center gap-1.5 px-1.5 py-1 rounded-md hover:bg-black/3 transition-colors cursor-pointer"
@@ -298,8 +279,6 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                               {d.endpointId ? ` · 端点 ${d.endpointId}` : <span style={{ color: '#991b1b' }}> · 未绑定端点</span>}
                             </div>
                           </div>
-                          {/* Status dot */}
-                          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: stateColor }} title={stateTitle} />
                           <button
                             className="p-0.5 rounded border-none bg-transparent cursor-pointer hover:bg-red-50 flex-shrink-0"
                             style={{ color: 'var(--onSurfaceVariant)' }}
@@ -431,21 +410,12 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                               value={face.boresightAzimuth} onChange={e => updateFaceInForm(fi, 'boresightAzimuth', Number(e.target.value))} />
                             <input type="number" step="any" placeholder="范围°" style={inputStyle}
                               value={face.scanAngle} onChange={e => updateFaceInForm(fi, 'scanAngle', Number(e.target.value))} />
-                            <button
-                              className="p-0.5 rounded border-none bg-transparent cursor-pointer hover:bg-red-50"
-                              style={{ color: 'var(--onSurfaceVariant)', lineHeight: 1, fontSize: 12 }}
-                              onClick={() => removeFaceFromForm(fi)}
-                              title="删除阵面"
-                            >×</button>
+                            <span />
                           </div>
                         ))}
 
                         {/* Face action row */}
                         <div className="flex gap-1 mt-0.5">
-                          <button className="px-1.5 py-0.5 rounded text-[8px] font-semibold border cursor-pointer"
-                            style={{ borderColor: 'var(--hairline)', background: 'transparent', color: 'var(--secondary)' }}
-                            onClick={addFaceToForm}
-                          >+ 添加阵面</button>
                           {FACE_PRESETS.map(p => (
                             <button key={p.label} className="px-1.5 py-0.5 rounded text-[8px] font-semibold border cursor-pointer"
                               style={{ borderColor: 'var(--hairline)', background: 'transparent', color: 'var(--secondary)' }}
@@ -591,15 +561,15 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                           当前
                         </span>
                       </div>
-                      {activeTask.status === 'active' && (
+                      {activeTask.status === 'ready' && (
                         <p className="text-[9px] px-1 leading-relaxed" style={{ color: 'var(--secondary)' }}>
-                          重启 core 后将自动恢复未完成的进行中任务，无需每次新建。
+                          任务已选定，尚未向设备发送开始采集命令。
                         </p>
                       )}
                     </div>
                   ) : (
                     <p className="text-[10px] px-1 leading-relaxed" style={{ color: 'var(--secondary)' }}>
-                      当前无进行中的任务，可从历史记录再次执行完整配置。
+                      当前无已选定任务，可从历史记录再次执行完整配置。
                     </p>
                   )}
                 </div>
@@ -690,12 +660,8 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                 <div key={d.id}>
                   <TreeNode
                     icon="sensors"
-                    label={`${d.name}  (${d.faces.filter(f => f.active).length}/${d.faces.length})`}
+                    label={`${d.name}  (${d.faces.length}面)`}
                     depth={1}
-                    onClick={() => {
-                      const allActive = d.faces.every(f => f.active)
-                      onUpdateDevice(d.id, { faces: d.faces.map(f => ({ ...f, active: !allActive })) })
-                    }}
                   />
                   {d.faces.map((face, fi) => (
                     <TreeNode
@@ -704,10 +670,6 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                       label={`阵面 ${face.label} · ${face.boresightAzimuth}° ±${face.scanAngle}°`}
                       depth={2}
                       active={face.active}
-                      onClick={() => {
-                        const newFaces = d.faces.map((f, i) => i === fi ? { ...f, active: !f.active } : f)
-                        onUpdateDevice(d.id, { faces: newFaces })
-                      }}
                     />
                   ))}
                 </div>

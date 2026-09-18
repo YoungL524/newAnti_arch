@@ -11,15 +11,23 @@ import { absoluteFaceHeading, projectRadarTrack, trackAbsoluteHeading } from './
 function radar(overrides: Partial<RadarDevice> = {}): RadarDevice {
   return {
     id: 'radar_1',
+    revision: 1,
     name: 'radar_1',
     brand: 'YHF',
+    model: 'YHF-YZ-KU',
+    protocolAdapterKey: 'dcmp.dp.v1',
     lng: 118,
     lat: 32,
     altitude: 100,
+    heading: 0,
     pitch: 0,
     roll: 0,
     maxRange: 5,
     faces: [{ label: 'A', boresightAzimuth: 0, scanAngle: 45, active: true }],
+    endpoint: {
+      id: 'radar_cpu', protocol: 'udp', localAddress: '127.0.0.1', localPort: 7788,
+      description: '测试端点', targets: {},
+    },
     ...overrides,
   }
 }
@@ -67,4 +75,3 @@ describe('radar 6DOF projection', () => {
     expect(absoluteFaceHeading(180)).toBe(180)
   })
 })
-

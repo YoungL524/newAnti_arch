@@ -17,7 +17,7 @@
 /** @brief 公共结束标志。 */
 #define DCMP_TAIL_MAGIC UINT32_C(0xB1B2A1A2)
 /** @brief 当前已确认的协议版本数值。 */
-#define DCMP_PROTOCOL_VERSION UINT32_C(20260908)
+#define DCMP_PROTOCOL_VERSION UINT32_C(20260915)
 /** @brief SP 发给 DCMP 的心跳消息类型，字段宽度为32位。 */
 #define DCMP_SP_HEARTBEAT UINT32_C(0x0303)
 /** @brief 公共头线上字节数。 */

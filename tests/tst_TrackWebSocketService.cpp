@@ -9,7 +9,9 @@
 #include "core/datadomain/CoreDataDomain.h"
 #include "core/execution/ExecutionLane.h"
 #include "core/producer/TrackPublisher.h"
+#include "core/model/StableIdRegistry.h"
 #include "core/web/TrackWebSocketService.h"
+#include "core/web/WebSocketGateway.h"
 
 #include <QElapsedTimer>
 #include <QJsonArray>
@@ -48,18 +50,19 @@ core::model::Sample<core::model::TrackPacket> makeTrackSample(quint32 trackId, d
     sample.value.elevationRad = 0.2;
     sample.value.radialVelocityMps = 12.0;
     sample.value.amplitude = 41.5;
+    sample.value.packFlag = 1;
     sample.value.recognitionStatus = core::model::RecognitionStatus::Completed;
     return sample;
 }
 
 /**
- * @brief 等待并取出指定模式的 WebSocket JSON 消息。
+ * @brief 等待并取出指定类型的 WebSocket JSON 消息。
  * @param spy 监听 QWebSocket::textMessageReceived 的信号记录器。
- * @param expectedMode 期望的 `snapshot` 或 `delta` 模式。
+ * @param expectedType 期望的V1消息类型。
  * @return 超时前收到的首个匹配对象；超时、JSON 非对象或无匹配时返回空对象。
  * @note 等待期间只泵送当前 Qt 测试事件循环，不启动轮询线程。
  */
-QJsonObject waitForMode(QSignalSpy &spy, const QString &expectedMode)
+QJsonObject waitForType(QSignalSpy &spy, const QString &expectedType)
 {
     QElapsedTimer timer;
     timer.start();
@@ -71,7 +74,7 @@ QJsonObject waitForMode(QSignalSpy &spy, const QString &expectedMode)
             const QList<QVariant> arguments = spy.takeFirst();
             const QJsonDocument document = QJsonDocument::fromJson(arguments.at(0).toString().toUtf8());
             if (document.isObject()
-                && document.object().value(QStringLiteral("mode")).toString() == expectedMode) {
+                && document.object().value(QStringLiteral("type")).toString() == expectedType) {
                 return document.object();
             }
         }
@@ -103,39 +106,55 @@ void TrackWebSocketServiceTest::sendsSnapshotAndDeltaWithoutProtocolAdapter()
 {
     core::domain::CoreDataDomain domain(8, 4);
     core::producer::TrackPublisher publisher(domain.trackTopic());
+    core::model::StableIdRegistry stableIds;
+    const QUuid deviceUuid(QStringLiteral("{aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa}"));
+    const QUuid acquisitionUuid(QStringLiteral("{bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb}"));
+    QVERIFY(stableIds.registerDevice(core::model::DeviceId::fromRaw(5), deviceUuid));
+    QVERIFY(stableIds.registerAcquisition(core::model::AcquisitionId::fromRaw(9), acquisitionUuid));
     core::execution::ExecutionLane lane;
-    core::web::TrackWebSocketService service(domain.trackTopic(), lane, 4, 4);
-    QVERIFY(service.start(0));
+    core::web::WebSocketGateway gateway;
+    core::web::TrackWebSocketService service(domain.trackTopic(), lane, gateway, stableIds, 4, 4);
+    QVERIFY(gateway.start(0));
 
     QWebSocket client;
     QSignalSpy connectedSpy(&client, &QWebSocket::connected);
     QSignalSpy messageSpy(&client, &QWebSocket::textMessageReceived);
-    client.open(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(service.serverPort())));
+    client.open(QUrl(QStringLiteral("ws://127.0.0.1:%1/ws/v1").arg(gateway.port())));
     QVERIFY(connectedSpy.wait(3000));
 
-    const QJsonObject snapshot = waitForMode(messageSpy, QStringLiteral("snapshot"));
-    QCOMPARE(snapshot.value(QStringLiteral("type")).toString(), QStringLiteral("tracks"));
-    QCOMPARE(snapshot.value(QStringLiteral("tracks")).toArray().size(), 0);
+    const QJsonObject snapshot = waitForType(messageSpy, QStringLiteral("trackSnapshot"));
+    QCOMPARE(snapshot.value(QStringLiteral("type")).toString(), QStringLiteral("trackSnapshot"));
+    QCOMPARE(snapshot.value(QStringLiteral("payload")).toObject().value(QStringLiteral("tracks")).toArray().size(), 0);
 
     const auto result = publisher.publish(makeTrackSample(12, 900.0));
     QVERIFY(result.accepted());
-    const QJsonObject delta = waitForMode(messageSpy, QStringLiteral("delta"));
-    const QJsonArray upserts = delta.value(QStringLiteral("upserts")).toArray();
+    const QJsonObject delta = waitForType(messageSpy, QStringLiteral("trackDelta"));
+    const QJsonArray upserts = delta.value(QStringLiteral("payload")).toObject().value(QStringLiteral("upserts")).toArray();
     QCOMPARE(upserts.size(), 1);
     const QJsonObject point = upserts.at(0).toObject();
-    QCOMPARE(point.value(QStringLiteral("acquisitionId")).toString(), QStringLiteral("9"));
-    QCOMPARE(point.value(QStringLiteral("deviceId")).toString(), QStringLiteral("radar-5"));
-    QCOMPARE(point.value(QStringLiteral("taskId")).toString(), QStringLiteral("task-7"));
+    QCOMPARE(point.value(QStringLiteral("acquisitionId")).toString(),
+             QStringLiteral("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"));
+    QCOMPARE(point.value(QStringLiteral("deviceId")).toString(),
+             QStringLiteral("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
     QCOMPARE(point.value(QStringLiteral("trackId")).toInt(), 12);
-    QCOMPARE(point.value(QStringLiteral("range")).toDouble(), 900.0);
-    QCOMPARE(point.value(QStringLiteral("radialSpeed")).toDouble(), 12.0);
+    QCOMPARE(point.value(QStringLiteral("rangeM")).toDouble(), 900.0);
+    QCOMPARE(point.value(QStringLiteral("radialVelocityMps")).toDouble(), 12.0);
     QCOMPARE(point.value(QStringLiteral("amplitude")).toDouble(), 41.5);
     QCOMPARE(service.cursor(), core::domain::TopicSequence(1));
 
+    auto ended = makeTrackSample(12, 900.0);
+    ended.value.packFlag = 0;
+    QVERIFY(publisher.publish(ended).accepted());
+    const QJsonObject endedDelta = waitForType(messageSpy, QStringLiteral("trackDelta"));
+    const QJsonObject endedPayload = endedDelta.value(QStringLiteral("payload")).toObject();
+    QCOMPARE(endedPayload.value(QStringLiteral("upserts")).toArray().size(), 0);
+    QCOMPARE(endedPayload.value(QStringLiteral("removals")).toArray().size(), 1);
+
     core::domain::TopicScratchBuffer<core::model::TrackPacket> independentScratch(2);
     const auto independentRead = domain.trackTopic().readAfter(0, independentScratch);
-    QCOMPARE(independentRead.count, qsizetype(1));
+    QCOMPARE(independentRead.count, qsizetype(2));
     QCOMPARE(independentScratch[0].sample.value.trackId, quint32(12));
+    QCOMPARE(independentScratch[1].sample.value.packFlag, quint8(0));
     client.close();
 }
 
@@ -148,23 +167,32 @@ void TrackWebSocketServiceTest::evictsOldestTargetAndSnapshotsCurrentState()
 {
     core::domain::CoreDataDomain domain(8, 4);
     core::producer::TrackPublisher publisher(domain.trackTopic());
+    core::model::StableIdRegistry stableIds;
+    QVERIFY(stableIds.registerDevice(
+        core::model::DeviceId::fromRaw(5),
+        QUuid(QStringLiteral("{aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa}"))));
+    QVERIFY(stableIds.registerAcquisition(
+        core::model::AcquisitionId::fromRaw(9),
+        QUuid(QStringLiteral("{bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb}"))));
     core::execution::ExecutionLane lane;
-    core::web::TrackWebSocketService service(domain.trackTopic(), lane, 4, 1);
-    QVERIFY(service.start(0));
+    core::web::WebSocketGateway gateway;
+    core::web::TrackWebSocketService service(domain.trackTopic(), lane, gateway, stableIds, 4, 1);
+    QVERIFY(gateway.start(0));
 
     QWebSocket firstClient;
     QSignalSpy firstConnected(&firstClient, &QWebSocket::connected);
     QSignalSpy firstMessages(&firstClient, &QWebSocket::textMessageReceived);
-    firstClient.open(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(service.serverPort())));
+    firstClient.open(QUrl(QStringLiteral("ws://127.0.0.1:%1/ws/v1").arg(gateway.port())));
     QVERIFY(firstConnected.wait(3000));
-    QVERIFY(!waitForMode(firstMessages, QStringLiteral("snapshot")).isEmpty());
+    QVERIFY(!waitForType(firstMessages, QStringLiteral("trackSnapshot")).isEmpty());
 
     QVERIFY(publisher.publish(makeTrackSample(1, 100.0)).accepted());
-    QVERIFY(!waitForMode(firstMessages, QStringLiteral("delta")).isEmpty());
+    QVERIFY(!waitForType(firstMessages, QStringLiteral("trackDelta")).isEmpty());
     QVERIFY(publisher.publish(makeTrackSample(2, 200.0)).accepted());
-    const QJsonObject evictionDelta = waitForMode(firstMessages, QStringLiteral("delta"));
-    const QJsonArray removals = evictionDelta.value(QStringLiteral("removals")).toArray();
-    const QJsonArray upserts = evictionDelta.value(QStringLiteral("upserts")).toArray();
+    const QJsonObject evictionDelta = waitForType(firstMessages, QStringLiteral("trackDelta"));
+    const QJsonObject evictionPayload = evictionDelta.value(QStringLiteral("payload")).toObject();
+    const QJsonArray removals = evictionPayload.value(QStringLiteral("removals")).toArray();
+    const QJsonArray upserts = evictionPayload.value(QStringLiteral("upserts")).toArray();
     QCOMPARE(removals.size(), 1);
     QCOMPARE(removals.at(0).toObject().value(QStringLiteral("trackId")).toInt(), 1);
     QCOMPARE(upserts.size(), 1);
@@ -173,10 +201,10 @@ void TrackWebSocketServiceTest::evictsOldestTargetAndSnapshotsCurrentState()
     QWebSocket secondClient;
     QSignalSpy secondConnected(&secondClient, &QWebSocket::connected);
     QSignalSpy secondMessages(&secondClient, &QWebSocket::textMessageReceived);
-    secondClient.open(QUrl(QStringLiteral("ws://127.0.0.1:%1").arg(service.serverPort())));
+    secondClient.open(QUrl(QStringLiteral("ws://127.0.0.1:%1/ws/v1").arg(gateway.port())));
     QVERIFY(secondConnected.wait(3000));
-    const QJsonObject currentSnapshot = waitForMode(secondMessages, QStringLiteral("snapshot"));
-    const QJsonArray currentTracks = currentSnapshot.value(QStringLiteral("tracks")).toArray();
+    const QJsonObject currentSnapshot = waitForType(secondMessages, QStringLiteral("trackSnapshot"));
+    const QJsonArray currentTracks = currentSnapshot.value(QStringLiteral("payload")).toObject().value(QStringLiteral("tracks")).toArray();
     QCOMPARE(currentTracks.size(), 1);
     QCOMPARE(currentTracks.at(0).toObject().value(QStringLiteral("trackId")).toInt(), 2);
 

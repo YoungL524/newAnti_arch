@@ -148,7 +148,7 @@ private:
     /** @brief 检查调用线程、连接状态并设置统一失败文本。 */
     bool requireOwnerThread(const char *operation);
 
-    /** @brief 设置 PRAGMA、建立或核对 user_version=1 的六表 Schema。 */
+    /** @brief 设置 PRAGMA、建立或迁移并核对当前 user_version 的六表 Schema。 */
     bool initializeDatabase();
 
     /** @brief 检查六张业务表均存在，防止错误接受损坏的 version=1 文件。 */

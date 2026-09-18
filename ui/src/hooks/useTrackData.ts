@@ -1,7 +1,8 @@
 /**
  * @file useTrackData.ts
- * @brief 订阅核心 WebSocket 航迹流并向 React 组件提供当前显示集合。
- * @details Hook 应用“初始快照 + 增量更新/删除”，并在断线或版本缺口时重建状态，避免无限追加历史点。
+ * @brief 从 CoreProvider 的最终航迹状态派生数据表行。
+ * @details 唯一 WebSocket 及“初始快照 + 增量更新/删除”由 CoreProvider 拥有；本 Hook 只完成当前设备筛选，
+ * 不创建连接、不保存后端历史，也不改变断线和版本缺口语义。
  */
 
 import { useState, useEffect } from 'react'

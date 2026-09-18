@@ -4,14 +4,10 @@
  * @details 阵面绝对朝向是唯一航向来源；位置/姿态区不再维护重复 Yaw，俯仰和横滚仍描述雷达 6DOF 安装姿态。
  */
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { RadarDevice, RadarBrand, RadarFace } from '../map/types'
 import { BRAND_LABELS, BRAND_OPTIONS } from '../map/types'
-import {
-  type CommEndpoint,
-  defaultEndpoint,
-  fetchEndpoints,
-} from '../../lib/endpointsApi'
+import type { RadarEndpoint as CommEndpoint } from '../map/types'
 
 interface Props {
   device: RadarDevice
@@ -44,28 +40,6 @@ const labelStyle: React.CSSProperties = {
   fontWeight: 500,
 }
 
-function nextFaceLabel(faces: RadarFace[]) {
-  const used = new Set(faces.map(f => f.label))
-  for (let i = 0; i < 26; i++) {
-    const label = String.fromCharCode(65 + i)
-    if (!used.has(label)) return label
-  }
-  return `F${faces.length + 1}`
-}
-
-function resolveEndpointForDevice(
-  endpoints: CommEndpoint[],
-  device: RadarDevice,
-): CommEndpoint {
-  const preferredId = device.endpointId || 'radar_cpu'
-  const bound = endpoints.find(e => e.id === preferredId)
-  if (bound) return { ...bound }
-  if (endpoints.length === 1) return { ...endpoints[0] }
-  const ep = defaultEndpoint(preferredId)
-  if (!ep.description && device.name) ep.description = device.name
-  return ep
-}
-
 function TargetFields({ label, target, onChange }: {
   label: string
   target: { address: string; port: number }
@@ -92,41 +66,21 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
   const [form, setForm] = useState({
     name: device.name,
     brand: device.brand,
+    model: device.model,
+    protocolAdapterKey: device.protocolAdapterKey,
     lng: device.lng,
     lat: device.lat,
     altitude: device.altitude,
+    heading: device.heading,
     pitch: device.pitch,
     roll: device.roll,
     maxRange: device.maxRange,
     faces: device.faces.map(f => ({ ...f })),
   })
-  const [endpoint, setEndpoint] = useState<CommEndpoint | null>(null)
-  const [endpointLoading, setEndpointLoading] = useState(true)
-  const [endpointError, setEndpointError] = useState('')
-
-  useEffect(() => {
-    let cancelled = false
-    setEndpointLoading(true)
-    setEndpointError('')
-    fetchEndpoints()
-      .then(r => {
-        if (cancelled) return
-        if (!r.ok) {
-          setEndpointError(r.error || '加载端点配置失败')
-          setEndpoint(resolveEndpointForDevice([], device))
-          return
-        }
-        setEndpoint(resolveEndpointForDevice(r.endpoints, device))
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setEndpointError('加载端点配置失败')
-          setEndpoint(resolveEndpointForDevice([], device))
-        }
-      })
-      .finally(() => { if (!cancelled) setEndpointLoading(false) })
-    return () => { cancelled = true }
-  }, [device.id, device.endpointId, device.name])
+  const [endpoint, setEndpoint] = useState<CommEndpoint>({
+    ...device.endpoint,
+    targets: { ...device.endpoint.targets },
+  })
 
   const update = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => {
     setForm(prev => ({ ...prev, [key]: value }))
@@ -139,26 +93,23 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
     }))
   }
 
-  const addFace = () => {
-    setForm(prev => ({
-      ...prev,
-      faces: [...prev.faces, { label: nextFaceLabel(prev.faces), boresightAzimuth: 0, scanAngle: 45, active: true }],
-    }))
-  }
-
-  const removeFace = (idx: number) => {
-    if (form.faces.length <= 1) return
-    setForm(prev => ({ ...prev, faces: prev.faces.filter((_, i) => i !== idx) }))
+  /** @brief 将设备阵面切换为合同允许的单面阵或四面阵。 */
+  const setArrayType = (count: 1 | 4) => {
+    const headings = count === 1 ? [0] : [0, 90, 180, 270]
+    setForm(prev => ({ ...prev, faces: headings.map((boresightAzimuth, index) => ({
+      label: String.fromCharCode(65 + index), boresightAzimuth, scanAngle: 45, active: true,
+    })) }))
   }
 
   const setTarget = (key: string, val: { address: string; port: number }) => {
-    setEndpoint(prev => prev ? { ...prev, targets: { ...prev.targets, [key]: val } } : prev)
+    setEndpoint(prev => ({ ...prev, targets: { ...prev.targets, [key]: val } }))
   }
 
-  const valid = form.name.trim().length > 0 && !!endpoint && endpoint.localPort > 0
+  const valid = form.name.trim().length > 0 && form.model.trim().length > 0
+    && form.protocolAdapterKey.trim().length > 0 && endpoint.localPort > 0
 
   const handleSave = () => {
-    if (!valid || !endpoint) return
+    if (!valid) return
     onSave(form, endpoint)
   }
 
@@ -213,16 +164,11 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
           </span>
         </div>
 
-        {endpointLoading ? (
-          <p className="text-[10px] mb-3" style={{ color: 'var(--secondary)' }}>加载端点配置...</p>
-        ) : endpoint ? (
+        {endpoint ? (
           <div className="rounded-lg p-3 mb-3 space-y-2"
             style={{ border: '1px solid var(--hairline)', background: 'rgba(255,255,255,0.6)' }}>
-            {endpointError && (
-              <p className="text-[9px]" style={{ color: '#991b1b' }}>{endpointError}（已使用默认模板）</p>
-            )}
             <p className="text-[9px] leading-relaxed" style={{ color: 'var(--secondary)' }}>
-              单设备模式：保存后写入 endpoints.json 并热重载，同时绑定到本设备。
+              端点随完整设备 revision 一起保存到 SQLite，不存在第二份 JSON 配置真源。
             </p>
 
             <div className="grid grid-cols-2 gap-2">
@@ -278,7 +224,7 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
         </div>
 
         <div className="mb-3">
-          <div style={labelStyle}>厂家/型号</div>
+          <div style={labelStyle}>厂家</div>
           <select
             style={{ ...inputStyle, appearance: 'auto', cursor: 'pointer' }}
             value={form.brand}
@@ -286,6 +232,18 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
           >
             {BRAND_OPTIONS.map(b => <option key={b} value={b}>{BRAND_LABELS[b]}</option>)}
           </select>
+        </div>
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <div>
+            <div style={labelStyle}>型号</div>
+            <input style={inputStyle} value={form.model}
+              onChange={(e) => update('model', e.target.value)} />
+          </div>
+          <div>
+            <div style={labelStyle}>协议适配器</div>
+            <input style={monoInputStyle} value={form.protocolAdapterKey}
+              onChange={(e) => update('protocolAdapterKey', e.target.value)} />
+          </div>
         </div>
 
         {/* ═══ 6DOF Section ═══ */}
@@ -355,8 +313,12 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
           </div>
         </div>
 
-        {/* Pitch / Roll; absolute heading is configured per face below. */}
-        <div className="grid grid-cols-2 gap-3 mb-3">
+        <div className="grid grid-cols-3 gap-3 mb-3">
+          <div>
+            <div style={labelStyle}>安装航向 (°)</div>
+            <input style={inputStyle} type="number" step="any" min="0" max="359.999"
+              value={form.heading} onChange={(e) => update('heading', Number(e.target.value))} />
+          </div>
           <div>
             <div style={labelStyle}>俯仰 Pitch (°)</div>
             <input style={inputStyle} type="number" step="any" min="-90" max="90"
@@ -382,7 +344,7 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
           <span style={labelStyle}>阵面</span>
           <span style={labelStyle}>绝对朝向 (°)</span>
           <span style={labelStyle}>扫描范围 (°)</span>
-          <span />
+            <span />
         </div>
 
         {form.faces.map((face, fi) => (
@@ -402,12 +364,7 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
               value={face.scanAngle}
               onChange={(e) => updateFace(fi, 'scanAngle', Number(e.target.value))}
             />
-            <button
-              className="p-0.5 rounded border-none bg-transparent cursor-pointer hover:bg-red-50"
-              style={{ color: 'var(--onSurfaceVariant)', lineHeight: 1, fontSize: 14 }}
-              onClick={() => removeFace(fi)}
-              title="删除阵面"
-            >×</button>
+            <span />
           </div>
         ))}
 
@@ -415,8 +372,13 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
           <button
             className="px-2 py-1 rounded text-[9px] font-semibold border cursor-pointer transition-colors"
             style={{ borderColor: 'var(--hairline)', background: 'transparent', color: 'var(--secondary)' }}
-            onClick={addFace}
-          >+ 添加阵面</button>
+            onClick={() => setArrayType(1)}
+          >单面阵</button>
+          <button
+            className="px-2 py-1 rounded text-[9px] font-semibold border cursor-pointer transition-colors"
+            style={{ borderColor: 'var(--hairline)', background: 'transparent', color: 'var(--secondary)' }}
+            onClick={() => setArrayType(4)}
+          >四面阵</button>
         </div>
 
         {/* ╌╌╌ Dashed divider ╌╌╌ */}
@@ -465,7 +427,7 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
             color: '#fff',
             opacity: valid ? 1 : 0.5,
           }}
-          disabled={!valid || endpointLoading}
+          disabled={!valid}
           onClick={handleSave}
         >
           保存修改
@@ -474,4 +436,3 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
     </>
   )
 }
-

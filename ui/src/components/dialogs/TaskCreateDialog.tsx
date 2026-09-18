@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Task } from '../../lib/taskTypes'
+import type { TaskRadarArrayType } from '../../lib/taskTypes'
 import type { RadarDevice } from '../map/types'
 
 export interface TaskCreateResult {
@@ -39,29 +40,87 @@ const labelStyle: React.CSSProperties = {
   fontWeight: 500,
 }
 
+/**
+ * @brief 根据设备物理阵面生成新任务的默认启用位图。
+ * @param device 设备台账中的完整雷达配置。
+ * @return 单面阵为0x01，四面阵默认启用全部可用阵面。
+ */
+function defaultFaceMask(device: RadarDevice): number {
+  const mask = device.faces.reduce((value, face, index) =>
+    face.active ? value | (1 << index) : value, 0)
+  return mask || 0x01
+}
+
+/**
+ * @brief 按“任务形态→兼容设备→任务阵面”的顺序收集任务草稿。
+ * @param radarDevices 设备台账中可供匹配的雷达完整配置。
+ * @param onCreate 将已校验任务意图提交给任务Owner的回调。
+ * @param onCancel 放弃当前未提交草稿的回调。
+ * @return 不持有后端状态的任务创建对话框。
+ */
 export default function TaskCreateDialog({ radarDevices, onCreate, onCancel }: Props) {
-  const controllableDeviceIds = radarDevices
+  const [radarArrayType, setRadarArrayType] = useState<TaskRadarArrayType>('singleFace')
+  const compatibleDevices = radarDevices.filter(device =>
+    (radarArrayType === 'fourFace' ? device.faces.length === 4 : device.faces.length === 1))
+  const controllableDeviceIds = compatibleDevices
     .filter(device => device.backendManaged && device.endpointId)
     .map(device => device.id)
   const [name, setName] = useState('')
   const [operator, setOperator] = useState('')
   const [desc, setDesc] = useState('')
-  const [deviceIds, setDeviceIds] = useState<string[]>(controllableDeviceIds)
+  const [deviceIds, setDeviceIds] = useState<string[]>([])
+  const [deviceFaceMasks, setDeviceFaceMasks] = useState<Record<string, number>>(() =>
+    Object.fromEntries(radarDevices.map(device => [device.id, defaultFaceMask(device)])))
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
+  /**
+   * @brief 切换任务雷达形态并丢弃上一形态尚未提交的任务草稿。
+   * @param nextType 用户刚选择的单面阵或四面阵任务形态。
+   * @details 两种形态代表两项独立任务意图，名称、操作员、描述和错误不能跨形态沿用；设备绑定由后续 effect
+   * 根据新形态重新匹配后端台账。
+   */
+  const changeRadarArrayType = (nextType: TaskRadarArrayType) => {
+    if (nextType === radarArrayType) return
+    setRadarArrayType(nextType)
+    setName('')
+    setOperator('')
+    setDesc('')
+    setError('')
+  }
+
   useEffect(() => {
     setDeviceIds(prev => {
-      if (prev.length > 0) return prev.filter(id => controllableDeviceIds.includes(id))
-      return controllableDeviceIds
+      const retained = prev.filter(id => controllableDeviceIds.includes(id))
+      return retained.length > 0 ? retained : controllableDeviceIds
     })
-  }, [controllableDeviceIds.join('|')])
+  }, [radarArrayType, controllableDeviceIds.join('|')])
+
+  useEffect(() => {
+    setDeviceFaceMasks(previous => Object.fromEntries(radarDevices.map(device => [
+      device.id,
+      previous[device.id] ?? defaultFaceMask(device),
+    ])))
+  }, [radarDevices])
 
   const valid = name.trim().length > 0 && deviceIds.length > 0 && !submitting
 
   const toggleDevice = (id: string) => {
     setError('')
     setDeviceIds(prev => prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id])
+  }
+
+  /**
+   * @brief 切换四面阵设备在本次任务中的一个阵面，禁止形成空阵面集合。
+   * @param deviceId 设备台账稳定UUID。
+   * @param faceIndex 阵面索引，范围0～3。
+   */
+  const toggleFace = (deviceId: string, faceIndex: number) => {
+    setDeviceFaceMasks(previous => {
+      const nextMask = (previous[deviceId] ?? 0x0f) ^ (1 << faceIndex)
+      if ((nextMask & 0x0f) === 0) return previous
+      return { ...previous, [deviceId]: nextMask & 0x0f }
+    })
   }
 
   const handleCreate = async () => {
@@ -73,7 +132,9 @@ export default function TaskCreateDialog({ radarDevices, onCreate, onCancel }: P
         name: name.trim(),
         description: desc.trim(),
         operator: operator.trim(),
+        radarArrayType,
         deviceIds,
+        deviceFaceMasks: Object.fromEntries(deviceIds.map(id => [id, deviceFaceMasks[id] ?? 0x01])),
       })
       if (!result.ok) setError(result.error || '任务创建失败')
     } catch (e: any) {
@@ -118,6 +179,27 @@ export default function TaskCreateDialog({ radarDevices, onCreate, onCancel }: P
         {/* Body */}
         <div className="px-5 py-4 space-y-3">
           <div>
+            <div style={labelStyle}>任务雷达形态</div>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                ['singleFace', '单面阵任务'],
+                ['fourFace', '四面阵任务'],
+              ] as const).map(([value, label]) => (
+                <button key={value} type="button"
+                  className="py-1.5 rounded text-[11px] border cursor-pointer"
+                  style={{
+                    borderColor: radarArrayType === value ? 'var(--primaryContainer)' : 'var(--hairline)',
+                    color: radarArrayType === value ? '#fff' : 'var(--secondary)',
+                    background: radarArrayType === value ? 'var(--primaryContainer)' : '#fff',
+                  }}
+                  disabled={submitting}
+                  onClick={() => changeRadarArrayType(value)}
+                >{label}</button>
+              ))}
+            </div>
+          </div>
+
+          <div>
             <div style={labelStyle}>任务名称</div>
             <input
               style={inputStyle}
@@ -151,24 +233,24 @@ export default function TaskCreateDialog({ radarDevices, onCreate, onCancel }: P
           <div>
             <div style={labelStyle}>绑定雷达</div>
             <div className="space-y-1.5">
-              {radarDevices.length === 0 ? (
+              {compatibleDevices.length === 0 ? (
                 <div className="text-[11px]" style={{ color: 'var(--secondary)' }}>
-                  暂无后端设备，请先在设备台账中添加雷达
+                  设备台账中没有匹配的{radarArrayType === 'fourFace' ? '四面阵' : '单面阵'}雷达
                 </div>
-              ) : radarDevices.map(device => {
+              ) : compatibleDevices.map(device => {
                 const controllable = Boolean(device.backendManaged && device.endpointId)
                 const checked = deviceIds.includes(device.id)
                 return (
-                  <label
+                  <div
                     key={device.id}
-                    className="flex items-center justify-between gap-3 rounded px-2 py-1.5"
+                    className="flex flex-wrap items-center justify-between gap-2 rounded px-2 py-1.5"
                     style={{
                       border: '1px solid var(--hairline)',
                       opacity: controllable ? 1 : 0.55,
                       cursor: controllable ? 'pointer' : 'not-allowed',
                     }}
                   >
-                    <span className="flex items-center gap-2 min-w-0">
+                    <label className="flex items-center gap-2 min-w-0 flex-1">
                       <input
                         type="checkbox"
                         checked={checked}
@@ -178,11 +260,31 @@ export default function TaskCreateDialog({ radarDevices, onCreate, onCancel }: P
                       <span className="truncate text-[11px]" style={{ color: 'var(--ink)' }}>
                         {device.name}
                       </span>
-                    </span>
+                    </label>
                     <span className="text-[10px] shrink-0" style={{ color: 'var(--secondary)' }}>
                       {device.endpointId || '未绑定端点'}
                     </span>
-                  </label>
+                    {checked && device.faces.length === 4 && (
+                      <div className="flex basis-full gap-1 ml-6">
+                        {device.faces.map((face, faceIndex) => {
+                          const selected = face.active
+                            && ((deviceFaceMasks[device.id] ?? 0x0f) & (1 << faceIndex)) !== 0
+                          return (
+                            <button key={faceIndex} type="button"
+                              className="px-2 py-0.5 rounded text-[9px] border cursor-pointer"
+                              style={{
+                                borderColor: selected ? 'var(--primaryContainer)' : 'var(--hairline)',
+                                color: selected ? '#fff' : 'var(--secondary)',
+                                background: selected ? 'var(--primaryContainer)' : 'transparent',
+                              }}
+                              disabled={!face.active || submitting}
+                              onClick={() => toggleFace(device.id, faceIndex)}
+                            >{faceIndex + 1}#</button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
                 )
               })}
             </div>
@@ -225,4 +327,3 @@ export default function TaskCreateDialog({ radarDevices, onCreate, onCancel }: P
     document.body,
   )
 }
-

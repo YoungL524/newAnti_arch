@@ -14,6 +14,13 @@
 
 namespace core::config {
 
+/** @brief 表示主链设备台账允许登记的完整雷达阵面形态。 */
+enum class RadarArrayType : quint8
+{
+    SingleFace = 1, ///< 单面阵整机，facesJson 必须只含0号阵面。
+    FourFace = 4 ///< 四面阵整机，facesJson 必须完整包含0～3号阵面。
+};
+
 /**
  * @brief 保存一个可审计且可形成不可变 SQLite revision 的完整设备配置。
  * @note QString/JSON 只存在于低频配置平面；实时 TrackPacket 只保存数值句柄，不复制本结构。
@@ -26,6 +33,9 @@ struct DeviceConfiguration
     QString manufacturer; ///< 厂家名称；未知时为空。
     QString model; ///< 厂家型号；未知时为空。
     QString protocolAdapterKey; ///< 已登记协议适配器键；仅保存配置时可为空，开始采集前必须有效。
+    RadarArrayType arrayType = RadarArrayType::SingleFace; ///< 主链只接受单面阵或完整四面阵整机。
+    double maxRangeM = 5000.0; ///< UI覆盖绘制使用的最大斜距，单位m，必须有限且大于零。
+    QString facesJson = QStringLiteral("[{\"faceIndex\":0,\"boresightAzimuthDeg\":0,\"scanHalfAngleDeg\":45,\"enabled\":true}]"); ///< 固定1或4项阵面安装参数，不进入每条航迹。
     double longitudeDeg = 0.0; ///< 雷达 RFU 原点经度，东经为正，范围 [-180,180]°。
     double latitudeDeg = 0.0; ///< 雷达 RFU 原点纬度，北纬为正，范围 [-90,90]°。
     double altitudeM = 0.0; ///< 相对平均海平面 MSL 的海拔高度，单位 m。

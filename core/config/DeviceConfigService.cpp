@@ -2,6 +2,7 @@
 
 #include "core/archive/SqliteArchiveRepository.h"
 #include "core/persistence/SqliteRuntimeRepository.h"
+#include "core/model/StableIdRegistry.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -20,9 +21,11 @@ namespace core::config {
  */
 DeviceConfigService::DeviceConfigService(
     core::persistence::SqliteRuntimeRepository &runtimeRepository,
-    core::archive::SqliteArchiveRepository &archiveRepository)
+    core::archive::SqliteArchiveRepository &archiveRepository,
+    core::model::StableIdRegistry &stableIds)
     : m_runtimeRepository(runtimeRepository)
     , m_archiveRepository(archiveRepository)
+    , m_stableIds(stableIds)
 {
 }
 
@@ -47,13 +50,17 @@ bool DeviceConfigService::loadFromDatabase()
         return false;
     }
     QVector<QString> endpointKeys;
+    QVector<quint8> enabledFaceMasks;
     endpointKeys.reserve(configurations.size());
+    enabledFaceMasks.reserve(configurations.size());
     for (const DeviceConfiguration &configuration : configurations) {
         QString endpointKey;
-        if (!validateConfiguration(configuration, endpointKey)) {
+        quint8 enabledFaceMask = 0;
+        if (!validateConfiguration(configuration, endpointKey, enabledFaceMask)) {
             return false;
         }
         endpointKeys.push_back(endpointKey);
+        enabledFaceMasks.push_back(enabledFaceMask);
     }
 
     for (qsizetype index = 0; index < configurations.size(); ++index) {
@@ -63,15 +70,18 @@ bool DeviceConfigService::loadFromDatabase()
             return false;
         }
         if (!m_archiveRepository.bindDevice(deviceId, revisionIds[index])
-            || !m_archiveRepository.bindEndpoint(endpointId, endpointKeys[index])) {
+            || !m_archiveRepository.bindEndpoint(endpointId, endpointKeys[index])
+            || !m_stableIds.registerDevice(deviceId, configurations[index].deviceUuid)) {
             m_lastError = m_archiveRepository.lastError();
+            if (m_lastError.isEmpty()) m_lastError = QStringLiteral("稳定设备身份登记冲突");
             return false;
         }
         const DeviceConfiguration &configuration = configurations[index];
         m_activeDevices.insert(
             deviceId.value(),
             ActiveDevice {revisionIds[index], endpointId, endpointKeys[index],
-                          configuration.protocolAdapterKey});
+                          configuration.protocolAdapterKey, configuration.arrayType,
+                          enabledFaceMasks[index]});
         m_latestDeviceIds.insert(configuration.deviceUuid, deviceId);
     }
     m_lastError.clear();
@@ -90,7 +100,8 @@ bool DeviceConfigService::saveAndActivate(
     deviceId = core::model::DeviceId();
     trackEndpointId = core::model::EndpointId();
     QString endpointKey;
-    if (!validateConfiguration(configuration, endpointKey)) {
+    quint8 enabledFaceMask = 0;
+    if (!validateConfiguration(configuration, endpointKey, enabledFaceMask)) {
         return false;
     }
     qint64 revisionId = 0;
@@ -104,17 +115,60 @@ bool DeviceConfigService::saveAndActivate(
         return false;
     }
     if (!m_archiveRepository.bindDevice(allocatedDeviceId, revisionId)
-        || !m_archiveRepository.bindEndpoint(allocatedEndpointId, endpointKey)) {
+        || !m_archiveRepository.bindEndpoint(allocatedEndpointId, endpointKey)
+        || !m_stableIds.registerDevice(allocatedDeviceId, configuration.deviceUuid)) {
         m_lastError = m_archiveRepository.lastError();
+        if (m_lastError.isEmpty()) m_lastError = QStringLiteral("稳定设备身份登记冲突");
         return false;
     }
     m_activeDevices.insert(
         allocatedDeviceId.value(),
         ActiveDevice {revisionId, allocatedEndpointId, endpointKey,
-                      configuration.protocolAdapterKey});
+                      configuration.protocolAdapterKey, configuration.arrayType,
+                      enabledFaceMask});
     m_latestDeviceIds.insert(configuration.deviceUuid, allocatedDeviceId);
     deviceId = allocatedDeviceId;
     trackEndpointId = allocatedEndpointId;
+    m_lastError.clear();
+    return true;
+}
+
+/**
+ * @brief 通过同一SQLite适配器读取当前台账，并复用保存入口的完整配置校验防止输出损坏数据。
+ */
+bool DeviceConfigService::listCurrent(QVector<DeviceConfiguration> &configurations)
+{
+    QVector<DeviceConfiguration> loaded;
+    QVector<qint64> revisionIds;
+    if (!m_runtimeRepository.loadCurrentDevices(loaded, revisionIds)
+        || loaded.size() != revisionIds.size()) {
+        m_lastError = m_runtimeRepository.lastError();
+        if (m_lastError.isEmpty()) m_lastError = QStringLiteral("设备配置与revision主键数量不一致");
+        return false;
+    }
+    for (const DeviceConfiguration &configuration : loaded) {
+        QString endpointKey;
+        quint8 enabledFaceMask = 0;
+        if (!validateConfiguration(configuration, endpointKey, enabledFaceMask)) return false;
+    }
+    configurations = std::move(loaded);
+    m_lastError.clear();
+    return true;
+}
+
+/**
+ * @brief 提交删除revision后只撤销UUID到最新可选句柄的映射，不破坏旧事实所需的稳定身份解析。
+ */
+bool DeviceConfigService::softDelete(
+    const QUuid &deviceUuid, quint32 expectedRevision,
+    const QString &changedBy, const QString &changeReason)
+{
+    if (!m_runtimeRepository.softDeleteDevice(
+            deviceUuid, expectedRevision, changedBy, changeReason)) {
+        m_lastError = m_runtimeRepository.lastError();
+        return false;
+    }
+    m_latestDeviceIds.remove(deviceUuid);
     m_lastError.clear();
     return true;
 }
@@ -190,6 +244,21 @@ bool DeviceConfigService::isCollectionReady(
 }
 
 /**
+ * @brief 从最新UUID映射读取冻结能力，不访问SQLite，也不允许任务选择已禁用阵面。
+ */
+bool DeviceConfigService::acceptsTaskBinding(
+    const QUuid &deviceUuid,
+    RadarArrayType arrayType,
+    quint8 faceMask) const
+{
+    const auto latest = m_latestDeviceIds.constFind(deviceUuid);
+    if (deviceUuid.isNull() || faceMask == 0 || latest == m_latestDeviceIds.cend()) return false;
+    const auto active = m_activeDevices.constFind(latest->value());
+    return active != m_activeDevices.cend() && active->arrayType == arrayType
+        && (faceMask & static_cast<quint8>(~active->enabledFaceMask)) == 0;
+}
+
+/**
  * @brief 返回最近失败文本的值副本，成功调用后为空。
  */
 QString DeviceConfigService::lastError() const
@@ -198,26 +267,78 @@ QString DeviceConfigService::lastError() const
 }
 
 /**
- * @brief 校验坐标/姿态有限范围和 JSON 顶层形态，并要求唯一 track_receive UDP 端点。
- * @details 厂家私有 protocolConfig 只要求是 JSON object；具体字段留给未来真实 ProtocolAdapter 合同校验。
+ * @brief 校验整机类型、阵面安装参数、姿态和端点，并要求唯一 track_receive UDP 端点。
+ * @details 主链只接受单面阵或完整四面阵；厂家私有 protocolConfig 仍只要求是 JSON object。
  */
 bool DeviceConfigService::validateConfiguration(
     const DeviceConfiguration &configuration,
-    QString &trackEndpointKey)
+    QString &trackEndpointKey,
+    quint8 &enabledFaceMask)
 {
     trackEndpointKey.clear();
+    enabledFaceMask = 0;
     const bool finitePose = std::isfinite(configuration.longitudeDeg)
         && std::isfinite(configuration.latitudeDeg) && std::isfinite(configuration.altitudeM)
         && std::isfinite(configuration.absoluteHeadingDeg)
         && std::isfinite(configuration.pitchDeg) && std::isfinite(configuration.rollDeg);
-    if (configuration.displayName.trimmed().isEmpty() || !finitePose
+    if (configuration.displayName.trimmed().isEmpty()
+        || configuration.manufacturer.trimmed().isEmpty()
+        || configuration.model.trimmed().isEmpty()
+        || !finitePose || !std::isfinite(configuration.maxRangeM)
+        || configuration.maxRangeM <= 0.0
         || configuration.longitudeDeg < -180.0 || configuration.longitudeDeg > 180.0
         || configuration.latitudeDeg < -90.0 || configuration.latitudeDeg > 90.0
         || configuration.absoluteHeadingDeg < 0.0
         || configuration.absoluteHeadingDeg >= 360.0
         || configuration.pitchDeg < -90.0 || configuration.pitchDeg > 90.0
         || configuration.rollDeg < -180.0 || configuration.rollDeg >= 180.0) {
-        m_lastError = QStringLiteral("设备名称或经纬高/绝对姿态不符合合同");
+        m_lastError = QStringLiteral("设备身份、作用距离或经纬高/绝对姿态不符合合同");
+        return false;
+    }
+
+    QJsonParseError faceError;
+    const QJsonDocument faceDocument = QJsonDocument::fromJson(
+        configuration.facesJson.toUtf8(), &faceError);
+    const int expectedFaces = configuration.arrayType == RadarArrayType::SingleFace ? 1
+        : configuration.arrayType == RadarArrayType::FourFace ? 4 : 0;
+    if (faceError.error != QJsonParseError::NoError || !faceDocument.isArray()
+        || expectedFaces == 0 || faceDocument.array().size() != expectedFaces) {
+        m_lastError = QStringLiteral("阵面配置必须与单面阵或四面阵整机类型严格一致");
+        return false;
+    }
+    quint8 seenFaces = 0;
+    for (const QJsonValue &value : faceDocument.array()) {
+        if (!value.isObject()) {
+            m_lastError = QStringLiteral("每个阵面配置必须是 JSON object");
+            return false;
+        }
+        const QJsonObject face = value.toObject();
+        const int faceIndex = face.value(QStringLiteral("faceIndex")).toInt(-1);
+        const double boresight = face.value(QStringLiteral("boresightAzimuthDeg")).toDouble(
+            std::numeric_limits<double>::quiet_NaN());
+        const double scanHalfAngle = face.value(QStringLiteral("scanHalfAngleDeg")).toDouble(
+            std::numeric_limits<double>::quiet_NaN());
+        const bool valid = faceIndex >= 0 && faceIndex < expectedFaces
+            && (seenFaces & (quint8(1U) << faceIndex)) == 0
+            && std::isfinite(boresight) && boresight >= 0.0 && boresight < 360.0
+            && std::isfinite(scanHalfAngle) && scanHalfAngle > 0.0 && scanHalfAngle <= 180.0
+            && face.value(QStringLiteral("enabled")).isBool();
+        if (!valid) {
+            m_lastError = QStringLiteral("阵面编号、波束中心、扫描半角或启用状态无效");
+            return false;
+        }
+        seenFaces = static_cast<quint8>(seenFaces | (quint8(1U) << faceIndex));
+        if (face.value(QStringLiteral("enabled")).toBool()) {
+            enabledFaceMask = static_cast<quint8>(enabledFaceMask | (quint8(1U) << faceIndex));
+        }
+    }
+    const quint8 expectedMask = static_cast<quint8>((quint8(1U) << expectedFaces) - 1U);
+    if (seenFaces != expectedMask) {
+        m_lastError = QStringLiteral("阵面编号必须从0连续覆盖整机全部阵面");
+        return false;
+    }
+    if (enabledFaceMask == 0) {
+        m_lastError = QStringLiteral("设备至少需要启用一个阵面才能加入任务");
         return false;
     }
 

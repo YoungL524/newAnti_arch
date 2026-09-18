@@ -3,14 +3,15 @@
 #include <QtTest>
 #include <QtEndian>
 #include <QUdpSocket>
+#include <cstring>
 
 namespace {
 /**
- * @brief 手工字节夹具使用小端标志、120声明长度、20260908版本，避免以待测编码器自证正确。
+ * @brief 手工字节夹具使用小端标志、120声明长度、20260915版本，避免以待测编码器自证正确。
  */
 QByteArray heartbeat(bool sp = false)
 {
-    QByteArray bytes = QByteArray::fromHex("1a1aa1a178000000010100002c283501");
+    QByteArray bytes = QByteArray::fromHex("1a1aa1a1780000000101000033283501");
     bytes.append(QByteArray(28, '\0'));
     bytes.append(QByteArray::fromHex("01000500"));
     bytes.append(QByteArray(80, '\0'));
@@ -19,6 +20,38 @@ QByteArray heartbeat(bool sp = false)
         bytes[8] = 3;
         bytes[9] = 3;
     }
+    return bytes;
+}
+
+/**
+ * @brief 按0x0100固定偏移构造一条合法四阵面航迹报文，不调用待测解析器生成字节。
+ * @return 阵面2、源序号77、目标9且packFlag为“存在”的656字节报文。
+ */
+QByteArray trackFrame()
+{
+    using Payload = core::protocol::DpToDcmpTrackPayload;
+    QByteArray bytes(static_cast<int>(Payload::frameWireSize), '\0');
+    qToLittleEndian<quint32>(core::protocol::DcmpFrameHeader::expectedMagic, bytes.data());
+    qToLittleEndian<quint32>(Payload::frameWireSize - core::protocol::DcmpFrameHeader::lengthExcludedSize,
+                             bytes.data() + core::protocol::DcmpFrameHeader::totalLengthOffset);
+    qToLittleEndian<quint32>(static_cast<quint32>(core::protocol::DcmpMessageType::DpToDcmpTrack),
+                             bytes.data() + core::protocol::DcmpFrameHeader::messageTypeOffset);
+    qToLittleEndian<quint32>(core::protocol::DcmpFrameHeader::expectedVersion,
+                             bytes.data() + core::protocol::DcmpFrameHeader::versionOffset);
+    char *const payload = bytes.data() + core::protocol::DcmpFrameHeader::payloadOffset;
+    qToLittleEndian<quint32>(77U, payload + Payload::fpPacketCountOffset);
+    qToLittleEndian<quint32>(1U, payload + Payload::fpFaceIndexOffset);
+    Payload::DpTrack track;
+    track.targetId = 9;
+    track.range = 1250.5F;
+    track.azimuth = -12.5F;
+    track.elevation = 8.0F;
+    track.radialSpeed = 14.0F;
+    track.amplitude = 42.25F;
+    track.packFlag = 1U;
+    std::memcpy(payload + Payload::trackOffset, &track, sizeof(track));
+    qToLittleEndian<quint32>(core::protocol::DcmpFrameTail::expectedMagic,
+                             bytes.data() + bytes.size() - core::protocol::DcmpFrameTail::wireSize);
     return bytes;
 }
 }
@@ -34,6 +67,8 @@ private slots:
     void rejectsInvalid();
     /** @brief 实际回环UDP必须经正式端点再调用Adapter。 */
     void udpIntegration();
+    /** @brief 0x0100必须按固定长度交付阵面、源序号和单个强类型协议航迹。 */
+    void validTrackFrame();
 };
 
 /**
@@ -118,7 +153,7 @@ void DcmpProtocolAdapterTest::rejectsInvalid()
     frame[47] = 1;
     QCOMPARE(adapter.onDatagram(frame.constData(), frame.size(), 0, 0), Result::InvalidHeartbeat);
     frame = valid;
-    frame[8] = 0;
+    qToLittleEndian<quint32>(0x9999U, frame.data() + DcmpFrameHeader::messageTypeOffset);
     QCOMPARE(adapter.onDatagram(frame.constData(), frame.size(), 0, 0), Result::UnsupportedMessage);
     frame = valid + QByteArray(4, '\0');
     QCOMPARE(adapter.onDatagram(frame.constData(), frame.size(), 0, 0), Result::InvalidLength);
@@ -157,6 +192,40 @@ void DcmpProtocolAdapterTest::udpIntegration()
     QCOMPARE(peer.writeDatagram(heartbeat(true), QHostAddress::LocalHost, endpoint.localPort()), qint64(132));
     QTRY_COMPARE(dpCount, 1);
     QTRY_COMPARE(spCount, 1);
+}
+
+/**
+ * @brief 验证航迹解码不进入Topic，也不复用心跳handler承担数据路由。
+ * @details Adapter只同步交付短生命周期协议值；运行时身份绑定和弧度映射属于后续Producer门禁。
+ */
+void DcmpProtocolAdapterTest::validTrackFrame()
+{
+    using namespace core::protocol;
+    int deliveries = 0;
+    DcmpProtocolAdapter adapter({}, {},
+        [&](const DcmpFrameHeader &header, quint8 faceIndex, quint32 sourceSequence,
+            const DpToDcmpTrackPayload::DpTrack &track, qint64 utc, qint64 steady) {
+            ++deliveries;
+            QCOMPARE(header.F_UI_MessageType, DcmpMessageType::DpToDcmpTrack);
+            QCOMPARE(faceIndex, quint8(1));
+            QCOMPARE(sourceSequence, quint32(77));
+            QCOMPARE(track.targetId, qint32(9));
+            QCOMPARE(track.range, 1250.5F);
+            QCOMPARE(track.azimuth, -12.5F);
+            QCOMPARE(track.packFlag, quint32(1));
+            QCOMPARE(utc, qint64(300));
+            QCOMPARE(steady, qint64(400));
+        });
+    QByteArray frame = trackFrame();
+    QCOMPARE(adapter.onDatagram(frame.constData(), frame.size(), 300, 400),
+             DcmpProtocolAdapter::Result::Accepted);
+    QCOMPARE(deliveries, 1);
+
+    qToLittleEndian<quint32>(4U,
+        frame.data() + DcmpFrameHeader::payloadOffset + DpToDcmpTrackPayload::fpFaceIndexOffset);
+    QCOMPARE(adapter.onDatagram(frame.constData(), frame.size(), 300, 400),
+             DcmpProtocolAdapter::Result::InvalidTrack);
+    QCOMPARE(deliveries, 1);
 }
 
 /**

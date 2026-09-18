@@ -246,3 +246,11 @@ add_test(NAME protocol.DcmpProtocolAdapter COMMAND $<TARGET_FILE:tst_DcmpProtoco
 add_executable(tst_HeartbeatPath tst_HeartbeatPath.cpp)
 target_link_libraries(tst_HeartbeatPath PRIVATE NewAntiDrone_datadomain Qt5::Test)
 add_test(NAME integration.HeartbeatPath COMMAND $<TARGET_FILE:tst_HeartbeatPath>)
+
+add_executable(tst_TrackIngressPath tst_TrackIngressPath.cpp)
+target_link_libraries(tst_TrackIngressPath PRIVATE NewAntiDrone_datadomain Qt5::Test)
+add_test(NAME integration.TrackIngressPath COMMAND $<TARGET_FILE:tst_TrackIngressPath>)
+
+add_executable(tst_StorageRuntimeContract tst_StorageRuntimeContract.cpp)
+target_link_libraries(tst_StorageRuntimeContract PRIVATE NewAntiDrone_datadomain Qt5::Test)
+add_test(NAME web.StorageRuntimeContract COMMAND $<TARGET_FILE:tst_StorageRuntimeContract>)

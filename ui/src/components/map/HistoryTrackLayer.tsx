@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useRef, useMemo, useState, useCallback } from 'react'
-import type { TrackHistoryPoint } from '../../lib/tracksApi'
+import type { TrackHistoryPoint } from '../../lib/protocol'
 import type { RadarDevice } from './types'
 import { projectRadarTrack } from '../../lib/radarPose'
 
@@ -127,4 +127,3 @@ export default function HistoryTrackLayer({ device, points, mapInstance, mapClas
     />
   )
 }
-

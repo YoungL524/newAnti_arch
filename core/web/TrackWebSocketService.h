@@ -11,12 +11,11 @@
 #include "core/datadomain/HistoryTopic.h"
 #include "core/execution/ExecutionLane.h"
 #include "core/model/TrackPacket.h"
+#include "core/model/StableIdRegistry.h"
 
 #include <QHash>
 #include <QJsonObject>
 #include <QObject>
-#include <QSet>
-#include <QWebSocketServer>
 
 #include <array>
 
@@ -24,8 +23,10 @@ QT_FORWARD_DECLARE_CLASS(QWebSocket)
 
 namespace core::web {
 
+class WebSocketGateway;
+
 /**
- * @brief 将 TrackTopic 折叠为有界浏览器显示态，并向所有已连接客户端发送快照或增量。
+ * @brief 将TrackTopic折叠为有界浏览器显示态，并通过唯一Gateway发送快照或增量。
  * @warning 除只执行Lane原子置位的onTrackTopicAdvanced外，方法均须在所属线程调用；依赖必须覆盖本对象。
  * @note 最多8连接；增量发送积压超过4MiB断开慢连接，重连后取快照。
  */
@@ -35,9 +36,11 @@ class TrackWebSocketService final : public QObject
 
 public:
     /**
-     * @brief 创建尚未监听端口的 WebReader。
+     * @brief 创建不拥有网络端口的WebReader。
      * @param trackTopic 数据域唯一航迹历史。
      * @param executionLane Web/主事件循环共享的合并执行通道。
+     * @param gateway 页面实时接口的唯一连接owner。
+     * @param stableIds 把热路径紧凑句柄解析为跨重启 UUID 的只读注册表。
      * @param maxRecordsPerTurn 每次调度最多读取的 Topic 记录数，必须大于零。
      * @param maxTargets Web 最终状态最多保留的不同 TrackKey 数量，必须大于零。
      * @param parent Qt 生命周期父对象。
@@ -45,31 +48,17 @@ public:
     TrackWebSocketService(
         const core::domain::HistoryTopic<core::model::TrackPacket> &trackTopic,
         core::execution::ExecutionLane &executionLane,
+        WebSocketGateway &gateway,
+        const core::model::StableIdRegistry &stableIds,
         qsizetype maxRecordsPerTurn,
         qsizetype maxTargets,
         QObject *parent = nullptr);
 
-    /** @brief 停止监听并释放 ExecutionLane slot；必须在所属线程析构。 */
+    /** @brief 断开借用依赖并释放ExecutionLane slot；必须在所属线程析构。 */
     ~TrackWebSocketService() override;
-
-    /**
-     * @brief 在所有本机/网络接口监听 WebSocket 端口。
-     * @param port 浏览器连接端口；零可用于自动化测试的临时端口。
-     * @return 监听成功返回 true，重复启动或端口占用返回 false。
-     */
-    bool start(quint16 port);
-
-    /** @brief 关闭监听和现有客户端连接，可重复调用。 */
-    void stop();
-
-    /** @brief 返回操作系统实际分配的 WebSocket 端口，未监听时为零。 */
-    quint16 serverPort() const noexcept;
 
     /** @brief 返回已经成功折叠的最后一个 TrackTopic sequence。 */
     core::domain::TopicSequence cursor() const noexcept;
-
-    /** @brief 返回当前连接的浏览器客户端数。 */
-    qsizetype clientCount() const noexcept;
 
 public Q_SLOTS:
     /**
@@ -82,9 +71,6 @@ public Q_SLOTS:
     void refresh();
 
 private Q_SLOTS:
-    /** @brief 接纳一个 WebSocket 客户端并立即发送当前完整快照。 */
-    void onNewConnection();
-
     /** @brief 响应共享 Lane 位集合，仅在命中本 Reader 时读取一个批次。 */
     void onExecutionRequested(quint64 pendingMask);
 
@@ -94,8 +80,8 @@ private:
     {
         core::model::AcquisitionId acquisitionId; ///< 隔离重启后 trackId 复用的采集会话。
         core::model::DeviceId deviceId; ///< 用于在 Web 边界解析为稳定设备标识。
-        core::model::TaskId taskId; ///< 用于 UI 当前任务过滤；零表示无任务。
         quint32 trackId = 0; ///< 厂家航迹号。
+        quint8 faceIndex = 0; ///< 完整雷达内的阵面索引，范围0～3。
         quint32 pointIndex = 0; ///< 当前航迹内单调显示点序号。
         qint64 timestampUtcMs = 0; ///< socket 接收时 UTC 毫秒。
         double rangeM = 0.0; ///< 斜距，单位 m。
@@ -132,11 +118,14 @@ private:
     /** @brief 在达到 maxTargets 时淘汰最久未更新航迹，并追加其全部删除键。 */
     void evictOldestTrack(QJsonArray &removals);
 
-    /** @brief 把定长最终显示点转换为浏览器跨进程 JSON 合同。 */
-    static QJsonObject pointJson(const DisplayPoint &point);
+    /** @brief 把定长最终显示点及其稳定身份转换为浏览器跨进程 JSON 合同。 */
+    QJsonObject pointJson(const DisplayPoint &point) const;
 
-    /** @brief 只序列化删除所需身份字段，避免 removal 携带业务值。 */
-    static QJsonObject pointKeyJson(const DisplayPoint &point);
+    /** @brief 只序列化删除所需稳定身份字段，避免 removal 携带业务值。 */
+    QJsonObject pointKeyJson(const DisplayPoint &point) const;
+
+    /** @brief 检查航迹的设备和采集会话均已由 SQLite Owner 登记稳定 UUID。 */
+    bool hasStableIdentity(const core::model::TrackPacket &track) const;
 
     /** @brief 向一个新客户端发送当前有界显示态的完整 snapshot。 */
     void sendSnapshot(QWebSocket &client) const;
@@ -146,11 +135,11 @@ private:
 
     const core::domain::HistoryTopic<core::model::TrackPacket> &m_trackTopic; ///< 借用的唯一航迹历史。
     core::execution::ExecutionLane &m_executionLane; ///< 借用的 Web/主循环合并执行通道。
+    WebSocketGateway &m_gateway; ///< 借用唯一WebSocket连接owner，不保存业务历史。
+    const core::model::StableIdRegistry &m_stableIds; ///< 借用稳定身份注册表，不访问 SQLite 或缓存字符串。
     core::domain::TopicScratchBuffer<core::model::TrackPacket> m_scratch; ///< 固定可复用读取缓冲。
     const core::execution::ExecutionSlot m_executionSlot; ///< 本 Reader 在 Lane 中的唯一 pending 位。
     const qsizetype m_maxTargets; ///< 有界最终状态目标数上限。
-    QWebSocketServer m_server; ///< WebSocket 网络边界；不拥有 Topic 数据。
-    QSet<QWebSocket *> m_clients; ///< 当前连接对象集合，不含业务消息队列。
     QHash<core::model::TrackKey, TrackTrail> m_trails; ///< 地图绘制所需的有界最终派生状态。
     core::domain::TopicSequence m_cursor = 0; ///< 本 Consumer 独立读取水位。
     quint64 m_revision = 0; ///< Web snapshot/delta 单调修订号。

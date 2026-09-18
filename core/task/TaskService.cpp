@@ -3,9 +3,15 @@
 #include "core/archive/SqliteArchiveRepository.h"
 #include "core/config/DeviceConfigService.h"
 #include "core/persistence/SqliteRuntimeRepository.h"
+#include "core/model/StableIdRegistry.h"
+#include "core/producer/RuntimeStateGate.h"
 
+#include <QDateTime>
 #include <QVector>
+#include <QSet>
 
+#include <algorithm>
+#include <chrono>
 #include <limits>
 
 namespace core::task {
@@ -15,11 +21,15 @@ namespace core::task {
  */
 TaskService::TaskService(
     core::persistence::SqliteRuntimeRepository &runtimeRepository,
-    const core::config::DeviceConfigService &deviceConfigService,
-    core::archive::SqliteArchiveRepository &archiveRepository)
+    core::config::DeviceConfigService &deviceConfigService,
+    core::archive::SqliteArchiveRepository &archiveRepository,
+    core::model::StableIdRegistry &stableIds,
+    core::domain::LatestState<core::model::TaskState> &taskState)
     : m_runtimeRepository(runtimeRepository)
     , m_deviceConfigService(deviceConfigService)
     , m_archiveRepository(archiveRepository)
+    , m_stableIds(stableIds)
+    , m_taskState(taskState)
 {
 }
 
@@ -49,12 +59,15 @@ bool TaskService::loadFromDatabase()
         if (!taskId.isSet()) {
             return false;
         }
-        if (!m_archiveRepository.bindTask(taskId, databaseId)) {
+        if (!m_archiveRepository.bindTask(taskId, databaseId)
+            || !m_stableIds.registerTask(taskId, tasks[index].taskUuid)) {
             m_lastError = m_archiveRepository.lastError();
+            if (m_lastError.isEmpty()) m_lastError = QStringLiteral("稳定任务身份登记冲突");
             return false;
         }
         m_databaseTaskIds.insert(taskId.value(), databaseId);
         m_taskIdsByUuid.insert(tasks[index].taskUuid, taskId);
+        m_tasks.insert(taskId.value(), tasks[index]);
     }
     m_lastError.clear();
     return true;
@@ -70,6 +83,20 @@ bool TaskService::createTask(TaskDefinition &task, core::model::TaskId &taskId)
         m_lastError = QStringLiteral("任务名称不能为空");
         return false;
     }
+    if (task.deviceBindings.isEmpty()) {
+        m_lastError = QStringLiteral("任务必须绑定至少一台设备");
+        return false;
+    }
+    QSet<QUuid> uniqueDevices;
+    for (const TaskDeviceBinding &binding : task.deviceBindings) {
+        if (uniqueDevices.contains(binding.deviceUuid)
+            || !m_deviceConfigService.acceptsTaskBinding(
+                binding.deviceUuid, task.radarArrayType, binding.faceMask)) {
+            m_lastError = QStringLiteral("任务设备重复、阵面形态不符或阵面位图无效");
+            return false;
+        }
+        uniqueDevices.insert(binding.deviceUuid);
+    }
     qint64 databaseId = 0;
     if (!m_runtimeRepository.createTask(task, databaseId)) {
         m_lastError = m_runtimeRepository.lastError();
@@ -79,13 +106,150 @@ bool TaskService::createTask(TaskDefinition &task, core::model::TaskId &taskId)
     if (!allocated.isSet()) {
         return false;
     }
-    if (!m_archiveRepository.bindTask(allocated, databaseId)) {
+    if (!m_archiveRepository.bindTask(allocated, databaseId)
+        || !m_stableIds.registerTask(allocated, task.taskUuid)) {
         m_lastError = m_archiveRepository.lastError();
+        if (m_lastError.isEmpty()) m_lastError = QStringLiteral("稳定任务身份登记冲突");
         return false;
     }
     m_databaseTaskIds.insert(allocated.value(), databaseId);
     m_taskIdsByUuid.insert(task.taskUuid, allocated);
+    m_tasks.insert(allocated.value(), task);
     taskId = allocated;
+    m_lastError.clear();
+    return true;
+}
+
+/**
+ * @brief 按TaskId顺序复制低频任务元数据，不暴露内部可变容器。
+ */
+bool TaskService::listTasks(QVector<TaskDefinition> &tasks) const
+{
+    QVector<quint32> ids = m_tasks.keys().toVector();
+    std::sort(ids.begin(), ids.end());
+    QVector<TaskDefinition> result;
+    result.reserve(ids.size());
+    for (quint32 id : ids) result.push_back(m_tasks.value(id));
+    tasks = std::move(result);
+    return true;
+}
+
+/**
+ * @brief 在存储线程内把已持久化任务从Draft选为Ready，成功发布后才向HTTP返回活动结果。
+ * @details Ready只表达当前任务上下文已经选定；设备命令、ACK和collection_sessions仍留给后续正式控制链。
+ */
+bool TaskService::activateTask(const QUuid &taskUuid, TaskDefinition &task)
+{
+    const auto id = m_taskIdsByUuid.constFind(taskUuid);
+    if (taskUuid.isNull() || id == m_taskIdsByUuid.cend()) {
+        m_lastError = QStringLiteral("任务不存在或已经删除");
+        return false;
+    }
+    if (m_tasks.value(id->value()).completedUtcMs > 0) {
+        m_lastError = QStringLiteral("已完成任务不能再次直接激活");
+        return false;
+    }
+    const auto current = m_taskState.latest();
+    if (current && current->sample->value.phase != core::model::TaskPhase::None) {
+        m_lastError = current->sample->value.taskId == *id
+            ? QStringLiteral("任务已经激活") : QStringLiteral("已有其他活动任务");
+        return false;
+    }
+
+    if (!publishTaskState(*id, core::model::TaskPhase::Ready)) return false;
+    task = m_tasks.value(id->value());
+    m_lastError.clear();
+    return true;
+}
+
+/**
+ * @brief 确认目标就是当前任务且没有活动会话后，先持久化完成事实，再发布Completed与None。
+ * @details 连续两个快照允许Reader观察完成沿；最终None解除“同一时刻一个活动任务”的创建门禁。
+ */
+bool TaskService::completeTask(const QUuid &taskUuid, TaskDefinition &task)
+{
+    const auto id = m_taskIdsByUuid.constFind(taskUuid);
+    const auto current = m_taskState.latest();
+    if (id == m_taskIdsByUuid.cend() || !current
+        || current->sample->value.taskId != *id
+        || current->sample->value.phase != core::model::TaskPhase::Ready) {
+        m_lastError = QStringLiteral("只能完成当前Ready任务");
+        return false;
+    }
+    for (auto collection = m_collections.cbegin(); collection != m_collections.cend(); ++collection) {
+        if (collection->active && collection->taskId == *id) {
+            m_lastError = QStringLiteral("任务仍有活动采集，必须先完成设备停止");
+            return false;
+        }
+    }
+    const qint64 completedUtcMs = QDateTime::currentMSecsSinceEpoch();
+    if (!m_runtimeRepository.completeTask(m_databaseTaskIds.value(id->value(), 0), completedUtcMs)) {
+        m_lastError = m_runtimeRepository.lastError();
+        return false;
+    }
+    m_tasks[id->value()].completedUtcMs = completedUtcMs;
+    if (!publishTaskState(*id, core::model::TaskPhase::Completed)
+        || !publishTaskState(core::model::TaskId(), core::model::TaskPhase::None)) {
+        return false;
+    }
+    task = m_tasks.value(id->value());
+    m_lastError.clear();
+    return true;
+}
+
+/**
+ * @brief 组合LatestState中的紧凑TaskId与TaskService拥有的稳定任务台账，不复制设备运行状态。
+ */
+bool TaskService::activeTask(TaskDefinition &task) const
+{
+    const auto current = m_taskState.latest();
+    if (!current || current->sample->value.phase == core::model::TaskPhase::None) return false;
+    const auto found = m_tasks.constFind(current->sample->value.taskId.value());
+    if (found == m_tasks.cend()) return false;
+    task = *found;
+    return true;
+}
+
+/**
+ * @brief 通过稳定UUID解析TaskId后与唯一TaskState快照比较，避免HTTP层保存第二份活动标志。
+ */
+bool TaskService::isTaskActive(const QUuid &taskUuid) const
+{
+    const auto id = m_taskIdsByUuid.constFind(taskUuid);
+    const auto current = m_taskState.latest();
+    return id != m_taskIdsByUuid.cend() && current
+        && current->sample->value.phase != core::model::TaskPhase::None
+        && current->sample->value.taskId == *id;
+}
+
+/**
+ * @brief 在确认不存在活动采集后先提交SQLite软删除，再移除当前可选任务映射。
+ */
+bool TaskService::softDeleteTask(const QUuid &taskUuid, const QString &deletedBy)
+{
+    const auto id = m_taskIdsByUuid.constFind(taskUuid);
+    if (taskUuid.isNull() || id == m_taskIdsByUuid.cend()) {
+        m_lastError = QStringLiteral("任务不存在或已经删除");
+        return false;
+    }
+    if (isTaskActive(taskUuid)) {
+        m_lastError = QStringLiteral("当前活动任务不能删除");
+        return false;
+    }
+    for (auto collection = m_collections.cbegin(); collection != m_collections.cend(); ++collection) {
+        if (collection->active && collection->taskId == *id) {
+            m_lastError = QStringLiteral("活动采集任务不能删除");
+            return false;
+        }
+    }
+    const qint64 databaseId = m_databaseTaskIds.value(id->value(), 0);
+    if (!m_runtimeRepository.softDeleteTask(databaseId, deletedBy)) {
+        m_lastError = m_runtimeRepository.lastError();
+        return false;
+    }
+    m_tasks.remove(id->value());
+    m_databaseTaskIds.remove(id->value());
+    m_taskIdsByUuid.erase(id);
     m_lastError.clear();
     return true;
 }
@@ -120,6 +284,27 @@ bool TaskService::startCollection(
         m_lastError = QStringLiteral("TaskId 未由当前 TaskService 创建或加载");
         return false;
     }
+    if (m_tasks.value(taskId.value()).completedUtcMs > 0) {
+        m_lastError = QStringLiteral("已完成任务不能创建新采集会话");
+        return false;
+    }
+    const auto current = m_taskState.latest();
+    if (!current || current->sample->value.taskId != taskId
+        || (current->sample->value.phase != core::model::TaskPhase::Ready
+            && current->sample->value.phase != core::model::TaskPhase::Starting)) {
+        m_lastError = QStringLiteral("只能为当前Ready或Starting任务创建采集会话");
+        return false;
+    }
+    const QUuid deviceUuid = m_stableIds.resolveDevice(deviceId);
+    const auto &bindings = m_tasks.value(taskId.value()).deviceBindings;
+    const bool belongsToTask = std::any_of(
+        bindings.cbegin(), bindings.cend(), [&deviceUuid](const TaskDeviceBinding &binding) {
+            return !deviceUuid.isNull() && binding.deviceUuid == deviceUuid;
+        });
+    if (!belongsToTask) {
+        m_lastError = QStringLiteral("设备不属于当前任务的冻结绑定");
+        return false;
+    }
     if (!m_deviceConfigService.isCollectionReady(deviceId, endpointId)) {
         m_lastError = QStringLiteral("设备、航迹端点或协议适配器配置尚未就绪");
         return false;
@@ -144,11 +329,13 @@ bool TaskService::startCollection(
         return false;
     }
     if (!m_archiveRepository.bindAcquisition(
-            allocated, collectionSessionId, deviceId, taskId, endpointId)) {
+            allocated, collectionSessionId, deviceId, taskId, endpointId)
+        || !m_stableIds.registerAcquisition(allocated, sessionUuid)) {
         m_lastError = m_archiveRepository.lastError();
+        if (m_lastError.isEmpty()) m_lastError = QStringLiteral("稳定采集会话身份登记冲突");
         return false;
     }
-    m_collections.insert(allocated.value(), ActiveCollection {collectionSessionId, true});
+    m_collections.insert(allocated.value(), ActiveCollection {collectionSessionId, taskId, true});
     acquisitionId = allocated;
     m_lastError.clear();
     return true;
@@ -223,6 +410,33 @@ core::model::AcquisitionId TaskService::allocateAcquisitionId()
     const quint64 value = m_nextAcquisitionId;
     m_nextAcquisitionId = value == std::numeric_limits<quint64>::max() ? 0 : value + 1;
     return core::model::AcquisitionId::fromRaw(value);
+}
+
+/**
+ * @brief 使用本地UTC与steady时钟形成状态元数据，门禁通过后原子替换LatestState。
+ */
+bool TaskService::publishTaskState(core::model::TaskId taskId, core::model::TaskPhase phase)
+{
+    core::model::Sample<core::model::TaskState> sample;
+    sample.meta.receiveTimeUtcMs = QDateTime::currentMSecsSinceEpoch();
+    sample.meta.receiveTimeSteadyNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    sample.meta.traceId = m_nextStateTraceId++;
+    if (m_nextStateTraceId == 0) m_nextStateTraceId = 1;
+    sample.value.taskId = taskId;
+    sample.value.phase = phase;
+    if (core::producer::RuntimeStateGate::validateTaskState(sample)
+        != core::producer::RuntimeStateRejection::None) {
+        m_lastError = QStringLiteral("任务状态快照未通过运行状态门禁");
+        return false;
+    }
+    try {
+        m_taskState.set(std::move(sample));
+    } catch (const std::overflow_error &) {
+        m_lastError = QStringLiteral("任务状态revision已经耗尽");
+        return false;
+    }
+    return true;
 }
 
 } // namespace core::task

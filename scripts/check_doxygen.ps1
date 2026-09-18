@@ -1,4 +1,4 @@
-<#
+﻿<#
 /**
  * @file check_doxygen.ps1
  * @brief 审计新架构 C++ 文件是否遵守中文 Doxygen 的最低机械门禁。
@@ -28,8 +28,8 @@ foreach ($scanRoot in $scanRoots) {
         @(".h", ".hpp") -contains $_.Extension.ToLowerInvariant()
     } | ForEach-Object {
         $headerCount++
-        $relativePath = [System.IO.Path]::GetRelativePath($repositoryRoot, $_.FullName)
-        $head = (Get-Content -LiteralPath $_.FullName -TotalCount 30) -join "`n"
+        $relativePath = $_.FullName.Substring($repositoryRoot.Length + 1)
+        $head = (Get-Content -LiteralPath $_.FullName -Encoding UTF8 -TotalCount 30) -join "`n"
         if ($head -notmatch '(?m)^[ \t]*\*[ \t]+@file(?:[ \t]|$)') {
             $failures.Add("$relativePath : 前 30 行缺少 @file Doxygen 注释")
         }
@@ -46,8 +46,8 @@ foreach ($scanRoot in $scanRoots) {
     }
 
     Get-ChildItem -LiteralPath $scanRoot -Recurse -Filter "*.cpp" -File | ForEach-Object {
-        $relativePath = [System.IO.Path]::GetRelativePath($repositoryRoot, $_.FullName)
-        $lines = Get-Content -LiteralPath $_.FullName
+        $relativePath = $_.FullName.Substring($repositoryRoot.Length + 1)
+        $lines = Get-Content -LiteralPath $_.FullName -Encoding UTF8
         for ($lineIndex = 0; $lineIndex -lt $lines.Count; $lineIndex++) {
             if ($lines[$lineIndex] -notmatch $cppDefinitionPattern) {
                 continue
@@ -96,8 +96,8 @@ foreach ($scanRoot in $scanRoots) {
     Get-ChildItem -LiteralPath $scanRoot -Recurse -File | Where-Object {
         @(".h", ".hpp", ".cpp") -contains $_.Extension.ToLowerInvariant()
     } | ForEach-Object {
-        $relativePath = [System.IO.Path]::GetRelativePath($repositoryRoot, $_.FullName)
-        $content = Get-Content -LiteralPath $_.FullName -Raw
+        $relativePath = $_.FullName.Substring($repositoryRoot.Length + 1)
+        $content = Get-Content -LiteralPath $_.FullName -Encoding UTF8 -Raw
         foreach ($template in $forbiddenTemplates) {
             if ($content.Contains($template)) {
                 $failures.Add("$relativePath : 包含无项目知识的模板注释 [$template]")

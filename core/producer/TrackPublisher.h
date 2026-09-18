@@ -38,6 +38,8 @@ enum class TrackPublishRejection : quint8
     InvalidRadialVelocity,    ///< radialVelocityMps 不是有限数。
     InvalidAmplitude,         ///< 厂家 double 幅值不是有限数。
     InvalidTrackValidity,     ///< TrackPacket validity 含未知位，或缺失扫描号未清零。
+    InvalidPackFlag,          ///< packFlag 不是合同冻结的0或1。
+    InvalidFaceIndex,         ///< faceIndex 超出整机允许的0～3范围。
     RecognitionNotCompleted   ///< 同步识别仍为 Pending 或已经 Failed。
 };
 

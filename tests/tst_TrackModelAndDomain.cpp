@@ -1,7 +1,7 @@
 /**
  * @file tst_TrackModelAndDomain.cpp
  * @brief 验证紧凑 SampleMeta、TrackPacket、TrackKey 和 CoreDataDomain 组合合同。
- * @details 测试防止可选字段重新引入 optional、FaceId 回流、TrackKey 混入任务，以及热结构超过冻结预算。
+ * @details 测试防止可选字段重新引入动态对象、TrackKey 丢失阵面或混入任务，以及热结构超过冻结预算。
  */
 
 #include "core/datadomain/CoreDataDomain.h"
@@ -33,6 +33,7 @@ core::model::Sample<core::model::TrackPacket> makeTrackSample()
     sample.value.trackId = 0;
     sample.value.rangeM = 1200.0;
     sample.value.amplitude = 6.5;
+    sample.value.packFlag = 1;
     sample.value.recognitionStatus = core::model::RecognitionStatus::Completed;
     return sample;
 }
@@ -48,8 +49,8 @@ private slots:
     /** @brief 验收 validity 区分缺失与合法零号源序列。 */
     void sampleMetaUsesValidityBits();
 
-    /** @brief 验收 TrackKey 只由会话、设备和厂家航迹号组成。 */
-    void trackKeyUsesThreeCompactFields();
+    /** @brief 验收 TrackKey 由会话、整机、阵面和厂家航迹号组成。 */
+    void trackKeyIncludesFaceIndex();
 
     /** @brief 验收热结构布局不超过固定资源预算。 */
     void compactLayoutsStayWithinBudget();
@@ -77,10 +78,9 @@ void TrackModelAndDomainTest::sampleMetaUsesValidityBits()
 }
 
 /**
- * @brief 证明任务变化不改变航迹身份，而设备、会话和航迹号任一变化都会改变身份。
- * @details DeviceId 已代表雷达阵面，因此不再存在 FaceId 维度。
+ * @brief 证明任务变化不改变航迹身份，而整机、阵面、会话和航迹号任一变化都会改变身份。
  */
-void TrackModelAndDomainTest::trackKeyUsesThreeCompactFields()
+void TrackModelAndDomainTest::trackKeyIncludesFaceIndex()
 {
     auto track = makeTrackSample().value;
     const auto original = core::model::makeTrackKey(track);
@@ -96,6 +96,8 @@ void TrackModelAndDomainTest::trackKeyUsesThreeCompactFields()
     track = makeTrackSample().value; track.acquisitionId = core::model::AcquisitionId::fromRaw(11);
     QVERIFY(!(core::model::makeTrackKey(track) == original));
     track = makeTrackSample().value; track.trackId = 1;
+    QVERIFY(!(core::model::makeTrackKey(track) == original));
+    track = makeTrackSample().value; track.faceIndex = 1;
     QVERIFY(!(core::model::makeTrackKey(track) == original));
 }
 
@@ -133,14 +135,17 @@ void TrackModelAndDomainTest::compactLayoutsStayWithinBudget()
     QCOMPARE(offsetof(core::model::TrackPacket, trackId), std::size_t(56));
     QCOMPARE(offsetof(core::model::TrackPacket, scanSequence), std::size_t(60));
     QCOMPARE(offsetof(core::model::TrackPacket, validity), std::size_t(64));
-    QCOMPARE(offsetof(core::model::TrackPacket, recognitionStatus), std::size_t(65));
-    QCOMPARE(offsetof(core::model::TrackPacket, recognitionType), std::size_t(66));
+    QCOMPARE(offsetof(core::model::TrackPacket, packFlag), std::size_t(65));
+    QCOMPARE(offsetof(core::model::TrackPacket, faceIndex), std::size_t(66));
+    QCOMPARE(offsetof(core::model::TrackPacket, recognitionStatus), std::size_t(67));
+    QCOMPARE(offsetof(core::model::TrackPacket, recognitionType), std::size_t(68));
 
-    QCOMPARE(sizeof(core::model::TrackKey), std::size_t(16));
+    QCOMPARE(sizeof(core::model::TrackKey), std::size_t(24));
     QCOMPARE(alignof(core::model::TrackKey), std::size_t(8));
     QCOMPARE(offsetof(core::model::TrackKey, acquisitionId), std::size_t(0));
     QCOMPARE(offsetof(core::model::TrackKey, deviceId), std::size_t(8));
     QCOMPARE(offsetof(core::model::TrackKey, trackId), std::size_t(12));
+    QCOMPARE(offsetof(core::model::TrackKey, faceIndex), std::size_t(16));
 }
 
 /**

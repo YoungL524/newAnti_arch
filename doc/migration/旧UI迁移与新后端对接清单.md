@@ -22,18 +22,18 @@ UI Command
 
 - `Qt signal/slot` Doorbell 只存在于进程内 `Topic -> WebReader/ExecutionLane` 调度边界，不跨 WebSocket 暴露。
 - `snapshot/delta` 是 WebReader 的序列化输出，不是第二份 Topic 历史；浏览器只保留当前显示态。
-- `/api/start`、`/api/stop`、`/api/reset` 和航迹交互均属于独立 Command 控制平面，HTTP 成功只能表示 owner 接受请求；ACK 后状态再由 State/Event 输出。
+- `/api/v1/tasks/{taskId}/start|stop` 和航迹交互均属于独立 Command 控制平面，HTTP 成功只能表示 owner 接受请求；ACK 后状态再由 State/Event 输出。Owner 落地前按钮必须禁用，不得请求旧 `/api/start|stop|reset`。
 
 ## 接入前必须收敛的合同
 
 | 旧 UI 接口 | 新后端 owner | 当前处理 |
 |---|---|---|
-| `/api/devices` | `DeviceConfigService` 的 HTTP 边界 | 保留页面，待定义 JSON 与 revision 冲突响应 |
-| `/api/tasks` | `TaskService` 的 HTTP 边界 | 保留页面；删除必须是软删除 |
-| `/api/start|stop|reset` | `ApplicationController -> DeviceController` | 保留按钮，禁止映射到普通 Topic |
+| `/api/v1/devices` | `DeviceConfigService` 的 HTTP 边界 | 保留页面，使用 `expectedRevision` 处理冲突 |
+| `/api/v1/tasks` | `TaskService` 的 HTTP 边界 | 保留页面；删除必须是软删除 |
+| `/api/v1/tasks/{taskId}/start|stop` | `ApplicationController -> DeviceController` | 控制面落地后启用，禁止映射到普通 Topic |
 | `/api/status` | `LatestState<DeviceState/TaskState/SystemState>` 的 Web/HTTP Reader | State 类型合同已定义，待正式 owner 接入 |
-| `/api/tracks/history` | SQLite 查询服务 | 保留页面，分页字段需与六表 Schema 对齐 |
-| `/api/system-events` | SQLite `system_events` 查询服务 | 保留页面 |
+| `/api/v1/archive/tracks` | SQLite 查询服务 | 归档查询落地后启用页面，分页字段与六表 Schema 对齐 |
+| `/api/v1/archive/events` | SQLite `system_events` 查询服务 | 归档查询落地后启用页面 |
 | 8089 `tracks` WebSocket | `TrackWebSocketService` | 已接通初始快照 + 有界尾迹增量 upsert/removal |
 
 ## 已识别但暂不伪造实现的问题

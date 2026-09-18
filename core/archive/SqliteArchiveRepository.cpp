@@ -25,7 +25,7 @@ namespace core::archive {
 namespace {
 
 constexpr int kApplicationId = 1312900178;
-constexpr int kSchemaVersion = 1;
+constexpr int kSchemaVersion = 8;
 constexpr double kQuarterPi = 0.7853981633974483;
 
 /**
@@ -336,6 +336,7 @@ bool SqliteArchiveRepository::appendTrackBatch(
             && track.azimuthRad <= kQuarterPi && std::isfinite(track.elevationRad)
             && track.elevationRad >= 0.0 && track.elevationRad <= kQuarterPi
             && std::isfinite(track.radialVelocityMps) && std::isfinite(track.amplitude)
+            && track.faceIndex <= 3U
             && track.recognitionStatus == core::model::RecognitionStatus::Completed
             && track.recognitionType == core::model::RecognitionType::Unknown;
         if (!valid) {
@@ -361,10 +362,12 @@ bool SqliteArchiveRepository::appendTrackBatch(
         query.bindValue(12, track.elevationRad);
         query.bindValue(13, track.radialVelocityMps);
         query.bindValue(14, track.amplitude);
-        query.bindValue(15, hasScan ? QVariant(static_cast<qint64>(track.scanSequence))
+        query.bindValue(15, static_cast<int>(track.packFlag));
+        query.bindValue(16, static_cast<int>(track.faceIndex));
+        query.bindValue(17, hasScan ? QVariant(static_cast<qint64>(track.scanSequence))
                                     : nullInteger());
-        query.bindValue(16, static_cast<int>(track.recognitionStatus));
-        query.bindValue(17, static_cast<int>(track.recognitionType));
+        query.bindValue(18, static_cast<int>(track.recognitionStatus));
+        query.bindValue(19, static_cast<int>(track.recognitionType));
         if (!query.exec()) {
             const QString error = query.lastError().text();
             query.finish();
@@ -542,7 +545,7 @@ bool SqliteArchiveRepository::requireOwnerThread(const char *operation)
 
 /**
  * @brief 配置 WAL/外键等运行参数，并以 application_id 与 user_version 守住文件类型和版本边界。
- * @details version 0 只允许创建六表初始 Schema；version 1 必须实际包含全部表，未知新版本直接拒绝。
+ * @details version 0 创建当前六表 Schema；旧版本只按顺序增加已冻结字段，未知新版本直接拒绝。
  */
 bool SqliteArchiveRepository::initializeDatabase()
 {
@@ -587,6 +590,176 @@ bool SqliteArchiveRepository::initializeDatabase()
     if (version == kSchemaVersion) {
         return verifyRequiredTables();
     }
+    if (version == 7) {
+        if (!executeSql(QStringLiteral("BEGIN IMMEDIATE"))
+            || !executeSql(QStringLiteral(
+                "INSERT INTO devices("
+                "device_uuid,revision,display_name,manufacturer,model,protocol_adapter_key,"
+                "array_type,max_range_m,faces_json,longitude_deg,latitude_deg,altitude_m,"
+                "absolute_heading_deg,pitch_deg,roll_deg,endpoints_json,protocol_config_json,"
+                "changed_utc_ms,changed_by,change_reason,is_deleted) "
+                "SELECT d.device_uuid,d.revision+1,d.display_name,d.manufacturer,d.model,d.protocol_adapter_key,"
+                "d.array_type,d.max_range_m,d.faces_json,118.65303,31.93494,63.9288,"
+                "d.absolute_heading_deg,d.pitch_deg,d.roll_deg,d.endpoints_json,d.protocol_config_json,"
+                "CAST(strftime('%s','now') AS INTEGER)*1000,'system-migration',"
+                "'Schema 8 补齐内置雷达默认部署位置',0 FROM devices d "
+                "WHERE d.device_uuid IN(X'6F4C9E1A1F7D4A2395F7A80000000001',"
+                "X'6F4C9E1A1F7D4A2395F7A80000000002') "
+                "AND d.is_deleted=0 AND d.longitude_deg=0.0 AND d.latitude_deg=0.0 AND d.altitude_m=0.0 "
+                "AND d.revision=(SELECT MAX(latest.revision) FROM devices latest "
+                "WHERE latest.device_uuid=d.device_uuid)"))
+            || !executeSql(QStringLiteral("PRAGMA user_version = 8"))) {
+            return rollbackWithError(m_lastError);
+        }
+        if (!executeSql(QStringLiteral("COMMIT"))) {
+            QSqlQuery rollback(m_database);
+            rollback.exec(QStringLiteral("ROLLBACK"));
+            return false;
+        }
+        return verifyRequiredTables();
+    }
+    if (version == 6) {
+        if (!executeSql(QStringLiteral("BEGIN IMMEDIATE"))
+            || !executeSql(QStringLiteral(
+                "INSERT INTO devices("
+                "device_uuid,revision,display_name,manufacturer,model,protocol_adapter_key,"
+                "array_type,max_range_m,faces_json,longitude_deg,latitude_deg,altitude_m,"
+                "absolute_heading_deg,pitch_deg,roll_deg,endpoints_json,protocol_config_json,"
+                "changed_utc_ms,changed_by,change_reason,is_deleted) "
+                "SELECT d.device_uuid,d.revision+1,d.display_name,d.manufacturer,d.model,d.protocol_adapter_key,"
+                "d.array_type,d.max_range_m,d.faces_json,d.longitude_deg,d.latitude_deg,d.altitude_m,"
+                "d.absolute_heading_deg,d.pitch_deg,d.roll_deg,d.endpoints_json,"
+                "'{\"communication\":{\"description\":\"DCMP内部DP/SP通信\",\"targets\":{"
+                "\"dph\":{\"address\":\"127.0.0.1\",\"port\":3456},"
+                "\"workmode\":{\"address\":\"127.0.0.1\",\"port\":1234}}}}',"
+                "CAST(strftime('%s','now') AS INTEGER)*1000,'system-migration',"
+                "'Schema 7 补齐DCMP具名发送目标',0 FROM devices d "
+                "WHERE d.is_deleted=0 AND d.protocol_adapter_key='dcmp.dp.v1' "
+                "AND d.protocol_config_json='{}' AND d.revision=("
+                "SELECT MAX(latest.revision) FROM devices latest WHERE latest.device_uuid=d.device_uuid)"))
+            || !executeSql(QStringLiteral("PRAGMA user_version = 7"))) {
+            return rollbackWithError(m_lastError);
+        }
+        if (!executeSql(QStringLiteral("COMMIT"))) {
+            QSqlQuery rollback(m_database);
+            rollback.exec(QStringLiteral("ROLLBACK"));
+            return false;
+        }
+        return verifyRequiredTables();
+    }
+    if (version == 1) {
+        if (!executeSql(QStringLiteral("BEGIN IMMEDIATE"))
+            || !executeSql(QStringLiteral(
+                "ALTER TABLE track_observations ADD COLUMN pack_flag INTEGER NOT NULL DEFAULT 1 "
+                "CHECK(pack_flag IN(0,1))"))
+            || !executeSql(QStringLiteral("PRAGMA user_version = 2"))) {
+            return rollbackWithError(m_lastError);
+        }
+        if (!executeSql(QStringLiteral("COMMIT"))) {
+            QSqlQuery rollback(m_database);
+            rollback.exec(QStringLiteral("ROLLBACK"));
+            return false;
+        }
+        return initializeDatabase();
+    }
+    if (version == 2) {
+        if (!executeSql(QStringLiteral("BEGIN IMMEDIATE"))
+            || !executeSql(QStringLiteral(
+                "ALTER TABLE track_observations ADD COLUMN face_index INTEGER NOT NULL DEFAULT 0 "
+                "CHECK(face_index BETWEEN 0 AND 3)"))
+            || !executeSql(QStringLiteral("PRAGMA user_version = 3"))) {
+            return rollbackWithError(m_lastError);
+        }
+        if (!executeSql(QStringLiteral("COMMIT"))) {
+            QSqlQuery rollback(m_database);
+            rollback.exec(QStringLiteral("ROLLBACK"));
+            return false;
+        }
+        return initializeDatabase();
+    }
+    if (version == 3) {
+        if (!executeSql(QStringLiteral("BEGIN IMMEDIATE"))
+            || !executeSql(QStringLiteral(
+                "ALTER TABLE devices ADD COLUMN array_type INTEGER NOT NULL DEFAULT 1 "
+                "CHECK(array_type IN(1,4))"))
+            || !executeSql(QStringLiteral(
+                "ALTER TABLE devices ADD COLUMN max_range_m REAL NOT NULL DEFAULT 5000.0 "
+                "CHECK(max_range_m>0.0)"))
+            || !executeSql(QStringLiteral(
+                "ALTER TABLE devices ADD COLUMN faces_json TEXT NOT NULL DEFAULT "
+                "'[{\"faceIndex\":0,\"boresightAzimuthDeg\":0,\"scanHalfAngleDeg\":45,\"enabled\":true}]' "
+                "CHECK(length(faces_json)>0)"))
+            || !executeSql(QStringLiteral("PRAGMA user_version = 4"))) {
+            return rollbackWithError(m_lastError);
+        }
+        if (!executeSql(QStringLiteral("COMMIT"))) {
+            QSqlQuery rollback(m_database);
+            rollback.exec(QStringLiteral("ROLLBACK"));
+            return false;
+        }
+        return initializeDatabase();
+    }
+    if (version == 4) {
+        if (!executeSql(QStringLiteral("BEGIN IMMEDIATE"))
+            || !executeSql(QStringLiteral(
+                "INSERT INTO devices("
+                "device_uuid,revision,display_name,manufacturer,model,protocol_adapter_key,"
+                "array_type,max_range_m,faces_json,longitude_deg,latitude_deg,altitude_m,"
+                "absolute_heading_deg,pitch_deg,roll_deg,endpoints_json,protocol_config_json,"
+                "changed_utc_ms,changed_by,change_reason,is_deleted) VALUES("
+                "X'6F4C9E1A1F7D4A2395F7A80000000001',1,'YHF-YZ-KU 单面阵雷达','YHF','YHF-YZ-KU',"
+                "'dcmp.dp.v1',1,5000.0,"
+                "'[{\"faceIndex\":0,\"boresightAzimuthDeg\":0,\"scanHalfAngleDeg\":45,\"enabled\":true}]',"
+                "118.65303,31.93494,63.9288,0.0,0.0,0.0,"
+                "'[{\"endpointKey\":\"radar_cpu\",\"role\":\"track_receive\",\"transport\":\"udp\","
+                "\"localAddress\":\"127.0.0.1\",\"localPort\":7788,\"remoteAddress\":\"\",\"remotePort\":0}]',"
+                "'{}',CAST(strftime('%s','now') AS INTEGER)*1000,'system-bootstrap',"
+                "'Schema 5 内置单面阵设备台账',0)"))
+            || !executeSql(QStringLiteral(
+                "INSERT INTO devices("
+                "device_uuid,revision,display_name,manufacturer,model,protocol_adapter_key,"
+                "array_type,max_range_m,faces_json,longitude_deg,latitude_deg,altitude_m,"
+                "absolute_heading_deg,pitch_deg,roll_deg,endpoints_json,protocol_config_json,"
+                "changed_utc_ms,changed_by,change_reason,is_deleted) VALUES("
+                "X'6F4C9E1A1F7D4A2395F7A80000000002',1,'YHF-YZ-KU 四面阵雷达','YHF','YHF-YZ-KU',"
+                "'dcmp.dp.v1',4,5000.0,"
+                "'[{\"faceIndex\":0,\"boresightAzimuthDeg\":0,\"scanHalfAngleDeg\":45,\"enabled\":true},"
+                "{\"faceIndex\":1,\"boresightAzimuthDeg\":90,\"scanHalfAngleDeg\":45,\"enabled\":true},"
+                "{\"faceIndex\":2,\"boresightAzimuthDeg\":180,\"scanHalfAngleDeg\":45,\"enabled\":true},"
+                "{\"faceIndex\":3,\"boresightAzimuthDeg\":270,\"scanHalfAngleDeg\":45,\"enabled\":true}]',"
+                "118.65303,31.93494,63.9288,0.0,0.0,0.0,"
+                "'[{\"endpointKey\":\"radar_cpu\",\"role\":\"track_receive\",\"transport\":\"udp\","
+                "\"localAddress\":\"127.0.0.1\",\"localPort\":7788,\"remoteAddress\":\"\",\"remotePort\":0}]',"
+                "'{}',CAST(strftime('%s','now') AS INTEGER)*1000,'system-bootstrap',"
+                "'Schema 5 内置四面阵设备台账',0)"))
+            || !executeSql(QStringLiteral("PRAGMA user_version = 5"))) {
+            return rollbackWithError(m_lastError);
+        }
+        if (!executeSql(QStringLiteral("COMMIT"))) {
+            QSqlQuery rollback(m_database);
+            rollback.exec(QStringLiteral("ROLLBACK"));
+            return false;
+        }
+        return initializeDatabase();
+    }
+    if (version == 5) {
+        if (!executeSql(QStringLiteral("BEGIN IMMEDIATE"))
+            || !executeSql(QStringLiteral(
+                "ALTER TABLE tasks ADD COLUMN radar_array_type INTEGER NOT NULL DEFAULT 1 "
+                "CHECK(radar_array_type IN(1,4))"))
+            || !executeSql(QStringLiteral(
+                "ALTER TABLE tasks ADD COLUMN device_bindings_json TEXT NOT NULL DEFAULT '[]' "
+                "CHECK(length(device_bindings_json)>0)"))
+            || !executeSql(QStringLiteral("PRAGMA user_version = 6"))) {
+            return rollbackWithError(m_lastError);
+        }
+        if (!executeSql(QStringLiteral("COMMIT"))) {
+            QSqlQuery rollback(m_database);
+            rollback.exec(QStringLiteral("ROLLBACK"));
+            return false;
+        }
+        return initializeDatabase();
+    }
     if (version != 0 || !executeSql(QStringLiteral("BEGIN IMMEDIATE"))) {
         if (version != 0) m_lastError = QStringLiteral("当前程序没有对应数据库升级路径");
         return false;
@@ -611,6 +784,11 @@ bool SqliteArchiveRepository::initializeDatabase()
             "revision INTEGER NOT NULL CHECK(revision>0), display_name TEXT NOT NULL CHECK(length(display_name)>0), "
             "manufacturer TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '', "
             "protocol_adapter_key TEXT NOT NULL DEFAULT '', "
+            "array_type INTEGER NOT NULL DEFAULT 1 CHECK(array_type IN(1,4)), "
+            "max_range_m REAL NOT NULL DEFAULT 5000.0 CHECK(max_range_m>0.0), "
+            "faces_json TEXT NOT NULL DEFAULT "
+            "'[{\"faceIndex\":0,\"boresightAzimuthDeg\":0,\"scanHalfAngleDeg\":45,\"enabled\":true}]' "
+            "CHECK(length(faces_json)>0), "
             "longitude_deg REAL NOT NULL CHECK(longitude_deg BETWEEN -180.0 AND 180.0), "
             "latitude_deg REAL NOT NULL CHECK(latitude_deg BETWEEN -90.0 AND 90.0), altitude_m REAL NOT NULL, "
             "absolute_heading_deg REAL NOT NULL CHECK(absolute_heading_deg>=0.0 AND absolute_heading_deg<360.0), "
@@ -652,6 +830,8 @@ bool SqliteArchiveRepository::initializeDatabase()
             "azimuth_rad REAL NOT NULL CHECK(azimuth_rad BETWEEN -0.7853981633974483 AND 0.7853981633974483), "
             "elevation_rad REAL NOT NULL CHECK(elevation_rad BETWEEN 0.0 AND 0.7853981633974483), "
             "radial_velocity_mps REAL NOT NULL, amplitude REAL NOT NULL, "
+            "pack_flag INTEGER NOT NULL CHECK(pack_flag IN(0,1)), "
+            "face_index INTEGER NOT NULL CHECK(face_index BETWEEN 0 AND 3), "
             "scan_sequence INTEGER CHECK(scan_sequence IS NULL OR scan_sequence BETWEEN 0 AND 4294967295), "
             "recognition_status INTEGER NOT NULL CHECK(recognition_status=1), "
             "recognition_type INTEGER NOT NULL CHECK(recognition_type=0), "
@@ -694,7 +874,7 @@ bool SqliteArchiveRepository::initializeDatabase()
             return rollbackWithError(m_lastError);
         }
     }
-    if (!executeSql(QStringLiteral("PRAGMA user_version = 1"))) {
+    if (!executeSql(QStringLiteral("PRAGMA user_version = 4"))) {
         return rollbackWithError(m_lastError);
     }
     if (!executeSql(QStringLiteral("COMMIT"))) {
@@ -702,11 +882,11 @@ bool SqliteArchiveRepository::initializeDatabase()
         rollback.exec(QStringLiteral("ROLLBACK"));
         return false;
     }
-    return verifyRequiredTables();
+    return initializeDatabase();
 }
 
 /**
- * @brief 查询 sqlite_master，确保 version=1 不是只改版本号但缺少业务表的伪 Schema。
+ * @brief 查询sqlite_master、航迹列和任务绑定列，确保当前版本不是只改版本号的伪Schema。
  */
 bool SqliteArchiveRepository::verifyRequiredTables()
 {
@@ -729,7 +909,46 @@ bool SqliteArchiveRepository::verifyRequiredTables()
         found.insert(query.value(0).toString());
     }
     if (found != required) {
-        m_lastError = QStringLiteral("user_version=1 的业务表集合不等于冻结六表 Schema");
+        m_lastError = QStringLiteral("当前 user_version 的业务表集合不等于冻结六表 Schema");
+        return false;
+    }
+    bool hasPackFlag = false;
+    bool hasFaceIndex = false;
+    QSqlQuery columns(m_database);
+    if (!columns.exec(QStringLiteral("PRAGMA table_info(track_observations)"))) {
+        m_lastError = columns.lastError().text();
+        return false;
+    }
+    while (columns.next()) {
+        if (columns.value(1).toString() == QStringLiteral("pack_flag")) {
+            hasPackFlag = true;
+        } else if (columns.value(1).toString() == QStringLiteral("face_index")) {
+            hasFaceIndex = true;
+        }
+    }
+    if (!hasPackFlag) {
+        m_lastError = QStringLiteral("track_observations 缺少 pack_flag 列");
+        return false;
+    }
+    if (!hasFaceIndex) {
+        m_lastError = QStringLiteral("track_observations 缺少 face_index 列");
+        return false;
+    }
+    bool hasRadarArrayType = false;
+    bool hasDeviceBindings = false;
+    if (!columns.exec(QStringLiteral("PRAGMA table_info(tasks)"))) {
+        m_lastError = columns.lastError().text();
+        return false;
+    }
+    while (columns.next()) {
+        if (columns.value(1).toString() == QStringLiteral("radar_array_type")) {
+            hasRadarArrayType = true;
+        } else if (columns.value(1).toString() == QStringLiteral("device_bindings_json")) {
+            hasDeviceBindings = true;
+        }
+    }
+    if (!hasRadarArrayType || !hasDeviceBindings) {
+        m_lastError = QStringLiteral("tasks 缺少雷达形态或设备阵面绑定列");
         return false;
     }
     return true;
@@ -802,8 +1021,8 @@ bool SqliteArchiveRepository::prepareInsertQueries()
             "INSERT INTO track_observations("
             "run_id,collection_session_id,topic_sequence,receive_time_utc_ms,source_time_utc_ms,"
             "receive_time_steady_ns,source_sequence_u64,trace_id_u64,quality,track_id,range_m,"
-            "azimuth_rad,elevation_rad,radial_velocity_mps,amplitude,scan_sequence,recognition_status,recognition_type) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"))) {
+            "azimuth_rad,elevation_rad,radial_velocity_mps,amplitude,pack_flag,face_index,scan_sequence,recognition_status,recognition_type) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"))) {
         m_lastError = m_trackInsert->lastError().text();
         return false;
     }

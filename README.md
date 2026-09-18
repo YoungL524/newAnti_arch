@@ -24,9 +24,10 @@
 - 协议无关的 `TrackPublisher -> TrackTopic <- TrackWebSocketService -> QWebSocket` 自动化回归；
 - 容量覆盖、分页、多 Reader、并发 Producer、慢 Consumer、gap、唤醒合并和 SQLite 文件级测试。
 
-当前数据域至 SQLite 的归档闭环、设备配置 owner、任务/采集会话 owner，以及首个
-`TrackTopic -> TrackWebSocketService -> React` 显示出口已经完成验证。用于验证的旧协议 Producer、模拟器和
-硬编码联试组合根已经在确认地图正常显示后删除；正式协议确定后只需新增边界 Adapter，不得改动 Topic 之后的链路。
+当前数据域至 SQLite 的归档闭环、设备配置 owner、任务 owner，以及
+`TrackTopic -> TrackWebSocketService -> React` 的协议无关显示出口已经完成验证。正式 `0x0100` Adapter 已接入
+UDP 入口，但生产运行时尚未在控制 ACK 后建立采集会话并调用 `TrackIngressProducer::bind()`；因此实机航迹主链
+仍处于“结构已验证、运行装配未闭环”状态，不能宣称已完成端到端联调。
 
 ## 构建与测试
 
@@ -83,10 +84,32 @@ npm run build
 其后新增的 WebSocket 测试直接构造标准 TrackPacket，持续保护初始 snapshot、增量 upsert/removal、独立 cursor 和有界 Web 派生状态，不再依赖任何厂家协议夹具。
 # 心跳链联试
 
-运行 `scripts/test_baseline.ps1 -BuildDir build-baseline` 后，在包含 Qt 5.14.2 bin 的 PATH 环境中
-启动 `build-baseline/core/NewAntiDrone.exe`。内部UDP绑定 `127.0.0.1:7788`，接收正式
-`0x0101/0x0303` 心跳。打开 `ui/heartbeat.html` 查看正式状态域输出；WebSocket为
-`ws://127.0.0.1:8090`。无需启动旧后端。页面只展示状态，不产生模拟心跳。
+运行 `scripts/test_baseline.ps1 -BuildDir build-baseline` 后，分别启动核心服务和心跳模拟器：
 
-绿色为在线，黄色为主动离线或2秒迟到，灰色为未收到或5秒超时。DP/SP独立判定，位图低四位
-对应1～4号阵面。当前可执行入口只装配心跳链，其他服务仍按后续步骤接入。
+```powershell
+build-baseline\core\NewAntiDrone.exe
+build-baseline\tools\DcmpHeartbeatSimulator.exe
+```
+
+模拟器默认每秒向 `127.0.0.1:7788` 发送一次 DP `0x0101` 和 SP `0x0303` 心跳，二者均在线，
+四阵面 FP 在线和数据位图均为 `0x0F`。React 页面通过 `ws://127.0.0.1:8089/ws/v1` 读取后端状态，
+模拟器不连接 WebSocket、不访问数据域，也不生成航迹。
+
+常用故障联试命令：
+
+```powershell
+# DP主动报告离线，SP保持在线
+build-baseline\tools\DcmpHeartbeatSimulator.exe --dp-online 0
+
+# 只有1号和3号阵面FP在线，只有1号和2号阵面有数据
+build-baseline\tools\DcmpHeartbeatSimulator.exe --fp-online-mask 0x05 --fp-data-mask 0x03
+
+# 只发送SP心跳，让DP在5秒后超时
+build-baseline\tools\DcmpHeartbeatSimulator.exe --no-dp
+
+# 只发送一轮后退出
+build-baseline\tools\DcmpHeartbeatSimulator.exe --once
+```
+
+运行 `build-baseline\tools\DcmpHeartbeatSimulator.exe --help` 可查看目标IP、端口和发送周期等参数。
+停止模拟器即可验证5秒无合法心跳转灰；DP、SP及四阵面状态互相独立。

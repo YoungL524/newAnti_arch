@@ -8,6 +8,7 @@
 #include "core/archive/SqliteArchiveRepository.h"
 #include "core/config/DeviceConfigService.h"
 #include "core/persistence/SqliteRuntimeRepository.h"
+#include "core/model/StableIdRegistry.h"
 #include "core/task/TaskService.h"
 
 #include <QDateTime>
@@ -30,6 +31,11 @@ core::config::DeviceConfiguration makeDeviceConfiguration()
     configuration.displayName = QStringLiteral("NODE_ALPHA_01");
     configuration.manufacturer = QStringLiteral("待定");
     configuration.model = QStringLiteral("待定");
+    configuration.arrayType = core::config::RadarArrayType::SingleFace;
+    configuration.maxRangeM = 5000.0;
+    configuration.facesJson = QStringLiteral(
+        "[{\"faceIndex\":0,\"boresightAzimuthDeg\":0,"
+        "\"scanHalfAngleDeg\":45,\"enabled\":true}]");
     configuration.longitudeDeg = 118.65309;
     configuration.latitudeDeg = 31.93502;
     configuration.altitudeM = 10.0;
@@ -126,9 +132,12 @@ void ConfigAndTaskServicesTest::ownsPersistentConfigurationAndCollectionLifecycl
     {
         core::archive::SqliteArchiveRepository database(databasePath, QStringLiteral("test-1.0"));
         QVERIFY2(database.open(), qPrintable(database.lastError()));
+        core::model::StableIdRegistry stableIds;
         core::persistence::SqliteRuntimeRepository runtimeRepository(database);
-        core::config::DeviceConfigService deviceService(runtimeRepository, database);
-        core::task::TaskService taskService(runtimeRepository, deviceService, database);
+        core::config::DeviceConfigService deviceService(runtimeRepository, database, stableIds);
+        core::domain::LatestState<core::model::TaskState> taskState;
+        core::task::TaskService taskService(
+            runtimeRepository, deviceService, database, stableIds, taskState);
         QVERIFY(deviceService.loadFromDatabase());
         QVERIFY(taskService.loadFromDatabase());
 
@@ -144,9 +153,30 @@ void ConfigAndTaskServicesTest::ownsPersistentConfigurationAndCollectionLifecycl
         core::task::TaskDefinition task;
         task.taskName = QStringLiteral("test01");
         task.operatorName = QStringLiteral("operator");
+        task.radarArrayType = core::config::RadarArrayType::SingleFace;
+        task.deviceBindings.push_back(core::task::TaskDeviceBinding {deviceUuid, 0x01U});
+        core::task::TaskDefinition mismatched = task;
+        mismatched.radarArrayType = core::config::RadarArrayType::FourFace;
+        core::model::TaskId rejectedTaskId;
+        QVERIFY(!taskService.createTask(mismatched, rejectedTaskId));
+        QVERIFY(!rejectedTaskId.isSet());
         core::model::TaskId taskId;
         QVERIFY2(taskService.createTask(task, taskId), qPrintable(taskService.lastError()));
         taskUuid = task.taskUuid;
+        QVector<core::task::TaskDefinition> createdTasks;
+        QVERIFY(taskService.listTasks(createdTasks));
+        QCOMPARE(createdTasks.size(), 1);
+        QCOMPARE(createdTasks[0].deviceBindings[0].faceMask, quint8(0x01U));
+        core::task::TaskDefinition activeTask;
+        QVERIFY2(taskService.activateTask(taskUuid, activeTask), qPrintable(taskService.lastError()));
+        QCOMPARE(activeTask.taskUuid, taskUuid);
+        QVERIFY(taskService.isTaskActive(taskUuid));
+        QVERIFY(taskService.activeTask(activeTask));
+        const auto readyState = taskState.latest();
+        QVERIFY(readyState.has_value());
+        QCOMPARE(readyState->sample->value.taskId, taskId);
+        QCOMPARE(readyState->sample->value.phase, core::model::TaskPhase::Ready);
+        QVERIFY(!taskService.activateTask(taskUuid, activeTask));
 
         core::model::AcquisitionId rejectedAcquisition;
         QVERIFY(!taskService.startCollection(
@@ -163,10 +193,26 @@ void ConfigAndTaskServicesTest::ownsPersistentConfigurationAndCollectionLifecycl
         QVERIFY(deviceId != unconfiguredDevice);
         QVERIFY(endpointId != unconfiguredEndpoint);
 
+        auto foreignConfiguration = makeDeviceConfiguration();
+        foreignConfiguration.displayName = QStringLiteral("未绑定到任务的雷达");
+        foreignConfiguration.protocolAdapterKey = QStringLiteral("test.radar.protocol");
+        core::model::DeviceId foreignDeviceId;
+        core::model::EndpointId foreignEndpointId;
+        QVERIFY2(deviceService.saveAndActivate(
+                     foreignConfiguration, foreignDeviceId, foreignEndpointId),
+                 qPrintable(deviceService.lastError()));
+        core::model::AcquisitionId foreignAcquisition;
+        QVERIFY(!taskService.startCollection(
+            taskId, foreignDeviceId, foreignEndpointId, foreignAcquisition));
+        QVERIFY(!foreignAcquisition.isSet());
+
         core::model::AcquisitionId acquisitionId;
         QVERIFY2(taskService.startCollection(taskId, deviceId, endpointId, acquisitionId),
                  qPrintable(taskService.lastError()));
         QVERIFY(acquisitionId.isSet());
+        QCOMPARE(stableIds.resolveDevice(deviceId), configuration.deviceUuid);
+        QCOMPARE(stableIds.resolveTask(taskId), task.taskUuid);
+        QVERIFY(!stableIds.resolveAcquisition(acquisitionId).isNull());
         QVERIFY(taskService.isCollectionActive(acquisitionId));
 
         const auto track = makeTrackRecord(taskId, deviceId, endpointId, acquisitionId);
@@ -180,15 +226,26 @@ void ConfigAndTaskServicesTest::ownsPersistentConfigurationAndCollectionLifecycl
             acquisitionId,
             core::task::CollectionStopReason::UserStop,
             QDateTime::currentMSecsSinceEpoch()));
+        core::task::TaskDefinition completedTask;
+        QVERIFY2(taskService.completeTask(taskUuid, completedTask), qPrintable(taskService.lastError()));
+        QVERIFY(completedTask.completedUtcMs > 0);
+        QVERIFY(!taskService.activeTask(activeTask));
+        const auto clearedState = taskState.latest();
+        QVERIFY(clearedState.has_value());
+        QCOMPARE(clearedState->sample->value.phase, core::model::TaskPhase::None);
+        QVERIFY(!clearedState->sample->value.taskId.isSet());
         QVERIFY(database.closeCleanly(QDateTime::currentMSecsSinceEpoch()));
     }
 
     {
         core::archive::SqliteArchiveRepository database(databasePath, QStringLiteral("test-1.1"));
         QVERIFY2(database.open(), qPrintable(database.lastError()));
+        core::model::StableIdRegistry stableIds;
         core::persistence::SqliteRuntimeRepository runtimeRepository(database);
-        core::config::DeviceConfigService deviceService(runtimeRepository, database);
-        core::task::TaskService taskService(runtimeRepository, deviceService, database);
+        core::config::DeviceConfigService deviceService(runtimeRepository, database, stableIds);
+        core::domain::LatestState<core::model::TaskState> taskState;
+        core::task::TaskService taskService(
+            runtimeRepository, deviceService, database, stableIds, taskState);
         QVERIFY2(deviceService.loadFromDatabase(), qPrintable(deviceService.lastError()));
         QVERIFY2(taskService.loadFromDatabase(), qPrintable(taskService.lastError()));
 
@@ -199,25 +256,35 @@ void ConfigAndTaskServicesTest::ownsPersistentConfigurationAndCollectionLifecycl
             deviceUuid, restoredDevice, restoredEndpoint));
         QVERIFY(taskService.resolveTask(taskUuid, restoredTask));
         QVERIFY(deviceService.isCollectionReady(restoredDevice, restoredEndpoint));
+        QVector<core::task::TaskDefinition> restoredTasks;
+        QVERIFY(taskService.listTasks(restoredTasks));
+        QCOMPARE(restoredTasks.size(), 1);
+        QCOMPARE(restoredTasks[0].taskUuid, taskUuid);
+        QVERIFY(restoredTasks[0].completedUtcMs > 0);
+        QCOMPARE(restoredTasks[0].radarArrayType, core::config::RadarArrayType::SingleFace);
+        QCOMPARE(restoredTasks[0].deviceBindings[0].deviceUuid, deviceUuid);
 
         core::model::AcquisitionId secondAcquisition;
-        QVERIFY2(taskService.startCollection(
-                     restoredTask, restoredDevice, restoredEndpoint, secondAcquisition),
+        QVERIFY(!taskService.startCollection(
+            restoredTask, restoredDevice, restoredEndpoint, secondAcquisition));
+        QVERIFY(!secondAcquisition.isSet());
+        QVERIFY2(taskService.softDeleteTask(taskUuid, QStringLiteral("tester")),
                  qPrintable(taskService.lastError()));
-        QVERIFY(secondAcquisition.isSet());
-        QVERIFY(taskService.stopCollection(
-            secondAcquisition,
-            core::task::CollectionStopReason::ProcessShutdown,
-            QDateTime::currentMSecsSinceEpoch()));
+        QVERIFY(!taskService.resolveTask(taskUuid, restoredTask));
+        restoredTasks.clear();
+        QVERIFY(taskService.listTasks(restoredTasks));
+        QVERIFY(restoredTasks.isEmpty());
         QVERIFY(database.closeCleanly(QDateTime::currentMSecsSinceEpoch()));
     }
 
-    QCOMPARE(queryInteger(databasePath, QStringLiteral("SELECT count(*) FROM devices")), qint64(2));
+    /** @brief 验收 Schema 8 迁移保留旧台账 revision，并计入任务外设备拒绝用例产生的独立台账。 */
+    QCOMPARE(queryInteger(databasePath, QStringLiteral("SELECT count(*) FROM devices")), qint64(7));
     QCOMPARE(queryInteger(databasePath, QStringLiteral("SELECT count(*) FROM tasks")), qint64(1));
+    QCOMPARE(queryInteger(databasePath, QStringLiteral("SELECT is_deleted FROM tasks")), qint64(1));
     QCOMPARE(queryInteger(
                  databasePath,
                  QStringLiteral("SELECT count(*) FROM collection_sessions")),
-             qint64(2));
+             qint64(1));
     QCOMPARE(queryInteger(
                  databasePath,
                  QStringLiteral("SELECT count(*) FROM track_observations")),

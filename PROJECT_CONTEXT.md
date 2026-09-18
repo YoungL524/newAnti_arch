@@ -1,5 +1,27 @@
 # 项目上下文与新仓库启动交接
 
+> **2026-09-18 协议/架构复核断点**：已以表内版本 `20260915` Excel 重新对齐公共封装、
+> `0x0001/0x0100/0x0101/0x0303`、FPGA 128 字节状态区和 224 字节航迹；设备/任务 HTTP 统一为
+> `/api/v1`，网络身份字段为 `deviceId/taskId`，成功/失败响应已统一为 `data` 与
+> `error.code/message`，CRUD 状态码不再依赖中文文本判断。当前后端全量编译、19/19 CTest、8/8 前端测试、
+> C++14/C11 交付头语法检查及中文 Doxygen 审计均通过。恢复后从以下三项继续：
+> 1. 如需对 HTTP 状态码做 Socket 级黑盒验收，在现有 `StorageRuntimeContract` 之上增加最小路由测试；
+> 2. 最新 Excel、新增 Core/Web/测试/模拟器均是正式成果；`output.txt` 是用户提供材料，不擅自删除；
+> 3. 保持真实航迹拒绝未绑定上下文，待 Command Owner/ACK 和采集会话落地后，再由唯一 owner
+> 调用 `TrackIngressProducer::bind()`；禁止伪造 ID 或增加第二条链路。
+
+> **2026-09-18 控制平面前置评审**：任务选择只是 `Ready`，UI 已改为“已就绪”，不再伪装“进行中”；
+> 开始采集按钮仍禁用，因 `ApplicationController/DeviceController/per-device FIFO/ACK` 尚未落地。
+> 实现时必须同时满足：心跳并入 `DeviceController` 权威快照，不保留两个 `DeviceState` Owner；
+> 设备 ACK 后按任务 faceMask 创建各阵面采集会话，再由唯一编排者绑定 `TrackIngressProducer`。
+> Schema 8 只为位置仍为全零的内置单/四面阵台账补齐 `118.65303,31.93494,63.9288m`，
+> 不覆盖用户修改值；同一默认已同步到 UI 新建表单和地图中心。
+
+> 2026-09-17 当前基线：内部 UDP 为 `127.0.0.1:7788`，设备/任务 HTTP 为 `127.0.0.1:8088`，
+> `DeviceState` 与航迹共用 `ws://127.0.0.1:8089/ws/v1`。协议唯一字段底表为表内版本 `20260915` 的最新版
+> Excel；`0x0100` Adapter、TrackTopic、归档与 Web Consumer 已存在，但生产环境尚缺控制 ACK 后创建采集会话
+> 并调用 `TrackIngressProducer::bind()` 的装配，故真实航迹会被明确拒绝而不是使用伪造身份。以下旧日期条目只作迁移记录。
+
 > 2026-09-09 core收敛：ApplicationRuntime统一拥有心跳链依赖和端口启动、失败回滚、关闭顺序。
 > main只创建Qt应用和运行时；已验证Web端口冲突释放UDP、重复启动保持已有绑定、停止再启动。
 > 本版为心跳后端基线；React主界面状态对接、Command、事件归档装配仍待后续实现。

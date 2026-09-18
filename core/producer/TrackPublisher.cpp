@@ -115,6 +115,8 @@ TrackPublishRejection TrackPublisher::validate(
             && track.scanSequence != 0)) {
         return TrackPublishRejection::InvalidTrackValidity;
     }
+    if (track.packFlag > 1U) return TrackPublishRejection::InvalidPackFlag;
+    if (track.faceIndex > 3U) return TrackPublishRejection::InvalidFaceIndex;
     if (track.recognitionStatus != core::model::RecognitionStatus::Completed) {
         return TrackPublishRejection::RecognitionNotCompleted;
     }

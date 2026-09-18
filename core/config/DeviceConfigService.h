@@ -14,6 +14,7 @@
 #include <QHash>
 #include <QString>
 #include <QUuid>
+#include <QVector>
 
 namespace core::archive {
 class SqliteArchiveRepository;
@@ -21,6 +22,10 @@ class SqliteArchiveRepository;
 
 namespace core::persistence {
 class SqliteRuntimeRepository;
+}
+
+namespace core::model {
+class StableIdRegistry;
 }
 
 namespace core::config {
@@ -39,7 +44,8 @@ public:
      */
     DeviceConfigService(
         core::persistence::SqliteRuntimeRepository &runtimeRepository,
-        core::archive::SqliteArchiveRepository &archiveRepository);
+        core::archive::SqliteArchiveRepository &archiveRepository,
+        core::model::StableIdRegistry &stableIds);
 
     /**
      * @brief 从 SQLite 最新 revision 重建设备与主航迹端点句柄。
@@ -60,6 +66,24 @@ public:
         DeviceConfiguration &configuration,
         core::model::DeviceId &deviceId,
         core::model::EndpointId &trackEndpointId);
+
+    /**
+     * @brief 从数据库读取当前未删除设备的完整revision快照。
+     * @param configurations 成功时替换为稳定UUID排序前的数据库当前集合。
+     * @return SQLite查询成功且每条配置均通过当前合同时返回true。
+     */
+    bool listCurrent(QVector<DeviceConfiguration> &configurations);
+
+    /**
+     * @brief 软删除设备并停止其作为新任务选择项出现。
+     * @param deviceUuid 稳定设备UUID。
+     * @param expectedRevision 前端最后读取的revision。
+     * @param changedBy 删除操作者。
+     * @param changeReason 删除原因。
+     * @return tombstone提交成功返回true；旧运行时句柄仍供已发布事实解析。
+     */
+    bool softDelete(const QUuid &deviceUuid, quint32 expectedRevision,
+                    const QString &changedBy, const QString &changeReason);
 
     /**
      * @brief 把设备稳定 UUID 解析为当前进程最新激活的设备与主航迹端点句柄。
@@ -104,6 +128,18 @@ public:
         core::model::DeviceId deviceId,
         core::model::EndpointId endpointId) const;
 
+    /**
+     * @brief 校验任务请求的设备形态与阵面位图是否属于当前台账版本。
+     * @param deviceUuid UI持有的跨重启稳定设备UUID。
+     * @param arrayType 任务选择的单面阵或四面阵形态。
+     * @param faceMask bit0～bit3表示本次任务启用阵面。
+     * @return 设备存在、形态相同且faceMask是已启用阵面的非空子集时返回true。
+     */
+    bool acceptsTaskBinding(
+        const QUuid &deviceUuid,
+        RadarArrayType arrayType,
+        quint8 faceMask) const;
+
     /** @brief 返回最近一次配置加载、校验、持久化或绑定失败原因。 */
     QString lastError() const;
 
@@ -115,6 +151,8 @@ private:
         core::model::EndpointId trackEndpointId; ///< role=track_receive 的进程内句柄。
         QString trackEndpointKey; ///< 对应设备 JSON 中的稳定键。
         QString protocolAdapterKey; ///< 非空才允许 TaskService 启动采集。
+        RadarArrayType arrayType = RadarArrayType::SingleFace; ///< 当前revision冻结的整机阵面形态。
+        quint8 enabledFaceMask = 0; ///< 当前revision允许任务选择的阵面位图。
     };
 
     /**
@@ -125,7 +163,8 @@ private:
      */
     bool validateConfiguration(
         const DeviceConfiguration &configuration,
-        QString &trackEndpointKey);
+        QString &trackEndpointKey,
+        quint8 &enabledFaceMask);
 
     /** @brief 分配新的非零 DeviceId，耗尽 32 位空间时失败。 */
     core::model::DeviceId allocateDeviceId();
@@ -135,6 +174,7 @@ private:
 
     core::persistence::SqliteRuntimeRepository &m_runtimeRepository; ///< 借用的配置持久化端口。
     core::archive::SqliteArchiveRepository &m_archiveRepository; ///< 借用的归档身份绑定入口。
+    core::model::StableIdRegistry &m_stableIds; ///< 借用的跨线程稳定身份注册表；只登记已提交 revision。
     QHash<quint32, ActiveDevice> m_activeDevices; ///< DeviceId 原值到不可变 revision 上下文。
     QHash<QUuid, core::model::DeviceId> m_latestDeviceIds; ///< 稳定 UUID 到最新激活句柄。
     quint32 m_nextDeviceId = 1; ///< 下一个候选 DeviceId；零永不分配。

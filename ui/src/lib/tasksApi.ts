@@ -4,9 +4,9 @@
  * @details 客户端只提交意图并展示服务端结果，合法状态迁移和设备绑定约束由 TaskService 判定。
  */
 
-import type { Task, TaskStatus } from './taskTypes'
+import type { Task, TaskRadarArrayType, TaskStatus } from './taskTypes'
 
-const BASE = '/api/tasks'
+const BASE = '/api/v1/tasks'
 
 export interface ApiResult<T = boolean> {
   ok: boolean
@@ -15,29 +15,32 @@ export interface ApiResult<T = boolean> {
 }
 
 export interface ApiTask {
-  id: string
+  taskId: string
   name: string
   description?: string
   operatorName?: string
   status: string
+  radarArrayType?: TaskRadarArrayType
   deviceIds: string[]
+  deviceFaceMasks?: Record<string, number>
   createdAt: number
   activatedAt?: number
   completedAt?: number
   archivedAt?: number
 }
 
-interface TaskListData { ok: boolean; tasks: ApiTask[] }
-interface TaskResponseData { ok: boolean; task: ApiTask }
-interface ActiveTaskData { ok: boolean; activeTaskId: string | null; task?: ApiTask }
+interface TaskListData { tasks: ApiTask[] }
+interface TaskResponseData { task: ApiTask }
+interface ActiveTaskData { activeTaskId: string | null; task?: ApiTask }
 
 async function apiCall<T = any>(url: string, options?: RequestInit): Promise<ApiResult<T>> {
   try {
     const res = await fetch(url, options)
-    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` }
-    const data = await res.json()
-    if (!data.ok) return { ok: false, error: data.error || 'API 返回失败' }
-    return { ok: true, data }
+    const data = await res.json().catch(() => null)
+    if (!res.ok) return { ok: false, error: data?.error?.message || `HTTP ${res.status}` }
+    if (!data) return { ok: false, error: 'API 未返回 JSON' }
+    if (!data.ok) return { ok: false, error: data.error?.message || 'API 返回失败' }
+    return { ok: true, data: data.data }
   } catch (e: any) {
     return { ok: false, error: e?.message || '网络错误' }
   }
@@ -45,6 +48,7 @@ async function apiCall<T = any>(url: string, options?: RequestInit): Promise<Api
 
 function mapStatus(status: string): TaskStatus {
   switch (status) {
+    case 'Ready': return 'ready'
     case 'Active': return 'active'
     case 'Completed': return 'completed'
     case 'Archived': return 'archived'
@@ -55,12 +59,14 @@ function mapStatus(status: string): TaskStatus {
 
 export function apiTaskToTask(item: ApiTask): Task {
   return {
-    id: item.id,
+    id: item.taskId,
     name: item.name,
     description: item.description ?? '',
     operator: item.operatorName ?? '',
     status: mapStatus(item.status),
+    radarArrayType: item.radarArrayType ?? 'singleFace',
     deviceIds: item.deviceIds ?? [],
+    deviceFaceMasks: item.deviceFaceMasks ?? {},
     createdAt: item.createdAt,
     activatedAt: item.activatedAt || undefined,
     completedAt: item.completedAt || undefined,
@@ -73,12 +79,16 @@ export function taskToApiPayload(data: {
   description?: string
   operator?: string
   deviceIds?: string[]
+  radarArrayType?: TaskRadarArrayType
+  deviceFaceMasks?: Record<string, number>
 }): Record<string, unknown> {
   return {
     name: data.name,
     description: data.description ?? '',
     operatorName: data.operator ?? '',
     deviceIds: data.deviceIds ?? [],
+    radarArrayType: data.radarArrayType ?? 'singleFace',
+    deviceFaceMasks: data.deviceFaceMasks ?? {},
   }
 }
 
@@ -114,27 +124,10 @@ export async function activateTaskApi(id: string): Promise<ApiResult<TaskRespons
   return apiCall(`${BASE}/${encodeURIComponent(id)}/activate`, { method: 'POST' })
 }
 
-export async function rerunTaskApi(id: string): Promise<ApiResult<TaskResponseData>> {
-  return apiCall(`${BASE}/${encodeURIComponent(id)}/rerun`, { method: 'POST' })
-}
-
 export async function completeTaskApi(id: string): Promise<ApiResult<TaskResponseData>> {
   return apiCall(`${BASE}/${encodeURIComponent(id)}/complete`, { method: 'POST' })
-}
-
-export async function archiveTaskApi(id: string): Promise<ApiResult<TaskResponseData>> {
-  return apiCall(`${BASE}/${encodeURIComponent(id)}/archive`, { method: 'POST' })
 }
 
 export async function deleteTaskApi(id: string): Promise<ApiResult> {
   return apiCall(`${BASE}/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
-
-export async function updateTaskApi(id: string, payload: Record<string, unknown>): Promise<ApiResult<TaskResponseData>> {
-  return apiCall(`${BASE}/${encodeURIComponent(id)}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-}
-

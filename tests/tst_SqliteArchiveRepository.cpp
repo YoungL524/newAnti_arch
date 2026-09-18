@@ -149,6 +149,7 @@ core::domain::TopicRecord<core::model::TrackPacket> makeTrackRecord(
     record.sample.value.elevationRad = 0.2;
     record.sample.value.radialVelocityMps = 12.0;
     record.sample.value.amplitude = 48.5;
+    record.sample.value.packFlag = 1;
     record.sample.value.recognitionStatus = core::model::RecognitionStatus::Completed;
     return record;
 }
@@ -217,7 +218,7 @@ class SqliteArchiveRepositoryTest final : public QObject
     Q_OBJECT
 
 private slots:
-    /** @brief 验收新文件只创建六张业务表，且显式正常关闭 run。 */
+    /** @brief 验收新文件创建六张业务表、两套预置台账，且重复打开不会再次补写。 */
     void createsSixTablesAndClosesRun();
 
     /** @brief 验收句柄解析后航迹/事件落库，非法批次不会产生部分行。 */
@@ -231,7 +232,7 @@ private slots:
 };
 
 /**
- * @brief 打开空数据库后检查 user_version、业务表数量和 Clean 运行状态。
+ * @brief 打开空数据库两次，检查 Schema、预置台账幂等性和 Clean 运行状态。
  */
 void SqliteArchiveRepositoryTest::createsSixTablesAndClosesRun()
 {
@@ -243,7 +244,11 @@ void SqliteArchiveRepositoryTest::createsSixTablesAndClosesRun()
     QVERIFY(repository.currentRunId() > 0);
     QVERIFY(repository.closeCleanly(QDateTime::currentMSecsSinceEpoch()));
 
-    QCOMPARE(queryInteger(databasePath, QStringLiteral("PRAGMA user_version")), qint64(1));
+    core::archive::SqliteArchiveRepository reopened(databasePath, QStringLiteral("test-1.0"));
+    QVERIFY2(reopened.open(), qPrintable(reopened.lastError()));
+    QVERIFY(reopened.closeCleanly(QDateTime::currentMSecsSinceEpoch()));
+
+    QCOMPARE(queryInteger(databasePath, QStringLiteral("PRAGMA user_version")), qint64(8));
     QCOMPARE(queryInteger(
                  databasePath,
                  QStringLiteral("SELECT count(*) FROM sqlite_master "
@@ -252,6 +257,29 @@ void SqliteArchiveRepositoryTest::createsSixTablesAndClosesRun()
     QCOMPARE(queryInteger(
                  databasePath,
                  QStringLiteral("SELECT shutdown_state FROM application_runs LIMIT 1")),
+             qint64(1));
+    /** @brief Schema 8 保留两个预置 revision，并为其具名发送目标各追加一个不可变 revision。 */
+    QCOMPARE(queryInteger(databasePath, QStringLiteral("SELECT count(*) FROM devices")), qint64(4));
+    QCOMPARE(queryInteger(
+                 databasePath,
+                 QStringLiteral("SELECT count(*) FROM devices d WHERE array_type=1 AND is_deleted=0 "
+                                "AND NOT EXISTS(SELECT 1 FROM devices newer "
+                                "WHERE newer.device_uuid=d.device_uuid AND newer.revision>d.revision)")),
+             qint64(1));
+    QCOMPARE(queryInteger(
+                 databasePath,
+                 QStringLiteral("SELECT count(*) FROM devices d WHERE is_deleted=0 "
+                                "AND abs(longitude_deg-118.65303)<0.000001 "
+                                "AND abs(latitude_deg-31.93494)<0.000001 "
+                                "AND abs(altitude_m-63.9288)<0.000001 "
+                                "AND NOT EXISTS(SELECT 1 FROM devices newer "
+                                "WHERE newer.device_uuid=d.device_uuid AND newer.revision>d.revision)")),
+             qint64(2));
+    QCOMPARE(queryInteger(
+                 databasePath,
+                 QStringLiteral("SELECT count(*) FROM devices d WHERE array_type=4 AND is_deleted=0 "
+                                "AND NOT EXISTS(SELECT 1 FROM devices newer "
+                                "WHERE newer.device_uuid=d.device_uuid AND newer.revision>d.revision)")),
              qint64(1));
 }
 
@@ -298,6 +326,10 @@ void SqliteArchiveRepositoryTest::persistsStrongTypesAndRollsBackInvalidBatch()
              qint64(1));
     QCOMPARE(queryInteger(databasePath, QStringLiteral("SELECT track_id FROM track_observations")),
              qint64(42));
+    QCOMPARE(queryInteger(databasePath, QStringLiteral("SELECT pack_flag FROM track_observations")),
+             qint64(1));
+    QCOMPARE(queryInteger(databasePath, QStringLiteral("SELECT face_index FROM track_observations")),
+             qint64(0));
     QCOMPARE(queryInteger(databasePath, QStringLiteral("SELECT argument0 FROM system_events")),
              qint64(7));
 }

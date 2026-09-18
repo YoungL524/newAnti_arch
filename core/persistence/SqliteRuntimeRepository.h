@@ -60,6 +60,17 @@ public:
         QVector<qint64> &deviceRevisionIds);
 
     /**
+     * @brief 以追加tombstone revision的方式软删除一台完整雷达。
+     * @param deviceUuid 待删除设备的稳定UUID。
+     * @param expectedRevision UI最后读取的revision，用于拒绝覆盖并发修改。
+     * @param changedBy 执行删除的操作员或服务身份。
+     * @param changeReason 删除原因，允许为空。
+     * @return 当前revision匹配且tombstone事务提交成功返回true。
+     */
+    bool softDeleteDevice(const QUuid &deviceUuid, quint32 expectedRevision,
+                          const QString &changedBy, const QString &changeReason);
+
+    /**
      * @brief 插入一项未删除任务并回填稳定 UUID。
      * @param task 用户任务元数据；UUID 为空时由 Repository 生成。
      * @param databaseTaskId 成功时写入 tasks 本地主键。
@@ -76,6 +87,22 @@ public:
     bool loadActiveTasks(
         QVector<core::task::TaskDefinition> &tasks,
         QVector<qint64> &databaseTaskIds);
+
+    /**
+     * @brief 将未删除且无活动会话的任务标记为软删除。
+     * @param databaseTaskId TaskService已绑定的tasks本地主键。
+     * @param deletedBy 执行删除的用户或系统标识。
+     * @return 唯一任务行成功更新时返回true。
+     */
+    bool softDeleteTask(qint64 databaseTaskId, const QString &deletedBy);
+
+    /**
+     * @brief 为没有活动采集的任务写入唯一完成时间。
+     * @param databaseTaskId TaskService内部持有的tasks主键。
+     * @param completedUtcMs 用户确认完成任务的Unix epoch毫秒。
+     * @return 任务存在、尚未完成且没有未停止会话时返回true。
+     */
+    bool completeTask(qint64 databaseTaskId, qint64 completedUtcMs);
 
     /**
      * @brief 为当前 application run 创建一次 Running 采集会话。

@@ -8,18 +8,17 @@ import type { Task } from '../../lib/taskTypes'
 import { useCore } from '../../hooks/useCoreApi'
 
 const STATUS_LABEL: Record<string, string> = {
-  draft: '草稿', active: '进行中', completed: '已完成', archived: '已归档',
+  draft: '草稿', ready: '已就绪', active: '进行中', completed: '已完成', archived: '已归档',
 }
 
-export default function TitleBar({ activeTask, viewTask, isHistoryView, backendStatus }: {
+export default function TitleBar({ activeTask, viewTask, isHistoryView }: {
   activeTask: Task | null
   viewTask: Task | null
   isHistoryView: boolean
-  backendStatus: 'loading' | 'online' | 'offline'
 }) {
-  const { connected, acquisition, state, commandPending, checkedDeviceIds, devices, noSelectionHint, commandError, interactionError, dismissNoSelectionHint, dismissCommandError, dismissInteractionError, toggleAcquisition } = useCore()
+  const { connected, acquisition, state, checkedDeviceIds, devices, noSelectionHint, commandError, interactionError, dismissNoSelectionHint, dismissCommandError, dismissInteractionError } = useCore()
+  const backendStatus = connected ? 'online' : 'offline'
 
-  const isTransient = state === 'Starting' || state === 'Stopping'
   const isFault = state === 'Fault'
   const checkedCount = checkedDeviceIds.length
 
@@ -51,15 +50,14 @@ export default function TitleBar({ activeTask, viewTask, isHistoryView, backendS
           <span className="w-1.5 h-1.5 rounded-full animate-pulse"
             style={{
               background: backendStatus === 'online'
-                ? (connected ? 'var(--primaryContainer)' : '#f59e0b')
-                : backendStatus === 'loading' ? '#94a3b8' : 'var(--error)',
-              boxShadow: backendStatus === 'online' && connected ? '0 0 8px rgba(6,78,59,0.5)' : 'none',
+                ? 'var(--primaryContainer)'
+                : 'var(--error)',
+              boxShadow: backendStatus === 'online' ? '0 0 8px rgba(6,78,59,0.5)' : 'none',
             }} />
           <span className="text-[10px] font-bold tracking-wider"
             style={{ color: 'var(--primaryContainer)', fontFamily: "'Inter', sans-serif" }}>
-            {backendStatus === 'loading' ? '正在连接后端...'
-              : backendStatus === 'offline' ? '后端未连接'
-              : connected ? '已连接' : '通信端点未就绪'}
+            {backendStatus === 'offline' ? '后端未连接'
+              : '已连接'}
           </span>
         </div>
 
@@ -98,9 +96,8 @@ export default function TitleBar({ activeTask, viewTask, isHistoryView, backendS
         className="px-3.5 py-1 rounded-lg text-white font-semibold text-[11px] border-none cursor-pointer
                    precision-shadow active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
         style={{ background: btnBg }}
-        onClick={toggleAcquisition}
-        disabled={isTransient || commandPending || (!activeTask && !isFault && !acquisition)}
-        title={!activeTask && !isFault && !acquisition ? '请先创建并激活任务' : undefined}
+        disabled
+        title="设备控制平面尚未实现，当前只开放台账、任务、心跳和航迹显示"
       >
         {btnLabel}
       </button>
@@ -139,4 +136,3 @@ export default function TitleBar({ activeTask, viewTask, isHistoryView, backendS
     </header>
   )
 }
-

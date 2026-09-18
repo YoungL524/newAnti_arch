@@ -9,7 +9,7 @@ import { createPortal } from 'react-dom'
 import RadarEditForm from './RadarEditForm'
 import SubDeviceEditForm from './SubDeviceEditForm'
 import type { AppDevice, RadarDevice, SubDevice } from '../map/types'
-import { saveEndpoint, type CommEndpoint } from '../../lib/endpointsApi'
+import type { RadarEndpoint as CommEndpoint } from '../map/types'
 
 interface Props {
   device: AppDevice
@@ -28,12 +28,7 @@ export default function DeviceEditDialog({ device, radarDevices, onUpdateDevice,
       setSaveError('本机端口必须大于 0')
       return
     }
-    const epResult = await saveEndpoint(endpoint)
-    if (!epResult.ok) {
-      setSaveError(epResult.error || '端点保存失败')
-      return
-    }
-    const ok = await onUpdateDevice(device.id, { ...updates, endpointId: endpoint.id })
+    const ok = await onUpdateDevice(device.id, { ...updates, endpointId: endpoint.id, endpoint })
     if (ok) onClose()
     else setSaveError('设备保存失败，请重试')
   }
@@ -84,4 +79,3 @@ export default function DeviceEditDialog({ device, radarDevices, onUpdateDevice,
     document.body,
   )
 }
-

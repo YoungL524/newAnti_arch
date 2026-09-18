@@ -31,7 +31,7 @@ export default defineConfig({
       '/ws': {
         target: 'ws://localhost:8089',
         ws: true,
-        rewrite: (path) => path.replace(/^\/ws/, ''),
+        rewrite: (path) => path.replace(/^\/ws(?:\/v1)?/, '/ws/v1'),
       },
     },
   },
@@ -39,4 +39,3 @@ export default defineConfig({
     outDir: 'dist',
   },
 })
-

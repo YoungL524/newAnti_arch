@@ -6,7 +6,13 @@
 
 import { useState, useEffect } from 'react'
 import { useCore } from '../../hooks/useCoreApi'
+import HeartbeatIndicators from './HeartbeatIndicators'
+import type { Task } from '../../lib/taskTypes'
 
+/**
+ * @brief 生成状态栏所需的本地时钟文本。
+ * @return 采用 24 小时制的时分秒字符串；组件卸载时释放唯一计时器。
+ */
 function useClock() {
   const [time, setTime] = useState(new Date())
   useEffect(() => {
@@ -16,9 +22,18 @@ function useClock() {
   return time.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
-export default function StatusBar() {
+/**
+ * @brief 汇总展示进程就绪状态、设备心跳、航迹显示计数和本地时间。
+ * @param activeTask 当前活动任务；为空时不显示与任何设备无关的心跳灯。
+ * @return 只读页脚；设备心跳事实仍由后端 DeviceState 唯一持有和判定。
+ */
+export default function StatusBar({ activeTask }: { activeTask: Task | null }) {
   const clock = useClock()
   const { trackRate, acquisition } = useCore()
+  const activeFaceIndices = activeTask
+    ? [0, 1, 2, 3].filter(index => activeTask.deviceIds.some(deviceId =>
+        ((activeTask.deviceFaceMasks[deviceId] ?? 0x01) & (1 << index)) !== 0))
+    : []
 
   return (
     <footer
@@ -36,6 +51,7 @@ export default function StatusBar() {
         <span>DCMP v2.4.0 · 就绪</span>
       </div>
       <div className="flex gap-4 items-center">
+        {activeTask && <HeartbeatIndicators faceIndices={activeFaceIndices} />}
         {acquisition && (
           <span className="flex items-center gap-1.5">
             <span>显示点数 {trackRate}</span>
@@ -48,4 +64,3 @@ export default function StatusBar() {
     </footer>
   )
 }
-

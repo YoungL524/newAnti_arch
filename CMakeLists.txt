@@ -28,6 +28,11 @@ endif()
 
 add_subdirectory(core)
 
+option(BUILD_TOOLS "构建协议联试工具" ON)
+if(BUILD_TOOLS)
+    add_subdirectory(tools)
+endif()
+
 if(BUILD_TESTS)
     add_subdirectory(tests)
 endif()

@@ -7,10 +7,20 @@
 
 #pragma once
 
+#include "core/config/DeviceConfiguration.h"
+
 #include <QString>
 #include <QUuid>
+#include <QVector>
 
 namespace core::task {
+
+/** @brief 记录任务对一台稳定设备及其启用阵面的持久化选择。 */
+struct TaskDeviceBinding
+{
+    QUuid deviceUuid; ///< 设备台账稳定 UUID，不保存进程内 DeviceId。
+    quint8 faceMask = 0; ///< bit0～bit3 对应1～4号阵面，必须是设备已启用阵面的非空子集。
+};
 
 /** @brief 保存一项可持久化任务的稳定身份和用户元数据。 */
 struct TaskDefinition
@@ -19,6 +29,10 @@ struct TaskDefinition
     QString taskName; ///< 用户可见任务名称，不能为空但不要求全库唯一。
     QString operatorName; ///< 创建或负责该任务的操作员展示名称。
     QString description; ///< 任务目的与现场备注，允许为空。
+    core::config::RadarArrayType radarArrayType = core::config::RadarArrayType::SingleFace; ///< 任务要求的整机阵面形态。
+    QVector<TaskDeviceBinding> deviceBindings; ///< 本任务选中的设备及阵面；创建后由 SQLite 持久化。
+    qint64 createdUtcMs = 0; ///< SQLite 提交时刻，Unix epoch UTC 毫秒；创建请求不得自行指定。
+    qint64 completedUtcMs = 0; ///< 用户完成任务的 Unix epoch UTC 毫秒；零表示仍可被选择执行。
 };
 
 } // namespace core::task

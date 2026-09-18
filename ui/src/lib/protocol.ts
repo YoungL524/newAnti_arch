@@ -4,7 +4,7 @@
  * @details 字段名称、可选性和单位必须与 C++ JSON 序列化保持一致；本文件不承担网络请求或状态管理。
  */
 
-/** Protocol types matching C++ HttpServer API */
+/** @brief 以下类型与核心服务公开的 HTTP/WebSocket JSON 字段逐项对应。 */
 
 export interface LogEntry {
   level: string
@@ -23,6 +23,33 @@ export interface DeviceStatus {
 export interface LogsResponse {
   ok: boolean
   logs: LogEntry[]
+}
+
+/** @brief 历史视图使用的只读航迹点；归档 HTTP 落地前不会由网络填充。 */
+export interface TrackHistoryPoint {
+  taskId: string
+  deviceId: string
+  tsMs: number
+  sceneNum: number
+  targetId: number
+  range: number
+  azimuth: number
+  elevation: number
+  radialSpeed: number
+  altitude: number
+  x: number
+  y: number
+  z: number
+}
+
+/** @brief 历史视图使用的只读系统事件；归档 HTTP 落地前不会由网络填充。 */
+export interface SystemEvent {
+  tsMs: number
+  category: string
+  source: string
+  detail: string
+  taskId?: string
+  deviceId?: string
 }
 
 export interface StatusResponse {
@@ -50,6 +77,29 @@ export interface WsLogMessage extends LogEntry {
 }
 
 export type WsMessage = WsStatusMessage | WsTracksMessage | WsLogMessage
+
+/** @brief 表示后端心跳 owner 已判定且V1网络合同允许的三态枚举。 */
+export type HeartbeatStatus = 'unknownOrTimedOut' | 'online' | 'offlineOrLate'
+
+/** @brief 表示DeviceState消息中与当前心跳联试有关的完整载荷。 */
+export interface WsDeviceStatePayload {
+  dpHeartbeat: HeartbeatStatus ///< DP心跳状态，由后端超时门禁判定。
+  spHeartbeat: HeartbeatStatus ///< SP心跳状态，由后端超时门禁判定。
+  fpOnlineMask: number ///< DP报告的FP在线位图，bit0～bit3对应1～4号阵面。
+  fpDataMask: number ///< SP报告的FP数据位图，bit0～bit3对应1～4号阵面。
+  devices: unknown[] ///< 完整设备运行时数组；当前联试尚未输出已激活设备。
+}
+
+/**
+ * @brief 表示 StateWebSocketService 输出的一次 DeviceState 完整心跳视图。
+ * @details revision 使用十进制字符串避免 JavaScript 丢失 64 位整数精度；两个 mask 仅使用低四位。
+ */
+export interface WsDeviceStateMessage {
+  type: 'deviceState' ///< 状态消息鉴别字段。
+  sentUtcMs: number ///< WebReader序列化本快照的Unix epoch UTC毫秒。
+  revision: string ///< LatestState 修订号的十进制字符串。
+  payload: WsDeviceStatePayload ///< 本revision对应的完整DeviceState网络载荷。
+}
 
 // ── Device types ──────────────────────────────────────────
 
@@ -82,6 +132,7 @@ export interface RadarTrack {
   batchId: number          // 批号
   deviceId?: string
   trackId?: number
+  faceIndex?: number
   slantRange: number       // 斜距 (m)
   azimuth: number          // 方位角 (°)
   elevation: number        // 俯仰角 (°)
@@ -138,18 +189,13 @@ export interface WsTrackDisplayPoint {
   acquisitionId: string
   trackId: number
   deviceId: string
-  taskId: string
-  timestamp: number
-  range: number
-  azimuth: number          // rad
-  elevation: number        // rad
-  altitude: number
-  x?: number
-  y?: number
-  z?: number
-  radialSpeed: number
-  amplitude?: number
-  rcs?: number
+  faceIndex: number
+  receiveUtcMs: number
+  rangeM: number
+  azimuthRad: number
+  elevationRad: number
+  radialVelocityMps: number
+  amplitude: number
   pointIndex: number
   style?: {
     color: string
@@ -165,25 +211,28 @@ export interface WsTrackDisplayPoint {
 export interface WsTrackDisplayPointKey {
   acquisitionId: string
   deviceId: string
+  faceIndex: number
   trackId: number
   pointIndex: number
 }
 
 export interface WsTracksSnapshotMessage {
-  type: 'tracks'
-  mode: 'snapshot'
-  revision: number
-  timestamp: number
-  tracks: WsTrackDisplayPoint[]
+  type: 'trackSnapshot'
+  sentUtcMs: number
+  revision: string
+  payload: {
+    tracks: WsTrackDisplayPoint[]
+  }
 }
 
 export interface WsTracksDeltaMessage {
-  type: 'tracks'
-  mode: 'delta'
-  revision: number
-  timestamp: number
-  upserts: WsTrackDisplayPoint[]
-  removals: WsTrackDisplayPointKey[]
+  type: 'trackDelta'
+  sentUtcMs: number
+  revision: string
+  payload: {
+    upserts: WsTrackDisplayPoint[]
+    removals: WsTrackDisplayPointKey[]
+  }
 }
 
 export type WsTracksMessage = WsTracksSnapshotMessage | WsTracksDeltaMessage

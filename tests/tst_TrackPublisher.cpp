@@ -37,6 +37,7 @@ core::model::Sample<core::model::TrackPacket> validTrackSample()
     sample.value.elevationRad = 0.2;
     sample.value.radialVelocityMps = 12.0;
     sample.value.amplitude = 41.5;
+    sample.value.packFlag = 1;
     sample.value.recognitionStatus = core::model::RecognitionStatus::Completed;
     return sample;
 }
@@ -132,6 +133,8 @@ void TrackPublisherTest::rejectsInvalidMeasurements()
     sample = validTrackSample(); sample.value.radialVelocityMps = nan; expectRejected(sample, Rejection::InvalidRadialVelocity);
     sample = validTrackSample(); sample.value.amplitude = nan; expectRejected(sample, Rejection::InvalidAmplitude);
     sample = validTrackSample(); sample.value.scanSequence = 1; expectRejected(sample, Rejection::InvalidTrackValidity);
+    sample = validTrackSample(); sample.value.packFlag = 2; expectRejected(sample, Rejection::InvalidPackFlag);
+    sample = validTrackSample(); sample.value.faceIndex = 4; expectRejected(sample, Rejection::InvalidFaceIndex);
 
     core::domain::HistoryTopic<core::model::TrackPacket> topic(2);
     core::producer::TrackPublisher publisher(topic);

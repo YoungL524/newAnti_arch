@@ -1,7 +1,8 @@
 /**
  * @file DcmpProtocolTypes.h
  * @brief 定义统一线协议的公共头、包尾和消息类型，供协议 Adapter 构造及解释报文。
- * @details 依据 doc/protocol/1_第一版_统一报文封装-20260908.xlsx。阅读从 DcmpFrameHeader 开始：
+ * @details 依据 doc/protocol/数据协议(新雷达)_第二版20260903(针对Y-2型FP四面阵)_[刘阳返回]
+ * [第一版_统一报文封装-202609015].xlsx。阅读从 DcmpFrameHeader 开始：
  * 线上顺序为公共头（44 字节）、载荷（N 字节）、包尾（4 字节）。本文件不实现载荷、编解码、
  * 超时判断或业务路由；这些边界临时值对象不得发布到 CoreDataDomain。
  * 对象由调用方持有，无共享可变状态。自然对齐不等于线协议编码，禁止直接发送对象内存。
@@ -41,7 +42,7 @@ struct DcmpFrameHeader
     static constexpr quint32 declaredFixedSize = 36U; ///< 长度字段计入的固定字节数。
     static constexpr quint32 lengthExcludedSize = 12U; ///< 总报文字节数中不计入 F_UI_TotalLength 的起始标志、长度字段和包尾字节数。
     static constexpr quint32 expectedMagic = 0xA1A11A1AU; ///< 工作表定义的起始标志。
-    static constexpr quint32 expectedVersion = 20260908U; ///< 工作表定义的协议版本数值。
+    static constexpr quint32 expectedVersion = 20260915U; ///< 工作表定义的协议版本数值。
 
     static constexpr quint32 magicOffset = 0U; ///< 起始标志在线偏移。
     static constexpr quint32 totalLengthOffset = 4U; ///< 声明长度在线偏移。

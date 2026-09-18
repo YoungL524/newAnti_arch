@@ -1,9 +1,8 @@
 /**
  * @file TrackPacket.h
- * @brief 定义单面阵雷达航迹链的紧凑权威事实及 16 字节运行时身份键。
- * @details 上游 ProtocolAdapter 将厂家字段映射为所属 DeviceId 的局部阵面观测，同步识别完成后由
- * TrackPublisher 发布；下游显示、归档、Web 和插件读取同一事实。当前一个 DeviceId 就代表一个雷达阵面，
- * 因而不再保存重复 FaceId；未来多面阵以多个 DeviceId 注册，跨阵面融合另行形成独立事实。
+ * @brief 定义整机雷达航迹链的紧凑权威事实及阵面级运行时身份键。
+ * @details 一个 DeviceId 表示设备台账中的一台完整雷达，faceIndex 区分其1～4号阵面；上游映射后由
+ * TrackPublisher 发布，下游显示、归档、Web 和插件读取同一事实。本文件不承担跨阵面航迹融合。
  */
 
 #pragma once
@@ -72,11 +71,13 @@ struct TrackPacket
     double elevationRad = 0.0; ///< 从局部水平面向上为正的俯仰角，范围 [0, π/4]。
     double radialVelocityMps = 0.0; ///< 径向速度，单位 m/s；抵近雷达为正，远离雷达为负。
     double amplitude = 0.0; ///< 厂家 double 幅值原值；单位/标度不做 dBsm 换算，发布时仅要求有限。
-    DeviceId deviceId; ///< 雷达设备即阵面的注册表句柄；用于取得安装经纬高和绝对姿态。
+    DeviceId deviceId; ///< 设备台账中完整雷达的运行时句柄；四个阵面共享此值。
     TaskId taskId; ///< 接收瞬间活动任务句柄；零表示无任务，不参与 TrackKey。
     quint32 trackId = 0; ///< 厂家在采集会话内分配的目标航迹号；零是合法值。
     quint32 scanSequence = 0; ///< 厂家扫描序号；仅 HasScanSequence 置位时有效。
     TrackFieldFlags validity = 0; ///< 可选扫描序号有效性；未知位必须被发布门禁拒绝。
+    quint8 packFlag = 0; ///< 航迹存在标志；1表示存在观测，0表示该TrackKey已经消亡，其他值非法。
+    quint8 faceIndex = 0; ///< 整机内阵面索引，单面阵固定为0，四面阵取0～3。
     RecognitionStatus recognitionStatus = RecognitionStatus::Pending; ///< 发布时必须为 Completed。
     RecognitionType recognitionType = RecognitionType::Unknown; ///< Completed 状态仍允许 Unknown。
 };
@@ -85,13 +86,14 @@ static_assert(sizeof(TrackPacket) <= 96, "TrackPacket exceeds the frozen hot-pat
 
 /**
  * @brief 唯一标识一个雷达采集会话内的目标航迹生命周期。
- * @details DeviceId 已等价表示所属阵面；TaskId、时间、traceId、扫描号和 Topic sequence 均不参与身份。
+ * @details TaskId、时间、traceId、扫描号和 Topic sequence 均不参与身份；faceIndex 防止四面阵厂家航迹号碰撞。
  */
 struct TrackKey
 {
     AcquisitionId acquisitionId; ///< 采集会话句柄，隔离停止、重连和厂家 trackId 复用。
     DeviceId deviceId; ///< 产生航迹的雷达/阵面句柄。
     quint32 trackId = 0; ///< 厂家航迹号，完整 uint32 范围均参与身份比较。
+    quint8 faceIndex = 0; ///< 整机内阵面索引，完整参与航迹生命周期身份。
 
     /**
      * @brief 判断两个键是否指向同一航迹生命周期。
@@ -102,7 +104,8 @@ struct TrackKey
     {
         return acquisitionId == other.acquisitionId
             && deviceId == other.deviceId
-            && trackId == other.trackId;
+            && trackId == other.trackId
+            && faceIndex == other.faceIndex;
     }
 };
 
@@ -111,11 +114,11 @@ static_assert(sizeof(TrackKey) <= 24, "TrackKey exceeds the frozen hot-path budg
 /**
  * @brief 从航迹事实提取无动态成员的稳定运行时身份键。
  * @param track 已完成身份字段映射的航迹事实。
- * @return 由 acquisitionId、deviceId 和 trackId 组成的 16 字节值对象。
+ * @return 由 acquisitionId、deviceId、trackId 和 faceIndex 组成的定长值对象。
  */
 inline TrackKey makeTrackKey(const TrackPacket &track) noexcept
 {
-    return {track.acquisitionId, track.deviceId, track.trackId};
+    return {track.acquisitionId, track.deviceId, track.trackId, track.faceIndex};
 }
 
 /**
@@ -128,7 +131,8 @@ inline uint qHash(const TrackKey &key, uint seed = 0) noexcept
 {
     seed = core::model::qHash(key.acquisitionId, seed);
     seed = core::model::qHash(key.deviceId, seed);
-    return ::qHash(key.trackId, seed);
+    seed = ::qHash(key.trackId, seed);
+    return ::qHash(key.faceIndex, seed);
 }
 
 } // namespace core::model

@@ -1,9 +1,8 @@
 #include "core/web/TrackWebSocketService.h"
+#include "core/web/WebSocketGateway.h"
 
 #include <QJsonArray>
 #include <QDateTime>
-#include <QHostAddress>
-#include <QJsonDocument>
 #include <QWebSocket>
 
 #include <limits>
@@ -17,16 +16,19 @@ namespace core::web {
 TrackWebSocketService::TrackWebSocketService(
     const core::domain::HistoryTopic<core::model::TrackPacket> &trackTopic,
     core::execution::ExecutionLane &executionLane,
+    WebSocketGateway &gateway,
+    const core::model::StableIdRegistry &stableIds,
     qsizetype maxRecordsPerTurn,
     qsizetype maxTargets,
     QObject *parent)
     : QObject(parent)
     , m_trackTopic(trackTopic)
     , m_executionLane(executionLane)
+    , m_gateway(gateway)
+    , m_stableIds(stableIds)
     , m_scratch(maxRecordsPerTurn)
     , m_executionSlot(executionLane.acquireSlot())
     , m_maxTargets(maxTargets)
-    , m_server(QStringLiteral("NewAntiDrone Track WebReader"), QWebSocketServer::NonSecureMode, this)
 {
     if (maxRecordsPerTurn <= 0 || maxTargets <= 0) {
         m_executionLane.releaseSlot(m_executionSlot);
@@ -36,52 +38,20 @@ TrackWebSocketService::TrackWebSocketService(
                      this, &TrackWebSocketService::onTrackTopicAdvanced, Qt::DirectConnection);
     QObject::connect(&executionLane, &core::execution::ExecutionLane::executeRequested,
                      this, &TrackWebSocketService::onExecutionRequested);
-    QObject::connect(&m_server, &QWebSocketServer::newConnection,
-                     this, &TrackWebSocketService::onNewConnection);
+    QObject::connect(&gateway, &WebSocketGateway::clientConnected,
+                     this, [this](QWebSocket *client) {
+        if (client) sendSnapshot(*client);
+    });
 }
 
 /**
- * @brief 先关闭网络连接，再释放 Lane 位，避免析构期间继续调度 Consumer。
+ * @brief 先断开借用依赖，再释放Lane位；网络连接仍由Gateway拥有。
  */
 TrackWebSocketService::~TrackWebSocketService()
 {
-    stop();
+    QObject::disconnect(&m_gateway, nullptr, this, nullptr);
     QObject::disconnect(&m_executionLane, nullptr, this, nullptr);
     m_executionLane.releaseSlot(m_executionSlot);
-}
-
-/**
- * @brief 建立 IPv4 任意地址监听；成功后主动补读监听前已经驻留的 Topic 数据。
- */
-bool TrackWebSocketService::start(quint16 port)
-{
-    if (m_server.isListening() || !m_server.listen(QHostAddress::AnyIPv4, port)) {
-        return false;
-    }
-    refresh();
-    return true;
-}
-
-/**
- * @brief 主动关闭客户端并停止接受新连接，不改变 cursor 与最终显示态，允许同实例重新监听。
- */
-void TrackWebSocketService::stop()
-{
-    const auto clients = m_clients;
-    for (QWebSocket *client : clients) {
-        client->close();
-        client->deleteLater();
-    }
-    m_clients.clear();
-    m_server.close();
-}
-
-/**
- * @brief 返回 QWebSocketServer 的实际端口，未监听时明确为零。
- */
-quint16 TrackWebSocketService::serverPort() const noexcept
-{
-    return m_server.isListening() ? m_server.serverPort() : 0;
 }
 
 /**
@@ -92,13 +62,6 @@ core::domain::TopicSequence TrackWebSocketService::cursor() const noexcept
     return m_cursor;
 }
 
-/**
- * @brief 返回当前 socket 集合大小，不访问 Topic。
- */
-qsizetype TrackWebSocketService::clientCount() const noexcept
-{
-    return m_clients.size();
-}
 
 /**
  * @brief 在Doorbell线程仅向线程安全Lane置位，不访问Web状态，避免跨线程通知堆积。
@@ -116,30 +79,6 @@ void TrackWebSocketService::refresh()
 {
     if (!m_trackTopic.range().empty) {
         m_executionLane.request(m_executionSlot);
-    }
-}
-
-/**
- * @brief 取得服务器交出的 socket 所有权，登记断开清理，并发送当前 revision 的完整快照。
- */
-void TrackWebSocketService::onNewConnection()
-{
-    while (m_server.hasPendingConnections()) {
-        QWebSocket *client = m_server.nextPendingConnection();
-        if (client == nullptr) {
-            continue;
-        }
-        if (m_clients.size() >= 8) {
-            client->abort();
-            client->deleteLater();
-            continue;
-        }
-        m_clients.insert(client);
-        QObject::connect(client, &QWebSocket::disconnected, this, [this, client]() {
-            m_clients.remove(client);
-            client->deleteLater();
-        });
-        sendSnapshot(*client);
     }
 }
 
@@ -183,9 +122,18 @@ bool TrackWebSocketService::consumeOneBatch()
 
     if (rebuild) {
         ++m_revision;
-        for (QWebSocket *client : m_clients) {
-            sendSnapshot(*client);
+        QJsonArray tracks;
+        for (auto iterator = m_trails.constBegin(); iterator != m_trails.constEnd(); ++iterator) {
+            const TrackTrail &trail = iterator.value();
+            for (qsizetype index = 0; index < trail.size; ++index) {
+                tracks.append(pointJson(trail.points[static_cast<std::size_t>(index)]));
+            }
         }
+        QJsonObject payload;
+        payload.insert(QStringLiteral("tracks"), tracks);
+        m_gateway.broadcast(QJsonObject{{"type", "trackSnapshot"},
+            {"sentUtcMs", QDateTime::currentMSecsSinceEpoch()},
+            {"revision", QString::number(m_revision)}, {"payload", payload}});
     } else if (!upserts.isEmpty() || !removals.isEmpty()) {
         broadcastDelta(upserts, removals);
     }
@@ -193,9 +141,9 @@ bool TrackWebSocketService::consumeOneBatch()
 }
 
 /**
- * @brief 将一条 Sample 转为一个最终显示点，并在固定 20 点尾迹槽位上执行覆盖。
- * @details 新 TrackKey 达到目标容量时先淘汰最久未更新项；点序号接近 quint32 上限时清空本航迹，防止浏览器
- * 数值回绕破坏排序。每次覆盖都会先发 removal，再发相同批次的 upsert。
+ * @brief 将存在Sample转为显示点，或依据消亡Sample删除该TrackKey的完整尾迹。
+ * @details 新TrackKey达到目标容量时先淘汰最久未更新项；点序号接近quint32上限时清空本航迹，防止浏览器
+ * 数值回绕破坏排序。packFlag为0时只产生removal，不建立不存在目标的空派生状态。
  */
 void TrackWebSocketService::applyRecord(
     const core::domain::TopicRecord<core::model::TrackPacket> &record,
@@ -203,8 +151,19 @@ void TrackWebSocketService::applyRecord(
     QJsonArray &removals)
 {
     const auto &sample = record.sample;
+    if (!hasStableIdentity(sample.value)) return;
     const core::model::TrackKey key = core::model::makeTrackKey(sample.value);
     auto iterator = m_trails.find(key);
+    if (sample.value.packFlag == 0U) {
+        if (iterator != m_trails.end()) {
+            const TrackTrail &trail = iterator.value();
+            for (qsizetype index = 0; index < trail.size; ++index) {
+                removals.append(pointKeyJson(trail.points[static_cast<std::size_t>(index)]));
+            }
+            m_trails.erase(iterator);
+        }
+        return;
+    }
     if (iterator == m_trails.end()) {
         if (m_trails.size() >= m_maxTargets) {
             evictOldestTrack(removals);
@@ -226,8 +185,8 @@ void TrackWebSocketService::applyRecord(
     DisplayPoint point;
     point.acquisitionId = sample.value.acquisitionId;
     point.deviceId = sample.value.deviceId;
-    point.taskId = sample.value.taskId;
     point.trackId = sample.value.trackId;
+    point.faceIndex = sample.value.faceIndex;
     point.pointIndex = trail.nextPointIndex++;
     point.timestampUtcMs = sample.meta.receiveTimeUtcMs;
     point.rangeM = sample.value.rangeM;
@@ -266,31 +225,41 @@ void TrackWebSocketService::evictOldestTrack(QJsonArray &removals)
 /**
  * @brief 生成与 UI 单位合同一致的 Web 显示点，运行时句柄在此序列化边界转为稳定字符串形式。
  */
-QJsonObject TrackWebSocketService::pointJson(const DisplayPoint &point)
+QJsonObject TrackWebSocketService::pointJson(const DisplayPoint &point) const
 {
     QJsonObject object = pointKeyJson(point);
-    object.insert(QStringLiteral("taskId"), QStringLiteral("task-%1").arg(point.taskId.value()));
-    object.insert(QStringLiteral("timestamp"), static_cast<double>(point.timestampUtcMs));
-    object.insert(QStringLiteral("range"), point.rangeM);
-    object.insert(QStringLiteral("azimuth"), point.azimuthRad);
-    object.insert(QStringLiteral("elevation"), point.elevationRad);
-    object.insert(QStringLiteral("altitude"), 0.0);
-    object.insert(QStringLiteral("radialSpeed"), point.radialVelocityMps);
+    object.insert(QStringLiteral("receiveUtcMs"), static_cast<double>(point.timestampUtcMs));
+    object.insert(QStringLiteral("rangeM"), point.rangeM);
+    object.insert(QStringLiteral("azimuthRad"), point.azimuthRad);
+    object.insert(QStringLiteral("elevationRad"), point.elevationRad);
+    object.insert(QStringLiteral("radialVelocityMps"), point.radialVelocityMps);
     object.insert(QStringLiteral("amplitude"), point.amplitude);
     return object;
 }
 
 /**
- * @brief 生成 acquisition/device/track/point 四元删除键，AcquisitionId 用字符串避免 JavaScript 精度损失。
+ * @brief 生成 acquisition/device/face/track/point 删除键，AcquisitionId 用字符串避免 JavaScript 精度损失。
  */
-QJsonObject TrackWebSocketService::pointKeyJson(const DisplayPoint &point)
+QJsonObject TrackWebSocketService::pointKeyJson(const DisplayPoint &point) const
 {
     QJsonObject object;
-    object.insert(QStringLiteral("acquisitionId"), QString::number(point.acquisitionId.value()));
-    object.insert(QStringLiteral("deviceId"), QStringLiteral("radar-%1").arg(point.deviceId.value()));
+    object.insert(QStringLiteral("acquisitionId"), m_stableIds.resolveAcquisition(point.acquisitionId)
+        .toString(QUuid::WithoutBraces));
+    object.insert(QStringLiteral("deviceId"), m_stableIds.resolveDevice(point.deviceId)
+        .toString(QUuid::WithoutBraces));
     object.insert(QStringLiteral("trackId"), static_cast<double>(point.trackId));
+    object.insert(QStringLiteral("faceIndex"), static_cast<int>(point.faceIndex));
     object.insert(QStringLiteral("pointIndex"), static_cast<double>(point.pointIndex));
     return object;
+}
+
+/**
+ * @brief 在形成 Web 最终状态前验证稳定身份，防止泄露 CompactId 或产生无法删除的临时键。
+ */
+bool TrackWebSocketService::hasStableIdentity(const core::model::TrackPacket &track) const
+{
+    return !m_stableIds.resolveDevice(track.deviceId).isNull()
+        && !m_stableIds.resolveAcquisition(track.acquisitionId).isNull();
 }
 
 /**
@@ -305,18 +274,11 @@ void TrackWebSocketService::sendSnapshot(QWebSocket &client) const
             tracks.append(pointJson(trail.points[static_cast<std::size_t>(index)]));
         }
     }
-    QJsonObject message;
-    message.insert(QStringLiteral("type"), QStringLiteral("tracks"));
-    message.insert(QStringLiteral("mode"), QStringLiteral("snapshot"));
-    message.insert(QStringLiteral("revision"), static_cast<double>(m_revision));
-    message.insert(QStringLiteral("timestamp"), static_cast<double>(QDateTime::currentMSecsSinceEpoch()));
-    message.insert(QStringLiteral("tracks"), tracks);
-    const auto bytes = QJsonDocument(message).toJson(QJsonDocument::Compact);
-    if (client.bytesToWrite() + bytes.size() > 4 * 1024 * 1024) {
-        client.abort();
-        return;
-    }
-    client.sendTextMessage(QString::fromUtf8(bytes));
+    QJsonObject payload;
+    payload.insert(QStringLiteral("tracks"), tracks);
+    m_gateway.send(client, QJsonObject{{"type", "trackSnapshot"},
+        {"sentUtcMs", QDateTime::currentMSecsSinceEpoch()},
+        {"revision", QString::number(m_revision)}, {"payload", payload}});
 }
 
 /**
@@ -325,26 +287,12 @@ void TrackWebSocketService::sendSnapshot(QWebSocket &client) const
 void TrackWebSocketService::broadcastDelta(const QJsonArray &upserts, const QJsonArray &removals)
 {
     ++m_revision;
-    if (m_clients.isEmpty()) {
-        return;
-    }
-    QJsonObject message;
-    message.insert(QStringLiteral("type"), QStringLiteral("tracks"));
-    message.insert(QStringLiteral("mode"), QStringLiteral("delta"));
-    message.insert(QStringLiteral("revision"), static_cast<double>(m_revision));
-    message.insert(QStringLiteral("timestamp"), static_cast<double>(QDateTime::currentMSecsSinceEpoch()));
-    message.insert(QStringLiteral("upserts"), upserts);
-    message.insert(QStringLiteral("removals"), removals);
-    const QString payload = QString::fromUtf8(QJsonDocument(message).toJson(QJsonDocument::Compact));
-    const auto payloadBytes = payload.toUtf8().size();
-    const auto clients = m_clients;
-    for (QWebSocket *client : clients) {
-        if (client->bytesToWrite() + payloadBytes > 4 * 1024 * 1024) {
-            client->abort();
-        } else {
-            client->sendTextMessage(payload);
-        }
-    }
+    QJsonObject payload;
+    payload.insert(QStringLiteral("upserts"), upserts);
+    payload.insert(QStringLiteral("removals"), removals);
+    m_gateway.broadcast(QJsonObject{{"type", "trackDelta"},
+        {"sentUtcMs", QDateTime::currentMSecsSinceEpoch()},
+        {"revision", QString::number(m_revision)}, {"payload", payload}});
 }
 
 } // namespace core::web
