@@ -3,11 +3,16 @@
 #include "core/model/Sample.h"
 #include "core/model/SystemEvent.h"
 #include "core/model/TrackPacket.h"
+#include "core/task/RadarControlSettingsJson.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
 #include <QSet>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -25,7 +30,9 @@ namespace core::archive {
 namespace {
 
 constexpr int kApplicationId = 1312900178;
-constexpr int kSchemaVersion = 8;
+constexpr int kSchemaVersion = 12;
+/** @brief 内置默认控制模板的跨重启稳定UUID；迁移和任务来源追溯共同使用。 */
+const QByteArray kDefaultControlTemplateUuid = QByteArray::fromHex("6f4c9e1a1f7d4a2395f7a80000000010");
 constexpr double kQuarterPi = 0.7853981633974483;
 
 /**
@@ -53,6 +60,54 @@ QVariant nullString()
 }
 
 /**
+ * @brief 把Schema 8整机姿态迁入每个阵面，并将旧波束中心字段收敛为唯一安装航向。
+ * @param legacyJson Schema 8的faces_json。
+ * @param fallbackHeadingDeg 旧revision整机航向，仅在阵面没有任何航向字段时兜底。
+ * @param fallbackPitchDeg 旧revision整机俯仰，迁入每个阵面。
+ * @param fallbackRollDeg 旧revision整机横滚，迁入每个阵面。
+ * @param error 失败时返回不能静默修复的数据原因。
+ * @return 可写入Schema 9的紧凑JSON；失败返回空字符串。
+ */
+QString migrateFacePoseJson(const QString &legacyJson,
+                            double fallbackHeadingDeg,
+                            double fallbackPitchDeg,
+                            double fallbackRollDeg,
+                            QString &error)
+{
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(legacyJson.toUtf8(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isArray()) {
+        error = QStringLiteral("Schema 9无法解析旧设备阵面JSON");
+        return {};
+    }
+    QJsonArray migrated;
+    for (const QJsonValue &value : document.array()) {
+        if (!value.isObject()) {
+            error = QStringLiteral("Schema 9发现非对象阵面配置");
+            return {};
+        }
+        QJsonObject face = value.toObject();
+        const double heading = face.contains(QStringLiteral("headingDeg"))
+            ? face.value(QStringLiteral("headingDeg")).toDouble(std::numeric_limits<double>::quiet_NaN())
+            : face.value(QStringLiteral("boresightAzimuthDeg")).toDouble(fallbackHeadingDeg);
+        const double pitch = face.value(QStringLiteral("pitchDeg")).toDouble(fallbackPitchDeg);
+        const double roll = face.value(QStringLiteral("rollDeg")).toDouble(fallbackRollDeg);
+        if (!std::isfinite(heading) || heading < 0.0 || heading >= 360.0
+            || !std::isfinite(pitch) || pitch < -90.0 || pitch > 90.0
+            || !std::isfinite(roll) || roll < -90.0 || roll > 90.0) {
+            error = QStringLiteral("Schema 9拒绝超出协议范围的旧阵面姿态");
+            return {};
+        }
+        face.remove(QStringLiteral("boresightAzimuthDeg"));
+        face.insert(QStringLiteral("headingDeg"), heading);
+        face.insert(QStringLiteral("pitchDeg"), pitch);
+        face.insert(QStringLiteral("rollDeg"), roll);
+        migrated.append(face);
+    }
+    return QString::fromUtf8(QJsonDocument(migrated).toJson(QJsonDocument::Compact));
+}
+
+/**
  * @brief 判断事件码是否属于当前程序已经冻结并可持久化的登记集合。
  */
 bool isRegisteredEventCode(core::model::EventCode code) noexcept
@@ -62,7 +117,7 @@ bool isRegisteredEventCode(core::model::EventCode code) noexcept
     case EventCode::DeviceMalformedFrame:
     case EventCode::TrackPublishRejected:
     case EventCode::SystemTopicSequenceGap:
-    case EventCode::ControlCommandTimeout:
+    case EventCode::ControlDatagramSendFailed:
         return true;
     }
     return false;
@@ -583,12 +638,184 @@ bool SqliteArchiveRepository::initializeDatabase()
         return false;
     }
     const int version = pragma.value(0).toInt();
+    pragma.finish();
+    pragma.clear();
     if (version > kSchemaVersion) {
         m_lastError = QStringLiteral("数据库 Schema 版本高于当前程序支持范围");
         return false;
     }
     if (version == kSchemaVersion) {
         return verifyRequiredTables();
+    }
+    if (version == 11) {
+        if (!executeSql(QStringLiteral("BEGIN IMMEDIATE"))
+            || !executeSql(QStringLiteral(
+                "ALTER TABLE tasks ADD COLUMN archived_utc_ms INTEGER "
+                "CHECK(archived_utc_ms IS NULL OR archived_utc_ms>=closed_utc_ms)"))
+            || !executeSql(QStringLiteral("PRAGMA user_version = 12"))
+            || !executeSql(QStringLiteral("COMMIT"))) {
+            return rollbackWithError(m_lastError);
+        }
+        return initializeDatabase();
+    }
+    if (version == 10) {
+        if (!executeSql(QStringLiteral("BEGIN IMMEDIATE"))
+            || !executeSql(QStringLiteral(
+                "ALTER TABLE collection_sessions ADD COLUMN face_index INTEGER NOT NULL DEFAULT 0 "
+                "CHECK(face_index BETWEEN 0 AND 3)"))
+            || !executeSql(QStringLiteral("PRAGMA user_version = 11"))
+            || !executeSql(QStringLiteral("COMMIT"))) {
+            return rollbackWithError(m_lastError);
+        }
+        return initializeDatabase();
+    }
+    if (version == 9) {
+        if (!executeSql(QStringLiteral("BEGIN IMMEDIATE"))
+            || !executeSql(QStringLiteral(
+                "CREATE TABLE control_templates("
+                "template_id INTEGER PRIMARY KEY,template_uuid BLOB NOT NULL UNIQUE CHECK(length(template_uuid)=16),"
+                "template_name TEXT NOT NULL UNIQUE CHECK(length(template_name)>0),settings_json TEXT NOT NULL "
+                "CHECK(length(settings_json)>0),created_utc_ms INTEGER NOT NULL CHECK(created_utc_ms>0),"
+                "updated_utc_ms INTEGER NOT NULL CHECK(updated_utc_ms>=created_utc_ms),"
+                "is_deleted INTEGER NOT NULL DEFAULT 0 CHECK(is_deleted IN(0,1)))"))
+            || !executeSql(QStringLiteral("ALTER TABLE tasks ADD COLUMN source_template_uuid BLOB"))
+            || !executeSql(QStringLiteral("ALTER TABLE tasks ADD COLUMN control_settings_json TEXT"))) {
+            return rollbackWithError(m_lastError);
+        }
+        const qint64 nowUtcMs = QDateTime::currentMSecsSinceEpoch();
+        QSqlQuery insertTemplate(m_database);
+        insertTemplate.prepare(QStringLiteral(
+            "INSERT INTO control_templates(template_uuid,template_name,settings_json,created_utc_ms,updated_utc_ms) "
+            "VALUES(?,?,?,?,?)"));
+        insertTemplate.addBindValue(kDefaultControlTemplateUuid);
+        insertTemplate.addBindValue(QStringLiteral("默认探测模板"));
+        insertTemplate.addBindValue(core::task::defaultRadarControlSettingsJson());
+        insertTemplate.addBindValue(nowUtcMs);
+        insertTemplate.addBindValue(nowUtcMs);
+        if (!insertTemplate.exec()) return rollbackWithError(insertTemplate.lastError().text());
+        QSqlQuery migrateTasks(m_database);
+        migrateTasks.prepare(QStringLiteral(
+            "UPDATE tasks SET source_template_uuid=?,control_settings_json=? "
+            "WHERE source_template_uuid IS NULL OR control_settings_json IS NULL"));
+        migrateTasks.addBindValue(kDefaultControlTemplateUuid);
+        migrateTasks.addBindValue(core::task::defaultRadarControlSettingsJson());
+        if (!migrateTasks.exec()
+            || !executeSql(QStringLiteral("PRAGMA user_version = 10"))
+            || !executeSql(QStringLiteral("COMMIT"))) {
+            return rollbackWithError(migrateTasks.lastError().isValid()
+                ? migrateTasks.lastError().text() : m_lastError);
+        }
+        return initializeDatabase();
+    }
+    if (version == 8) {
+        if (!executeSql(QStringLiteral("PRAGMA foreign_keys = OFF"))
+            || !executeSql(QStringLiteral("BEGIN IMMEDIATE"))
+            || !executeSql(QStringLiteral(
+                "CREATE TABLE devices_v9 ("
+                "device_revision_id INTEGER PRIMARY KEY, device_uuid BLOB NOT NULL CHECK(length(device_uuid)=16), "
+                "revision INTEGER NOT NULL CHECK(revision>0), display_name TEXT NOT NULL CHECK(length(display_name)>0), "
+                "manufacturer TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '', "
+                "protocol_adapter_key TEXT NOT NULL DEFAULT '', "
+                "array_type INTEGER NOT NULL DEFAULT 1 CHECK(array_type IN(1,4)), "
+                "max_range_m REAL NOT NULL DEFAULT 5000.0 CHECK(max_range_m>0.0), "
+                "faces_json TEXT NOT NULL CHECK(length(faces_json)>0), "
+                "longitude_deg REAL NOT NULL CHECK(longitude_deg BETWEEN -180.0 AND 180.0), "
+                "latitude_deg REAL NOT NULL CHECK(latitude_deg BETWEEN -90.0 AND 90.0), altitude_m REAL NOT NULL, "
+                "endpoints_json TEXT NOT NULL CHECK(length(endpoints_json)>0), "
+                "protocol_config_json TEXT NOT NULL DEFAULT '{}', "
+                "changed_utc_ms INTEGER NOT NULL CHECK(changed_utc_ms>0), changed_by TEXT NOT NULL DEFAULT '', "
+                "change_reason TEXT NOT NULL DEFAULT '', is_deleted INTEGER NOT NULL DEFAULT 0 CHECK(is_deleted IN(0,1)), "
+                "UNIQUE(device_uuid,revision))"))) {
+            QSqlQuery rollback(m_database);
+            rollback.exec(QStringLiteral("ROLLBACK"));
+            executeSql(QStringLiteral("PRAGMA foreign_keys = ON"));
+            return false;
+        }
+
+        QSqlQuery source(m_database);
+        QSqlQuery insert(m_database);
+        const bool prepared = source.exec(QStringLiteral(
+            "SELECT device_revision_id,device_uuid,revision,display_name,manufacturer,model,"
+            "protocol_adapter_key,array_type,max_range_m,faces_json,longitude_deg,latitude_deg,altitude_m,"
+            "absolute_heading_deg,pitch_deg,roll_deg,endpoints_json,protocol_config_json,"
+            "changed_utc_ms,changed_by,change_reason,is_deleted FROM devices ORDER BY device_revision_id"))
+            && insert.prepare(QStringLiteral(
+                "INSERT INTO devices_v9(device_revision_id,device_uuid,revision,display_name,manufacturer,model,"
+                "protocol_adapter_key,array_type,max_range_m,faces_json,longitude_deg,latitude_deg,altitude_m,"
+                "endpoints_json,protocol_config_json,changed_utc_ms,changed_by,change_reason,is_deleted) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"));
+        if (!prepared) {
+            m_lastError = source.lastError().isValid() ? source.lastError().text() : insert.lastError().text();
+            QSqlQuery rollback(m_database);
+            rollback.exec(QStringLiteral("ROLLBACK"));
+            executeSql(QStringLiteral("PRAGMA foreign_keys = ON"));
+            return false;
+        }
+        while (source.next()) {
+            QString migrationError;
+            const QString facesJson = migrateFacePoseJson(
+                source.value(9).toString(), source.value(13).toDouble(),
+                source.value(14).toDouble(), source.value(15).toDouble(), migrationError);
+            if (facesJson.isEmpty()) {
+                m_lastError = migrationError;
+                QSqlQuery rollback(m_database);
+                rollback.exec(QStringLiteral("ROLLBACK"));
+                executeSql(QStringLiteral("PRAGMA foreign_keys = ON"));
+                return false;
+            }
+            insert.bindValue(0, source.value(0));
+            insert.bindValue(1, source.value(1));
+            insert.bindValue(2, source.value(2));
+            insert.bindValue(3, source.value(3));
+            insert.bindValue(4, source.value(4));
+            insert.bindValue(5, source.value(5));
+            insert.bindValue(6, source.value(6));
+            insert.bindValue(7, source.value(7));
+            insert.bindValue(8, source.value(8));
+            insert.bindValue(9, facesJson);
+            insert.bindValue(10, source.value(10));
+            insert.bindValue(11, source.value(11));
+            insert.bindValue(12, source.value(12));
+            insert.bindValue(13, source.value(16));
+            insert.bindValue(14, source.value(17));
+            insert.bindValue(15, source.value(18));
+            insert.bindValue(16, source.value(19));
+            insert.bindValue(17, source.value(20));
+            insert.bindValue(18, source.value(21));
+            if (!insert.exec()) {
+                m_lastError = insert.lastError().text();
+                QSqlQuery rollback(m_database);
+                rollback.exec(QStringLiteral("ROLLBACK"));
+                executeSql(QStringLiteral("PRAGMA foreign_keys = ON"));
+                return false;
+            }
+        }
+        source.finish();
+        insert.finish();
+        source.clear();
+        insert.clear();
+        if (!executeSql(QStringLiteral("DROP TABLE devices"))
+            || !executeSql(QStringLiteral("ALTER TABLE devices_v9 RENAME TO devices"))
+            || !executeSql(QStringLiteral(
+                "CREATE INDEX idx_device_latest_revision ON devices(device_uuid,revision DESC)"))
+            || !executeSql(QStringLiteral("PRAGMA user_version = 9"))
+            || !executeSql(QStringLiteral("COMMIT"))) {
+            QSqlQuery rollback(m_database);
+            rollback.exec(QStringLiteral("ROLLBACK"));
+            executeSql(QStringLiteral("PRAGMA foreign_keys = ON"));
+            return false;
+        }
+        if (!executeSql(QStringLiteral("PRAGMA foreign_keys = ON"))) {
+            return false;
+        }
+        QSqlQuery foreignKeyCheck(m_database);
+        if (!foreignKeyCheck.exec(QStringLiteral("PRAGMA foreign_key_check"))
+            || foreignKeyCheck.next()) {
+            m_lastError = foreignKeyCheck.lastError().text().isEmpty()
+                ? QStringLiteral("Schema 9迁移后外键校验失败") : foreignKeyCheck.lastError().text();
+            return false;
+        }
+        return initializeDatabase();
     }
     if (version == 7) {
         if (!executeSql(QStringLiteral("BEGIN IMMEDIATE"))
@@ -616,7 +843,7 @@ bool SqliteArchiveRepository::initializeDatabase()
             rollback.exec(QStringLiteral("ROLLBACK"));
             return false;
         }
-        return verifyRequiredTables();
+        return initializeDatabase();
     }
     if (version == 6) {
         if (!executeSql(QStringLiteral("BEGIN IMMEDIATE"))
@@ -645,7 +872,7 @@ bool SqliteArchiveRepository::initializeDatabase()
             rollback.exec(QStringLiteral("ROLLBACK"));
             return false;
         }
-        return verifyRequiredTables();
+        return initializeDatabase();
     }
     if (version == 1) {
         if (!executeSql(QStringLiteral("BEGIN IMMEDIATE"))
@@ -804,6 +1031,7 @@ bool SqliteArchiveRepository::initializeDatabase()
             "task_name TEXT NOT NULL CHECK(length(task_name)>0), operator_name TEXT NOT NULL DEFAULT '', "
             "description TEXT NOT NULL DEFAULT '', created_utc_ms INTEGER NOT NULL CHECK(created_utc_ms>0), "
             "updated_utc_ms INTEGER NOT NULL CHECK(updated_utc_ms>=created_utc_ms), closed_utc_ms INTEGER, "
+            "archived_utc_ms INTEGER CHECK(archived_utc_ms IS NULL OR archived_utc_ms>=closed_utc_ms), "
             "is_deleted INTEGER NOT NULL DEFAULT 0 CHECK(is_deleted IN(0,1)), deleted_utc_ms INTEGER, "
             "deleted_by TEXT NOT NULL DEFAULT '', CHECK(closed_utc_ms IS NULL OR closed_utc_ms>=created_utc_ms), "
             "CHECK((is_deleted=0 AND deleted_utc_ms IS NULL) OR (is_deleted=1 AND deleted_utc_ms IS NOT NULL)), "
@@ -886,7 +1114,7 @@ bool SqliteArchiveRepository::initializeDatabase()
 }
 
 /**
- * @brief 查询sqlite_master、航迹列和任务绑定列，确保当前版本不是只改版本号的伪Schema。
+ * @brief 查询sqlite_master、航迹/会话列和任务绑定列，确保当前版本不是只改版本号的伪Schema。
  */
 bool SqliteArchiveRepository::verifyRequiredTables()
 {
@@ -896,7 +1124,8 @@ bool SqliteArchiveRepository::verifyRequiredTables()
         QStringLiteral("tasks"),
         QStringLiteral("collection_sessions"),
         QStringLiteral("track_observations"),
-        QStringLiteral("system_events")
+        QStringLiteral("system_events"),
+        QStringLiteral("control_templates")
     };
     QSet<QString> found;
     QSqlQuery query(m_database);
@@ -909,7 +1138,7 @@ bool SqliteArchiveRepository::verifyRequiredTables()
         found.insert(query.value(0).toString());
     }
     if (found != required) {
-        m_lastError = QStringLiteral("当前 user_version 的业务表集合不等于冻结六表 Schema");
+        m_lastError = QStringLiteral("当前 user_version 的业务表集合不等于冻结七表 Schema");
         return false;
     }
     bool hasPackFlag = false;
@@ -934,8 +1163,27 @@ bool SqliteArchiveRepository::verifyRequiredTables()
         m_lastError = QStringLiteral("track_observations 缺少 face_index 列");
         return false;
     }
+    QSqlQuery sessionColumns(m_database);
+    bool hasSessionFaceIndex = false;
+    if (!sessionColumns.exec(QStringLiteral("PRAGMA table_info(collection_sessions)"))) {
+        m_lastError = sessionColumns.lastError().text();
+        return false;
+    }
+    while (sessionColumns.next()) {
+        if (sessionColumns.value(1).toString() == QStringLiteral("face_index")) {
+            hasSessionFaceIndex = true;
+            break;
+        }
+    }
+    if (!hasSessionFaceIndex) {
+        m_lastError = QStringLiteral("collection_sessions 缺少 face_index 列");
+        return false;
+    }
     bool hasRadarArrayType = false;
     bool hasDeviceBindings = false;
+    bool hasSourceTemplate = false;
+    bool hasControlSettings = false;
+    bool hasArchivedUtcMs = false;
     if (!columns.exec(QStringLiteral("PRAGMA table_info(tasks)"))) {
         m_lastError = columns.lastError().text();
         return false;
@@ -945,10 +1193,37 @@ bool SqliteArchiveRepository::verifyRequiredTables()
             hasRadarArrayType = true;
         } else if (columns.value(1).toString() == QStringLiteral("device_bindings_json")) {
             hasDeviceBindings = true;
+        } else if (columns.value(1).toString() == QStringLiteral("source_template_uuid")) {
+            hasSourceTemplate = true;
+        } else if (columns.value(1).toString() == QStringLiteral("control_settings_json")) {
+            hasControlSettings = true;
+        } else if (columns.value(1).toString() == QStringLiteral("archived_utc_ms")) {
+            hasArchivedUtcMs = true;
         }
     }
-    if (!hasRadarArrayType || !hasDeviceBindings) {
-        m_lastError = QStringLiteral("tasks 缺少雷达形态或设备阵面绑定列");
+    if (!hasRadarArrayType || !hasDeviceBindings || !hasSourceTemplate
+        || !hasControlSettings || !hasArchivedUtcMs) {
+        m_lastError = QStringLiteral("tasks 缺少雷达形态、设备绑定、控制参数快照或归档时间列");
+        return false;
+    }
+    bool hasFacesJson = false;
+    bool hasObsoleteWholeDevicePose = false;
+    if (!columns.exec(QStringLiteral("PRAGMA table_info(devices)"))) {
+        m_lastError = columns.lastError().text();
+        return false;
+    }
+    while (columns.next()) {
+        const QString name = columns.value(1).toString();
+        if (name == QStringLiteral("faces_json")) {
+            hasFacesJson = true;
+        } else if (name == QStringLiteral("absolute_heading_deg")
+                   || name == QStringLiteral("pitch_deg")
+                   || name == QStringLiteral("roll_deg")) {
+            hasObsoleteWholeDevicePose = true;
+        }
+    }
+    if (!hasFacesJson || hasObsoleteWholeDevicePose) {
+        m_lastError = QStringLiteral("devices未收敛为逐阵面安装姿态Schema");
         return false;
     }
     return true;

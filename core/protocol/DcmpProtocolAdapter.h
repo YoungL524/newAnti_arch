@@ -7,6 +7,9 @@
  */
 #pragma once
 #include "core/protocol/DcmpPayloads.h"
+#include "core/config/DeviceConfiguration.h"
+#include "core/task/RadarControlSettings.h"
+#include <QByteArray>
 #include <functional>
 
 namespace core::protocol {
@@ -36,6 +39,16 @@ public:
         const DpToDcmpTrackPayload::DpTrack &, qint64, qint64)>;
     /** @brief 保存三个明确类型的处理入口；允许缺省某一类型，接收该类型时返回NoHandler。 */
     DcmpProtocolAdapter(DpHandler dpHandler, SpHandler spHandler, TrackHandler trackHandler = {});
+    /**
+     * @brief 把当前任务参数和设备安装参数编码为一个完整0x0001小端数据报。
+     * @param acquisitionControl false写入0，表示停止采集；true写入1，表示开始/保持采集。
+     * @return 固定944字节公共头、896字节载荷及包尾；输入非法时返回空数组。
+     */
+    static QByteArray encodeControl(
+        const core::task::RadarControlSettings &settings,
+        const core::config::DeviceConfiguration &configuration,
+        quint8 faceMask,
+        bool acquisitionControl);
     /**
      * @brief 校验完整封装并同步解码已支持载荷，失败不触碰业务owner。
      * @param data 调用期有效的原始字节，不要求四字节地址对齐。

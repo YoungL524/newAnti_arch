@@ -13,7 +13,8 @@ bool isRegisteredEventCode(core::model::EventCode code) noexcept
     case core::model::EventCode::DeviceMalformedFrame:
     case core::model::EventCode::TrackPublishRejected:
     case core::model::EventCode::SystemTopicSequenceGap:
-    case core::model::EventCode::ControlCommandTimeout:
+    case core::model::EventCode::ControlDatagramSendFailed:
+    case core::model::EventCode::ControlTaskLifecycleChanged:
         return true;
     }
     return false;
@@ -21,7 +22,7 @@ bool isRegisteredEventCode(core::model::EventCode code) noexcept
 
 /**
  * @brief 检查具体事件码必须携带的关联上下文。
- * @details Topic gap 必须给出丢失闭区间，命令超时必须关联请求并给出超时毫秒数；其余首批事件允许按
+ * @details Topic gap 必须给出丢失闭区间，控制数据报发送失败必须关联请求；其余首批事件允许按
  * 事实发生阶段选择设备、航迹或拒绝原因上下文。
  */
 bool hasRequiredContext(const core::model::SystemEvent &event) noexcept
@@ -34,11 +35,14 @@ bool hasRequiredContext(const core::model::SystemEvent &event) noexcept
             && event.argument0 > 0
             && event.argument1 >= event.argument0;
     }
-    if (event.eventCode == EventCode::ControlCommandTimeout) {
+    if (event.eventCode == EventCode::ControlDatagramSendFailed) {
         return core::model::hasEventSubject(event.flags, EventSubjectFlag::RequestIdValid)
+            && event.requestId != 0;
+    }
+    if (event.eventCode == EventCode::ControlTaskLifecycleChanged) {
+        return core::model::hasEventSubject(event.flags, EventSubjectFlag::TaskIdValid)
             && core::model::hasEventSubject(event.flags, EventSubjectFlag::Argument0Valid)
-            && event.requestId != 0
-            && event.argument0 > 0;
+            && event.argument0 >= 1 && event.argument0 <= 4;
     }
     if (event.eventCode == EventCode::TrackPublishRejected) {
         return core::model::hasEventSubject(event.flags, EventSubjectFlag::Argument0Valid)

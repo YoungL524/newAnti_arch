@@ -94,10 +94,12 @@ export default function HistoryTrackLayer({ device, points, mapInstance, mapClas
         .map((pt) => {
           const projected = projectRadarTrack(
             device,
+            pt.faceIndex ?? -1,
             pt.azimuth * 180 / Math.PI,
             pt.elevation * 180 / Math.PI,
             pt.range,
           )
+          if (!projected) return null
           const p = map.lngLatToContainer(new AMap.LngLat(projected.lng, projected.lat))
           return p ? { x: p.x, y: p.y } : null
         })

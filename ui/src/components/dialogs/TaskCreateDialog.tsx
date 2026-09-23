@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { Task } from '../../lib/taskTypes'
+import type { Task, TaskTemplate } from '../../lib/taskTypes'
 import type { TaskRadarArrayType } from '../../lib/taskTypes'
 import type { RadarDevice } from '../map/types'
 
@@ -16,8 +16,13 @@ export interface TaskCreateResult {
 }
 
 interface Props {
+  /** 后端设备台账投影，用于按任务形态筛选雷达。 */
   radarDevices: RadarDevice[]
+  /** 后端权威的只读任务参数模板。 */
+  taskTemplates: TaskTemplate[]
+  /** 提交已经完成界面校验的任务创建意图。 */
   onCreate: (data: Omit<Task, 'id' | 'createdAt' | 'status'>) => Promise<TaskCreateResult>
+  /** 放弃未提交草稿并关闭对话框。 */
   onCancel: () => void
 }
 
@@ -54,11 +59,12 @@ function defaultFaceMask(device: RadarDevice): number {
 /**
  * @brief 按“任务形态→兼容设备→任务阵面”的顺序收集任务草稿。
  * @param radarDevices 设备台账中可供匹配的雷达完整配置。
+ * @param taskTemplates 后端返回的只读控制参数模板集合。
  * @param onCreate 将已校验任务意图提交给任务Owner的回调。
  * @param onCancel 放弃当前未提交草稿的回调。
  * @return 不持有后端状态的任务创建对话框。
  */
-export default function TaskCreateDialog({ radarDevices, onCreate, onCancel }: Props) {
+export default function TaskCreateDialog({ radarDevices, taskTemplates, onCreate, onCancel }: Props) {
   const [radarArrayType, setRadarArrayType] = useState<TaskRadarArrayType>('singleFace')
   const compatibleDevices = radarDevices.filter(device =>
     (radarArrayType === 'fourFace' ? device.faces.length === 4 : device.faces.length === 1))
@@ -73,6 +79,7 @@ export default function TaskCreateDialog({ radarDevices, onCreate, onCancel }: P
     Object.fromEntries(radarDevices.map(device => [device.id, defaultFaceMask(device)])))
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [sourceTemplateId, setSourceTemplateId] = useState(() => taskTemplates[0]?.templateId ?? '')
 
   /**
    * @brief 切换任务雷达形态并丢弃上一形态尚未提交的任务草稿。
@@ -103,7 +110,8 @@ export default function TaskCreateDialog({ radarDevices, onCreate, onCancel }: P
     ])))
   }, [radarDevices])
 
-  const valid = name.trim().length > 0 && deviceIds.length > 0 && !submitting
+  const selectedTemplate = taskTemplates.find(item => item.templateId === sourceTemplateId)
+  const valid = name.trim().length > 0 && deviceIds.length > 0 && Boolean(selectedTemplate) && !submitting
 
   const toggleDevice = (id: string) => {
     setError('')
@@ -135,6 +143,8 @@ export default function TaskCreateDialog({ radarDevices, onCreate, onCancel }: P
         radarArrayType,
         deviceIds,
         deviceFaceMasks: Object.fromEntries(deviceIds.map(id => [id, deviceFaceMasks[id] ?? 0x01])),
+        sourceTemplateId,
+        controlSettings: selectedTemplate!.controlSettings,
       })
       if (!result.ok) setError(result.error || '任务创建失败')
     } catch (e: any) {
@@ -197,6 +207,22 @@ export default function TaskCreateDialog({ radarDevices, onCreate, onCancel }: P
                 >{label}</button>
               ))}
             </div>
+          </div>
+
+          <div>
+            <div style={labelStyle}>参数模板</div>
+            <select
+              style={inputStyle}
+              value={sourceTemplateId}
+              disabled={submitting || taskTemplates.length === 0}
+              onChange={(event) => setSourceTemplateId(event.target.value)}
+            >
+              {taskTemplates.length === 0
+                ? <option value="">后端没有可用模板</option>
+                : taskTemplates.map(template => (
+                  <option key={template.templateId} value={template.templateId}>{template.name}</option>
+                ))}
+            </select>
           </div>
 
           <div>
@@ -279,7 +305,7 @@ export default function TaskCreateDialog({ radarDevices, onCreate, onCancel }: P
                               }}
                               disabled={!face.active || submitting}
                               onClick={() => toggleFace(device.id, faceIndex)}
-                            >{faceIndex + 1}#</button>
+                            >{faceIndex + 1}# · {face.heading}°</button>
                           )
                         })}
                       </div>

@@ -29,7 +29,7 @@ ProtocolAdapter 仅处理报文校验、编解码与业务映射，不持有 QUd
 所有操作在端点所属线程执行；停止即解绑，已排队的续读不能干扰下一次启动。
 TCP 需要连接与字节流处理，等待真实需求再实现，不引入空传输基类。
 
-公共头尾定义于 `DcmpProtocolTypes.h`；四种载荷定义于新文件 `DcmpPayloads.h`。
+公共头尾定义于 `DcmpProtocolTypes.h`；现行载荷定义于 `DcmpPayloads.h`。
 心跳接收由 DcmpProtocolAdapter 实现；航迹/控制编解码及状态业务处理尚未接入。
 线协议统一小端；解析显式读取定宽整数，不依赖本机端序、对齐或sizeof整体复制。
 Adapter仅接受完整封装，声明长度必须等于实际字节数减12；心跳固定132字节，载荷84字节。
@@ -52,7 +52,7 @@ Adapter不持有socket、队列、定时器或State，不打印逐包日志，�
 - N 为 4 的倍数，补齐字节为零。公共头不保留备份字。
 - 新心跳载荷两个 uint16 加 20 个 uint32，共 84 字节；对应声明长度 120，实际长度 132 字节。
 
-## 四种载荷映射
+## 已登记载荷映射
 
 | 消息类型 | 类型 | 载荷长度 | 输入/输出 |
 | --- | --- | --- | --- |
@@ -60,6 +60,9 @@ Adapter不持有socket、队列、定时器或State，不打印逐包日志，�
 | 0x0100 | DpToDcmpTrackPayload | 608（状态384 + 航迹点224） | DP → Adapter |
 | 0x0101 | DpHeartbeatPayload | 84 | DP → Adapter → 后续设备状态 owner |
 | 0x0303 | SpHeartbeatPayload | 84 | SP → Adapter → 后续设备状态 owner |
+
+工作/停止控制不再定义独立载荷或消息类型；`DcmpToDpControlPayload::CommonControl::F_UI_STBY_Ctrl`
+为唯一入口，1表示开始或保持采集，0表示停止采集。历史`0xFFFF` workmode定义已取消。
 
 控制载荷嵌套 CommonControl、FrameControl、Navigation 及 FaceControl，均对应实际 128 字节信息区。
 四面以 `faces[0..3]` 表达，区内字段去掉工作表 No1～No4 后缀，保持字段次序和类型。

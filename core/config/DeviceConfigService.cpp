@@ -79,7 +79,7 @@ bool DeviceConfigService::loadFromDatabase()
         const DeviceConfiguration &configuration = configurations[index];
         m_activeDevices.insert(
             deviceId.value(),
-            ActiveDevice {revisionIds[index], endpointId, endpointKeys[index],
+            ActiveDevice {revisionIds[index], configuration.revision, configuration, endpointId, endpointKeys[index],
                           configuration.protocolAdapterKey, configuration.arrayType,
                           enabledFaceMasks[index]});
         m_latestDeviceIds.insert(configuration.deviceUuid, deviceId);
@@ -123,7 +123,7 @@ bool DeviceConfigService::saveAndActivate(
     }
     m_activeDevices.insert(
         allocatedDeviceId.value(),
-        ActiveDevice {revisionId, allocatedEndpointId, endpointKey,
+        ActiveDevice {revisionId, configuration.revision, configuration, allocatedEndpointId, endpointKey,
                       configuration.protocolAdapterKey, configuration.arrayType,
                       enabledFaceMask});
     m_latestDeviceIds.insert(configuration.deviceUuid, allocatedDeviceId);
@@ -213,6 +213,34 @@ bool DeviceConfigService::resolveDeviceRevision(
 }
 
 /**
+ * @brief 从不可变ActiveDevice读取用户配置revision，不把SQLite主键误作界面revision。
+ */
+bool DeviceConfigService::resolveConfigurationRevision(
+    core::model::DeviceId deviceId,
+    quint32 &configurationRevision) const
+{
+    configurationRevision = 0;
+    const auto found = m_activeDevices.constFind(deviceId.value());
+    if (!deviceId.isSet() || found == m_activeDevices.cend()) return false;
+    configurationRevision = found->configurationRevision;
+    return configurationRevision != 0;
+}
+
+/**
+ * @brief 复制当前激活revision的低频配置，使控制线程不在50 ms热路径访问SQLite。
+ */
+bool DeviceConfigService::resolveConfiguration(
+    core::model::DeviceId deviceId,
+    DeviceConfiguration &configuration) const
+{
+    configuration = {};
+    const auto found = m_activeDevices.constFind(deviceId.value());
+    if (!deviceId.isSet() || found == m_activeDevices.cend()) return false;
+    configuration = found->configuration;
+    return true;
+}
+
+/**
  * @brief 只有同一 ActiveDevice 中冻结的端点句柄匹配时才返回稳定 endpointKey。
  */
 bool DeviceConfigService::resolveTrackEndpoint(
@@ -267,7 +295,7 @@ QString DeviceConfigService::lastError() const
 }
 
 /**
- * @brief 校验整机类型、阵面安装参数、姿态和端点，并要求唯一 track_receive UDP 端点。
+ * @brief 校验整机类型、逐阵面安装姿态和端点，并要求唯一 track_receive UDP 端点。
  * @details 主链只接受单面阵或完整四面阵；厂家私有 protocolConfig 仍只要求是 JSON object。
  */
 bool DeviceConfigService::validateConfiguration(
@@ -277,22 +305,16 @@ bool DeviceConfigService::validateConfiguration(
 {
     trackEndpointKey.clear();
     enabledFaceMask = 0;
-    const bool finitePose = std::isfinite(configuration.longitudeDeg)
-        && std::isfinite(configuration.latitudeDeg) && std::isfinite(configuration.altitudeM)
-        && std::isfinite(configuration.absoluteHeadingDeg)
-        && std::isfinite(configuration.pitchDeg) && std::isfinite(configuration.rollDeg);
+    const bool finitePosition = std::isfinite(configuration.longitudeDeg)
+        && std::isfinite(configuration.latitudeDeg) && std::isfinite(configuration.altitudeM);
     if (configuration.displayName.trimmed().isEmpty()
         || configuration.manufacturer.trimmed().isEmpty()
         || configuration.model.trimmed().isEmpty()
-        || !finitePose || !std::isfinite(configuration.maxRangeM)
+        || !finitePosition || !std::isfinite(configuration.maxRangeM)
         || configuration.maxRangeM <= 0.0
         || configuration.longitudeDeg < -180.0 || configuration.longitudeDeg > 180.0
-        || configuration.latitudeDeg < -90.0 || configuration.latitudeDeg > 90.0
-        || configuration.absoluteHeadingDeg < 0.0
-        || configuration.absoluteHeadingDeg >= 360.0
-        || configuration.pitchDeg < -90.0 || configuration.pitchDeg > 90.0
-        || configuration.rollDeg < -180.0 || configuration.rollDeg >= 180.0) {
-        m_lastError = QStringLiteral("设备身份、作用距离或经纬高/绝对姿态不符合合同");
+        || configuration.latitudeDeg < -90.0 || configuration.latitudeDeg > 90.0) {
+        m_lastError = QStringLiteral("设备身份、作用距离或经纬高不符合合同");
         return false;
     }
 
@@ -314,17 +336,23 @@ bool DeviceConfigService::validateConfiguration(
         }
         const QJsonObject face = value.toObject();
         const int faceIndex = face.value(QStringLiteral("faceIndex")).toInt(-1);
-        const double boresight = face.value(QStringLiteral("boresightAzimuthDeg")).toDouble(
+        const double heading = face.value(QStringLiteral("headingDeg")).toDouble(
+            std::numeric_limits<double>::quiet_NaN());
+        const double pitch = face.value(QStringLiteral("pitchDeg")).toDouble(
+            std::numeric_limits<double>::quiet_NaN());
+        const double roll = face.value(QStringLiteral("rollDeg")).toDouble(
             std::numeric_limits<double>::quiet_NaN());
         const double scanHalfAngle = face.value(QStringLiteral("scanHalfAngleDeg")).toDouble(
             std::numeric_limits<double>::quiet_NaN());
         const bool valid = faceIndex >= 0 && faceIndex < expectedFaces
             && (seenFaces & (quint8(1U) << faceIndex)) == 0
-            && std::isfinite(boresight) && boresight >= 0.0 && boresight < 360.0
+            && std::isfinite(heading) && heading >= 0.0 && heading < 360.0
+            && std::isfinite(pitch) && pitch >= -90.0 && pitch <= 90.0
+            && std::isfinite(roll) && roll >= -90.0 && roll <= 90.0
             && std::isfinite(scanHalfAngle) && scanHalfAngle > 0.0 && scanHalfAngle <= 180.0
             && face.value(QStringLiteral("enabled")).isBool();
         if (!valid) {
-            m_lastError = QStringLiteral("阵面编号、波束中心、扫描半角或启用状态无效");
+            m_lastError = QStringLiteral("阵面编号、安装姿态、扫描半角或启用状态无效");
             return false;
         }
         seenFaces = static_cast<quint8>(seenFaces | (quint8(1U) << faceIndex));

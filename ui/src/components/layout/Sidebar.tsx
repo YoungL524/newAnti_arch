@@ -10,6 +10,7 @@ import { BRAND_LABELS, BRAND_OPTIONS } from '../map/types'
 import type { Task } from '../../lib/taskTypes'
 import type { DeviceRegistryStatus } from '../../lib/devicesApi'
 import { useCore } from '../../hooks/useCoreApi'
+import { createRadarFaces, updateRadarFace } from '../../lib/radarFaces'
 
 interface NavItem {
   id: string; icon: string; label: string
@@ -51,23 +52,13 @@ type FormKind = 'radar' | 'opto' | 'level' | 'gps'
 
 const RADAR_DEFAULTS: Omit<RadarDevice, 'id'> = {
   revision: 0, name: '', brand: 'YHF', model: 'YHF-YZ-KU', protocolAdapterKey: 'dcmp.dp.v1',
-  lng: 118.65303, lat: 31.93494, altitude: 63.9288, heading: 0, pitch: 0, roll: 0,
+  lng: 118.65303, lat: 31.93494, altitude: 63.9288,
   maxRange: 5,
-  faces: [{ label: 'A', boresightAzimuth: 0, scanAngle: 45, active: true }],
+  faces: [{ label: 'A', heading: 0, pitch: 0, roll: 0, scanAngle: 45, active: true }],
   endpointId: 'radar_cpu',
   endpoint: { id: 'radar_cpu', protocol: 'udp', localAddress: '127.0.0.1', localPort: 7788,
     description: 'DCMP内部DP/SP通信', targets: {} },
 }
-
-const FACE_PRESETS: { label: string; faces: Omit<RadarFace, 'active'>[] }[] = [
-  { label: '单面阵', faces: [{ label: 'A', boresightAzimuth: 0, scanAngle: 45 }] },
-  { label: '四面阵', faces: [
-    { label: 'A', boresightAzimuth: 0, scanAngle: 90 },
-    { label: 'B', boresightAzimuth: 90, scanAngle: 90 },
-    { label: 'C', boresightAzimuth: 180, scanAngle: 90 },
-    { label: 'D', boresightAzimuth: 270, scanAngle: 90 },
-  ]},
-]
 
 function isRadar(d: AppDevice): d is RadarDevice {
   return 'lng' in d
@@ -142,11 +133,14 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
 
   // --- Face helpers for the add form ---
   const updateFaceInForm = (idx: number, field: keyof RadarFace, value: any) => {
-    const newFaces = radarForm.faces.map((f, i) => i === idx ? { ...f, [field]: value } : f)
-    setRadarForm({ ...radarForm, faces: newFaces })
+    setRadarForm({ ...radarForm, faces: updateRadarFace(radarForm.faces, idx, field, value) })
   }
-  const applyFacePreset = (preset: Omit<RadarFace, 'active'>[]) => {
-    setRadarForm({ ...radarForm, faces: preset.map(f => ({ ...f, active: true })) })
+  /** @brief 切换单/四面阵时只输入物理1#航向，其余四面编号由顺时针90度间隔确定。 */
+  const applyFacePreset = (count: 1 | 4) => {
+    setRadarForm({
+      ...radarForm,
+      faces: createRadarFaces(count, radarForm.faces[0]?.heading ?? 0, radarForm.faces),
+    })
   }
 
   // --- Brand select shared styles ---
@@ -394,33 +388,31 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                           <input type="number" placeholder="距离km" style={inputStyle}
                             value={radarForm.maxRange} onChange={e => setRadarForm({ ...radarForm, maxRange: Number(e.target.value) })} />
                         </div>
-                        <div className="grid grid-cols-2 gap-1">
-                          <input type="number" step="any" min="-90" max="90" placeholder="俯仰°" style={inputStyle}
-                            value={radarForm.pitch} onChange={e => setRadarForm({ ...radarForm, pitch: Number(e.target.value) })} />
-                          <input type="number" step="any" min="-180" max="180" placeholder="横滚°" style={inputStyle}
-                            value={radarForm.roll} onChange={e => setRadarForm({ ...radarForm, roll: Number(e.target.value) })} />
-                        </div>
-
                         {/* Face config table */}
                         <div className="text-[9px] font-semibold mt-1" style={{ color: 'var(--secondary)' }}>阵面配置</div>
                         {radarForm.faces.map((face, fi) => (
-                          <div key={fi} className="grid grid-cols-[auto_1fr_1fr_auto] gap-1 items-center">
+                          <div key={fi} className="grid grid-cols-[auto_1fr_1fr] gap-1 items-center">
                             <span className="text-[9px] font-medium" style={{ color: 'var(--ink)', minWidth: 16 }}>{face.label}</span>
-                            <input type="number" step="any" placeholder="绝对朝向°" style={inputStyle}
-                              value={face.boresightAzimuth} onChange={e => updateFaceInForm(fi, 'boresightAzimuth', Number(e.target.value))} />
+                            <input type="number" step="any" min="0" max="359.999" placeholder="航向°" style={inputStyle}
+                              value={face.heading} disabled={radarForm.faces.length === 4 && fi > 0}
+                              onChange={e => updateFaceInForm(fi, 'heading', Number(e.target.value))} />
                             <input type="number" step="any" placeholder="范围°" style={inputStyle}
                               value={face.scanAngle} onChange={e => updateFaceInForm(fi, 'scanAngle', Number(e.target.value))} />
                             <span />
+                            <input type="number" step="any" min="-90" max="90" placeholder="俯仰°" style={inputStyle}
+                              value={face.pitch} onChange={e => updateFaceInForm(fi, 'pitch', Number(e.target.value))} />
+                            <input type="number" step="any" min="-90" max="90" placeholder="横滚°" style={inputStyle}
+                              value={face.roll} onChange={e => updateFaceInForm(fi, 'roll', Number(e.target.value))} />
                           </div>
                         ))}
 
                         {/* Face action row */}
                         <div className="flex gap-1 mt-0.5">
-                          {FACE_PRESETS.map(p => (
-                            <button key={p.label} className="px-1.5 py-0.5 rounded text-[8px] font-semibold border cursor-pointer"
+                          {([1, 4] as const).map(count => (
+                            <button key={count} className="px-1.5 py-0.5 rounded text-[8px] font-semibold border cursor-pointer"
                               style={{ borderColor: 'var(--hairline)', background: 'transparent', color: 'var(--secondary)' }}
-                              onClick={() => applyFacePreset(p.faces)}
-                            >{p.label}</button>
+                              onClick={() => applyFacePreset(count)}
+                            >{count === 1 ? '单面阵' : '四面阵'}</button>
                           ))}
                         </div>
                       </>
@@ -623,10 +615,11 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                             )}
                             {t.status === 'completed' && (
                               <button
-                                className="px-1 py-0.5 rounded text-[8px] font-semibold border cursor-pointer"
+                                className="px-1 py-0.5 rounded text-[8px] font-semibold border cursor-pointer disabled:opacity-50"
                                 style={{ borderColor: 'var(--secondary)', color: 'var(--secondary)', background: 'transparent' }}
                                 onClick={() => onArchiveTask(t.id)}
-                              >归档</button>
+                                disabled={taskActionPendingId !== null}
+                              >{taskActionPendingId === t.id ? '归档中' : '归档'}</button>
                             )}
                             {canDeleteTask(t) && (
                               <button
@@ -667,7 +660,7 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                     <TreeNode
                       key={fi}
                       icon={face.active ? 'radio_button_checked' : 'radio_button_unchecked'}
-                      label={`阵面 ${face.label} · ${face.boresightAzimuth}° ±${face.scanAngle}°`}
+                      label={`阵面 ${face.label} · 航向${face.heading}° · 俯仰${face.pitch}° · 横滚${face.roll}°`}
                       depth={2}
                       active={face.active}
                     />

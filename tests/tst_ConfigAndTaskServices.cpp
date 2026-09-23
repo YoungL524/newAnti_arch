@@ -34,14 +34,11 @@ core::config::DeviceConfiguration makeDeviceConfiguration()
     configuration.arrayType = core::config::RadarArrayType::SingleFace;
     configuration.maxRangeM = 5000.0;
     configuration.facesJson = QStringLiteral(
-        "[{\"faceIndex\":0,\"boresightAzimuthDeg\":0,"
+        "[{\"faceIndex\":0,\"headingDeg\":180,\"pitchDeg\":0,\"rollDeg\":0,"
         "\"scanHalfAngleDeg\":45,\"enabled\":true}]");
     configuration.longitudeDeg = 118.65309;
     configuration.latitudeDeg = 31.93502;
     configuration.altitudeM = 10.0;
-    configuration.absoluteHeadingDeg = 180.0;
-    configuration.pitchDeg = 0.0;
-    configuration.rollDeg = 0.0;
     configuration.endpointsJson = QStringLiteral(
         "[{\"endpointKey\":\"track-rx\",\"role\":\"track_receive\","
         "\"transport\":\"udp\",\"localAddress\":\"0.0.0.0\","
@@ -140,6 +137,12 @@ void ConfigAndTaskServicesTest::ownsPersistentConfigurationAndCollectionLifecycl
             runtimeRepository, deviceService, database, stableIds, taskState);
         QVERIFY(deviceService.loadFromDatabase());
         QVERIFY(taskService.loadFromDatabase());
+        QVector<QUuid> templateUuids;
+        QVector<QString> templateNames;
+        QVector<core::task::RadarControlSettings> templateSettings;
+        QVERIFY(taskService.listControlTemplates(templateUuids, templateNames, templateSettings));
+        QCOMPARE(templateUuids.size(), 1);
+        QCOMPARE(templateNames.size(), 1);
 
         auto configuration = makeDeviceConfiguration();
         core::model::DeviceId unconfiguredDevice;
@@ -154,6 +157,7 @@ void ConfigAndTaskServicesTest::ownsPersistentConfigurationAndCollectionLifecycl
         task.taskName = QStringLiteral("test01");
         task.operatorName = QStringLiteral("operator");
         task.radarArrayType = core::config::RadarArrayType::SingleFace;
+        task.sourceTemplateUuid = templateUuids.front();
         task.deviceBindings.push_back(core::task::TaskDeviceBinding {deviceUuid, 0x01U});
         core::task::TaskDefinition mismatched = task;
         mismatched.radarArrayType = core::config::RadarArrayType::FourFace;
@@ -180,7 +184,7 @@ void ConfigAndTaskServicesTest::ownsPersistentConfigurationAndCollectionLifecycl
 
         core::model::AcquisitionId rejectedAcquisition;
         QVERIFY(!taskService.startCollection(
-            taskId, unconfiguredDevice, unconfiguredEndpoint, rejectedAcquisition));
+            taskId, unconfiguredDevice, unconfiguredEndpoint, 0U, rejectedAcquisition));
         QVERIFY(!rejectedAcquisition.isSet());
 
         configuration.protocolAdapterKey = QStringLiteral("test.radar.protocol");
@@ -203,13 +207,18 @@ void ConfigAndTaskServicesTest::ownsPersistentConfigurationAndCollectionLifecycl
                  qPrintable(deviceService.lastError()));
         core::model::AcquisitionId foreignAcquisition;
         QVERIFY(!taskService.startCollection(
-            taskId, foreignDeviceId, foreignEndpointId, foreignAcquisition));
+            taskId, foreignDeviceId, foreignEndpointId, 0U, foreignAcquisition));
         QVERIFY(!foreignAcquisition.isSet());
 
-        core::model::AcquisitionId acquisitionId;
-        QVERIFY2(taskService.startCollection(taskId, deviceId, endpointId, acquisitionId),
+        std::array<core::model::AcquisitionId, 4> acquisitionIds {};
+        QVERIFY2(taskService.startCollections(taskId, deviceId, endpointId, 0x01U, acquisitionIds),
                  qPrintable(taskService.lastError()));
+        const core::model::AcquisitionId acquisitionId = acquisitionIds[0];
         QVERIFY(acquisitionId.isSet());
+        QVERIFY(!acquisitionIds[1].isSet());
+        const auto runningState = taskState.latest();
+        QVERIFY(runningState.has_value());
+        QCOMPARE(runningState->sample->value.phase, core::model::TaskPhase::Running);
         QCOMPARE(stableIds.resolveDevice(deviceId), configuration.deviceUuid);
         QCOMPARE(stableIds.resolveTask(taskId), task.taskUuid);
         QVERIFY(!stableIds.resolveAcquisition(acquisitionId).isNull());
@@ -266,7 +275,7 @@ void ConfigAndTaskServicesTest::ownsPersistentConfigurationAndCollectionLifecycl
 
         core::model::AcquisitionId secondAcquisition;
         QVERIFY(!taskService.startCollection(
-            restoredTask, restoredDevice, restoredEndpoint, secondAcquisition));
+            restoredTask, restoredDevice, restoredEndpoint, 0U, secondAcquisition));
         QVERIFY(!secondAcquisition.isSet());
         QVERIFY2(taskService.softDeleteTask(taskUuid, QStringLiteral("tester")),
                  qPrintable(taskService.lastError()));
@@ -277,7 +286,7 @@ void ConfigAndTaskServicesTest::ownsPersistentConfigurationAndCollectionLifecycl
         QVERIFY(database.closeCleanly(QDateTime::currentMSecsSinceEpoch()));
     }
 
-    /** @brief 验收 Schema 8 迁移保留旧台账 revision，并计入任务外设备拒绝用例产生的独立台账。 */
+    /** @brief 验收 Schema 9 逐阵面姿态迁移保留revision，并计入任务外设备拒绝用例产生的独立台账。 */
     QCOMPARE(queryInteger(databasePath, QStringLiteral("SELECT count(*) FROM devices")), qint64(7));
     QCOMPARE(queryInteger(databasePath, QStringLiteral("SELECT count(*) FROM tasks")), qint64(1));
     QCOMPARE(queryInteger(databasePath, QStringLiteral("SELECT is_deleted FROM tasks")), qint64(1));

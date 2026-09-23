@@ -1,7 +1,7 @@
 /**
  * @file LatestState.h
  * @brief 实现单一强类型完整状态的 KeepLast(1) 共享存储。
- * @details 上游唯一状态 owner 在完成状态机或设备 ACK 处理后调用 set；下游 WebReader、监控 Reader 等
+ * @details 上游唯一状态 owner 在完成本地状态转换后调用 set；下游 WebReader、监控 Reader 等
  * Consumer 通过 latest() 主动读取最新完整状态与 revision。该类不保存 Consumer revision、不合并局部
  * patch、不执行状态机或 Command dispatch；新人应从 set() 的原子替换与解锁后 Doorbell 顺序开始阅读。
  */

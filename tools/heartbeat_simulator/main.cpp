@@ -1,9 +1,9 @@
 /**
  * @file main.cpp
- * @brief 提供DP/SP主动心跳的最小UDP联试模拟程序。
- * @details 本工具只按冻结协议向sock2Internal发送0x0101和0x0303，不接收航迹、不访问CoreDataDomain、
- * 不模拟设备控制或维护业务状态。下游为DCMP的DcmpProtocolAdapter；停止进程即可验证5秒超时转灰。
- * 新人应从命令行--help和encodeHeartbeat()阅读可调状态及固定线布局。
+ * @brief 提供DP/SP主动心跳与0x0001控制报文接收的最小UDP联试程序。
+ * @details 上游是命令行联试人员，下游是DCMP的sock2Internal与设备台账DPH目标；工具只发送
+ * 0x0101/0x0303或校验收到的0x0001，不访问CoreDataDomain、不构造航迹、不模拟ACK，也不维护
+ * 业务采集状态。新人应从命令行--help、encodeHeartbeat()和validateControl()阅读联试边界。
  */
 
 #include "core/protocol/DcmpPayloads.h"
@@ -11,6 +11,7 @@
 #include <QCommandLineParser>
 #include <QCoreApplication>
 #include <QHostAddress>
+#include <QElapsedTimer>
 #include <QTimer>
 #include <QUdpSocket>
 #include <QtEndian>
@@ -30,6 +31,9 @@ struct SimulatorOptions
     bool sendDp = true; ///< false时不发送DP心跳，用于单独验证DP超时。
     bool sendSp = true; ///< false时不发送SP心跳，用于单独验证SP超时。
     bool once = false; ///< true时只发送一轮并立即退出。
+    QHostAddress listenAddress = QHostAddress::LocalHost; ///< DPH监听地址，仅用于接收0x0001。
+    quint16 listenPort = 0; ///< DPH监听端口；0表示不启用控制报文验收。
+    bool listenOnly = false; ///< true时不发送心跳，便于与独立DP/SP发送进程组合联试。
 };
 
 /**
@@ -76,6 +80,11 @@ bool parseOptions(const QCoreApplication &application, SimulatorOptions &options
     parser.addOption({QStringLiteral("no-dp"), QStringLiteral("不发送DP心跳。")});
     parser.addOption({QStringLiteral("no-sp"), QStringLiteral("不发送SP心跳。")});
     parser.addOption({QStringLiteral("once"), QStringLiteral("只发送一轮后退出。")});
+    parser.addOption({QStringLiteral("listen-ip"), QStringLiteral("0x0001的DPH本地监听IPv4地址。"),
+                      QStringLiteral("ip"), QStringLiteral("127.0.0.1")});
+    parser.addOption({QStringLiteral("listen-port"), QStringLiteral("0x0001的DPH本地监听端口；省略时不监听。"),
+                      QStringLiteral("port")});
+    parser.addOption({QStringLiteral("listen-only"), QStringLiteral("只监听并校验0x0001，不发送心跳。")});
     parser.process(application);
 
     options.targetAddress = QHostAddress(parser.value(QStringLiteral("target-ip")));
@@ -85,6 +94,8 @@ bool parseOptions(const QCoreApplication &application, SimulatorOptions &options
     quint32 fpOnlineMask = 0;
     quint32 fpDataMask = 0;
     quint32 intervalMs = 0;
+    quint32 listenPort = 0;
+    options.listenAddress = QHostAddress(parser.value(QStringLiteral("listen-ip")));
     if (options.targetAddress.protocol() != QAbstractSocket::IPv4Protocol
         || !parseUnsigned(parser.value(QStringLiteral("target-port")), 65535U, port) || port == 0
         || !parseUnsigned(parser.value(QStringLiteral("dp-online")), 1U, dpOnline)
@@ -92,7 +103,11 @@ bool parseOptions(const QCoreApplication &application, SimulatorOptions &options
         || !parseUnsigned(parser.value(QStringLiteral("fp-online-mask")), 0x0FU, fpOnlineMask)
         || !parseUnsigned(parser.value(QStringLiteral("fp-data-mask")), 0x0FU, fpDataMask)
         || !parseUnsigned(parser.value(QStringLiteral("interval-ms")), 60000U, intervalMs)
-        || intervalMs < 100U) {
+        || intervalMs < 100U
+        || options.listenAddress.protocol() != QAbstractSocket::IPv4Protocol
+        || (!parser.value(QStringLiteral("listen-port")).isEmpty()
+            && (!parseUnsigned(parser.value(QStringLiteral("listen-port")), 65535U, listenPort)
+                || listenPort == 0U))) {
         qCritical("命令行参数非法，请运行 --help 查看范围。");
         return false;
     }
@@ -105,10 +120,53 @@ bool parseOptions(const QCoreApplication &application, SimulatorOptions &options
     options.sendDp = !parser.isSet(QStringLiteral("no-dp"));
     options.sendSp = !parser.isSet(QStringLiteral("no-sp"));
     options.once = parser.isSet(QStringLiteral("once"));
-    if (!options.sendDp && !options.sendSp) {
+    options.listenPort = static_cast<quint16>(listenPort);
+    options.listenOnly = parser.isSet(QStringLiteral("listen-only"));
+    if (options.listenOnly && options.listenPort == 0U) {
+        qCritical("--listen-only必须同时指定--listen-port。");
+        return false;
+    }
+    if (!options.listenOnly && !options.sendDp && !options.sendSp) {
         qCritical("--no-dp与--no-sp不能同时使用。");
         return false;
     }
+    return true;
+}
+
+/**
+ * @brief 严格校验一个0x0001公共封装，并读出开始/停止控制字。
+ * @param datagram UDP边界收到的完整数据报。
+ * @param acquisitionControl 成功时写入F_UI_STBY_Ctrl，只允许0或1。
+ * @param error 失败时写入首个不符合冻结协议的字段。
+ * @return 944字节、声明长度932、类型0x0001、包尾和控制字全部合法时返回true。
+ */
+bool validateControl(const QByteArray &datagram, quint32 &acquisitionControl, QString &error)
+{
+    using namespace core::protocol;
+    constexpr int expectedFrameSize = 944;
+    constexpr quint32 controlOffset = DcmpFrameHeader::payloadOffset + 32U;
+    if (datagram.size() != expectedFrameSize) {
+        error = QStringLiteral("实际长度%1，期望944").arg(datagram.size());
+        return false;
+    }
+    const auto readWord = [&datagram](quint32 offset) {
+        return qFromLittleEndian<quint32>(
+            reinterpret_cast<const uchar *>(datagram.constData() + offset));
+    };
+    if (readWord(DcmpFrameHeader::magicOffset) != DcmpFrameHeader::expectedMagic
+        || readWord(DcmpFrameHeader::totalLengthOffset) != 932U
+        || readWord(DcmpFrameHeader::messageTypeOffset)
+            != static_cast<quint32>(DcmpMessageType::DcmpToDpControl)
+        || readWord(expectedFrameSize - DcmpFrameTail::wireSize) != DcmpFrameTail::expectedMagic) {
+        error = QStringLiteral("包头、声明长度、消息类型或包尾不符合0x0001合同");
+        return false;
+    }
+    acquisitionControl = readWord(controlOffset);
+    if (acquisitionControl > 1U) {
+        error = QStringLiteral("F_UI_STBY_Ctrl=%1，期望0或1").arg(acquisitionControl);
+        return false;
+    }
+    error.clear();
     return true;
 }
 
@@ -179,20 +237,56 @@ int main(int argc, char *argv[])
     const QByteArray spFrame = encodeHeartbeat(
         core::protocol::DcmpMessageType::SpHeartbeat, options.spOnline, options.fpDataMask);
     QUdpSocket socket;
-    const bool firstRoundOk = sendRound(socket, options, dpFrame, spFrame);
-    qInfo().noquote() << QStringLiteral("发送到 %1:%2；DP=%3 mask=0x%4；SP=%5 mask=0x%6；周期=%7ms")
-        .arg(options.targetAddress.toString()).arg(options.targetPort)
-        .arg(options.sendDp ? QString::number(options.dpOnline) : QStringLiteral("停发"))
-        .arg(options.fpOnlineMask, 0, 16)
-        .arg(options.sendSp ? QString::number(options.spOnline) : QStringLiteral("停发"))
-        .arg(options.fpDataMask, 0, 16).arg(options.intervalMs);
-    if (options.once) return firstRoundOk ? 0 : 1;
+    QElapsedTimer controlClock;
+    qint64 previousControlMs = -1;
+    if (options.listenPort != 0U) {
+        if (!socket.bind(options.listenAddress, options.listenPort,
+                         QUdpSocket::DontShareAddress)) {
+            qCritical().noquote() << QStringLiteral("DPH监听失败：") + socket.errorString();
+            return 1;
+        }
+        controlClock.start();
+        QObject::connect(&socket, &QUdpSocket::readyRead, &application,
+                         [&socket, &controlClock, &previousControlMs] {
+            while (socket.hasPendingDatagrams()) {
+                QByteArray datagram(static_cast<int>(socket.pendingDatagramSize()), '\0');
+                socket.readDatagram(datagram.data(), datagram.size());
+                quint32 control = 0;
+                QString error;
+                const qint64 nowMs = controlClock.elapsed();
+                if (!validateControl(datagram, control, error)) {
+                    qCritical().noquote() << QStringLiteral("0x0001验收失败：") + error;
+                    continue;
+                }
+                const QString interval = previousControlMs < 0
+                    ? QStringLiteral("首包")
+                    : QStringLiteral("间隔%1ms").arg(nowMs - previousControlMs);
+                previousControlMs = nowMs;
+                qInfo().noquote() << QStringLiteral("0x0001验收通过：t=%1ms，%2，F_UI_STBY_Ctrl=%3")
+                    .arg(nowMs).arg(interval).arg(control);
+            }
+        });
+        qInfo().noquote() << QStringLiteral("DPH正在监听 %1:%2")
+            .arg(options.listenAddress.toString()).arg(options.listenPort);
+    }
+
+    bool firstRoundOk = true;
+    if (!options.listenOnly) {
+        firstRoundOk = sendRound(socket, options, dpFrame, spFrame);
+        qInfo().noquote() << QStringLiteral("发送到 %1:%2；DP=%3 mask=0x%4；SP=%5 mask=0x%6；周期=%7ms")
+            .arg(options.targetAddress.toString()).arg(options.targetPort)
+            .arg(options.sendDp ? QString::number(options.dpOnline) : QStringLiteral("停发"))
+            .arg(options.fpOnlineMask, 0, 16)
+            .arg(options.sendSp ? QString::number(options.spOnline) : QStringLiteral("停发"))
+            .arg(options.fpDataMask, 0, 16).arg(options.intervalMs);
+        if (options.once) return firstRoundOk ? 0 : 1;
+    }
 
     QTimer timer;
     QObject::connect(&timer, &QTimer::timeout, &application,
                      [&socket, &options, &dpFrame, &spFrame] {
         sendRound(socket, options, dpFrame, spFrame);
     });
-    timer.start(options.intervalMs);
+    if (!options.listenOnly) timer.start(options.intervalMs);
     return application.exec();
 }

@@ -1,4 +1,9 @@
 #include "core/protocol/DcmpProtocolAdapter.h"
+
+#include "core/task/RadarControlSettingsJson.h"
+
+#include <QJsonArray>
+#include <QJsonDocument>
 #include <QtEndian>
 #include <cmath>
 #include <cstring>
@@ -47,6 +52,22 @@ float readFloatLe(const char *data)
     static_assert(sizeof(value) == sizeof(bits), "协议float必须为32位");
     std::memcpy(&value, &bits, sizeof(value));
     return value;
+}
+
+/**
+ * @brief 在已分配数据报的指定偏移写入一个小端32位字。
+ */
+void writeU32Le(QByteArray &bytes, quint32 offset, quint32 value)
+{
+    qToLittleEndian(value, reinterpret_cast<uchar *>(bytes.data() + offset));
+}
+
+/**
+ * @brief 将度值按协议比例尺100转换为有符号控制字。
+ */
+qint32 scaledAngle(double degrees)
+{
+    return static_cast<qint32>(std::llround(degrees * 100.0));
 }
 
 /**
@@ -141,6 +162,111 @@ DcmpProtocolAdapter::DcmpProtocolAdapter(
     , m_spHandler(std::move(spHandler))
     , m_trackHandler(std::move(trackHandler))
 {
+}
+
+/**
+ * @brief 逐字段写入0x0001线协议，备份区依靠零初始化保持确定，不直接发送本机结构体内存。
+ * @details 当前静态平台只写经纬高；未启用阵面的天线模式强制为待机，其余模板值仍完整保留。
+ */
+QByteArray DcmpProtocolAdapter::encodeControl(
+    const core::task::RadarControlSettings &settings,
+    const core::config::DeviceConfiguration &configuration,
+    quint8 faceMask,
+    bool acquisitionControl)
+{
+    QString validationError;
+    const QJsonArray faces = QJsonDocument::fromJson(configuration.facesJson.toUtf8()).array();
+    if (!core::task::validateRadarControlSettings(settings, validationError)
+        || faceMask == 0U || (faceMask & 0xF0U) != 0U || faces.size() < 1
+        || !std::isfinite(configuration.longitudeDeg)
+        || !std::isfinite(configuration.latitudeDeg)
+        || !std::isfinite(configuration.altitudeM)) {
+        return {};
+    }
+    constexpr quint32 payloadBase = DcmpFrameHeader::payloadOffset;
+    QByteArray bytes(
+        DcmpFrameHeader::wireSize + DcmpToDpControlPayload::wireSize + DcmpFrameTail::wireSize,
+        '\0');
+    writeU32Le(bytes, 0U, DcmpFrameHeader::expectedMagic);
+    writeU32Le(bytes, 4U, DcmpFrameHeader::declaredFixedSize + DcmpToDpControlPayload::wireSize);
+    writeU32Le(bytes, 8U, static_cast<quint32>(DcmpMessageType::DcmpToDpControl));
+    writeU32Le(bytes, 12U, DcmpFrameHeader::expectedVersion);
+    auto word = [&bytes](quint32 offset, quint32 value) {
+        writeU32Le(bytes, payloadBase + offset, value);
+    };
+    const auto &common = settings.common;
+    word(0U, common.combinationMode);
+    word(4U, common.frameWorkMode);
+    word(8U, common.systemWorkMode);
+    word(12U, common.rangeMode);
+    word(16U, common.stcEnabled ? 1U : 0U);
+    word(20U, common.stcMode);
+    word(24U, common.excitationDisabled ? 1U : 0U);
+    word(28U, static_cast<quint32>(common.cfarMode));
+    word(32U, acquisitionControl ? 1U : 0U);
+    word(36U, static_cast<quint32>(common.cfarThreshold1));
+    word(40U, static_cast<quint32>(common.cfarThreshold2));
+    word(44U, static_cast<quint32>(common.velocityThreshold));
+    word(48U, common.adRecordEnabled ? 1U : 0U);
+    word(52U, common.pointRecordEnabled ? 1U : 0U);
+    word(56U, common.trackInitiationPointCount);
+    word(60U, common.clusterRecordEnabled ? 1U : 0U);
+    word(64U, common.associationRecordEnabled ? 1U : 0U);
+
+    constexpr quint32 frameBase = 128U;
+    const auto &frame = settings.frame;
+    word(frameBase + 0U, frame.screenWaveMode);
+    word(frameBase + 4U, frame.screenTrackEnabled ? 1U : 0U);
+    word(frameBase + 40U, static_cast<quint32>(scaledAngle(frame.beamAzimuthDeg)));
+    word(frameBase + 44U, static_cast<quint32>(scaledAngle(frame.beamElevationDeg)));
+    word(frameBase + 48U, frame.bandwidthMode);
+    word(frameBase + 52U, frame.bitEnabled ? 1U : 0U);
+    word(frameBase + 56U, frame.waveformCode);
+    word(frameBase + 60U, frame.modulationMode);
+    word(frameBase + 64U, frame.modulationBandwidthWord);
+    word(frameBase + 68U, frame.pulseWidthWord);
+    word(frameBase + 72U, frame.repetitionPeriodWord);
+    word(frameBase + 76U, frame.frameWaitPulseCount);
+    word(frameBase + 80U, frame.effectivePulseCount);
+    word(frameBase + 84U, frame.sampleStartWord);
+    word(frameBase + 88U, frame.sampleEndOrLengthWord);
+    word(frameBase + 92U, frame.waveformWriteEnabled ? 1U : 0U);
+    word(frameBase + 96U, frame.waveformWritePosition);
+
+    constexpr quint32 navigationBase = 256U;
+    word(navigationBase + 0U, static_cast<quint32>(std::llround(configuration.longitudeDeg * 1'000'000.0)));
+    word(navigationBase + 4U, static_cast<quint32>(std::llround(configuration.latitudeDeg * 1'000'000.0)));
+    word(navigationBase + 8U, static_cast<quint32>(std::llround(configuration.altitudeM * 100.0)));
+
+    constexpr quint32 facesBase = 384U;
+    for (quint32 index = 0; index < 4U; ++index) {
+        const quint32 base = facesBase + index * 128U;
+        const auto &faceSettings = settings.faces[index];
+        word(base + 0U, index);
+        word(base + 4U, faceSettings.frequencyBand);
+        word(base + 8U, faceSettings.frequencyIndex);
+        word(base + 12U, (faceSettings.rfAttenuationDb & 0x1FU)
+                           | ((faceSettings.ifAttenuationDb & 0x1FU) << 5U));
+        word(base + 16U, (faceMask & (quint8(1U) << index)) != 0U
+                           ? faceSettings.antennaMode : 0U);
+        word(base + 20U, (faceSettings.fan1Powered ? 0U : 4U)
+                           | (faceSettings.fan2Powered ? 0U : 2U)
+                           | (faceSettings.trModulePowered ? 0U : 1U));
+        word(base + 24U, 0xAAU);
+        if (index < static_cast<quint32>(faces.size()) && faces[int(index)].isObject()) {
+            const QJsonObject pose = faces[int(index)].toObject();
+            double heading = pose.value(QStringLiteral("headingDeg")).toDouble();
+            if (heading > 180.0) heading -= 360.0;
+            word(base + 52U, static_cast<quint32>(scaledAngle(heading)));
+            word(base + 56U, static_cast<quint32>(scaledAngle(
+                pose.value(QStringLiteral("pitchDeg")).toDouble())));
+            word(base + 60U, static_cast<quint32>(scaledAngle(
+                pose.value(QStringLiteral("rollDeg")).toDouble())));
+        }
+    }
+    writeU32Le(bytes, payloadBase + DcmpToDpControlPayload::wireSize,
+               DcmpFrameTail::expectedMagic);
+    return bytes;
 }
 
 /**

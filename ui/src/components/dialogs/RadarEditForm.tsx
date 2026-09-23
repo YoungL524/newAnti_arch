@@ -1,13 +1,14 @@
 /**
  * @file RadarEditForm.tsx
- * @brief 编辑雷达端点、厂家型号、经纬高和阵面参数。
- * @details 阵面绝对朝向是唯一航向来源；位置/姿态区不再维护重复 Yaw，俯仰和横滚仍描述雷达 6DOF 安装姿态。
+ * @brief 编辑雷达端点、厂家型号、经纬高和逐阵面安装姿态。
+ * @details 四面阵由物理1#绝对航向确定其余编号；每个阵面的俯仰和横滚独立保存，不维护整机姿态副本。
  */
 
 import { useState } from 'react'
 import type { RadarDevice, RadarBrand, RadarFace } from '../map/types'
 import { BRAND_LABELS, BRAND_OPTIONS } from '../map/types'
 import type { RadarEndpoint as CommEndpoint } from '../map/types'
+import { createRadarFaces, updateRadarFace } from '../../lib/radarFaces'
 
 interface Props {
   device: RadarDevice
@@ -71,9 +72,6 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
     lng: device.lng,
     lat: device.lat,
     altitude: device.altitude,
-    heading: device.heading,
-    pitch: device.pitch,
-    roll: device.roll,
     maxRange: device.maxRange,
     faces: device.faces.map(f => ({ ...f })),
   })
@@ -89,16 +87,16 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
   const updateFace = (idx: number, field: keyof RadarFace, value: any) => {
     setForm(prev => ({
       ...prev,
-      faces: prev.faces.map((f, i) => i === idx ? { ...f, [field]: value } : f),
+      faces: updateRadarFace(prev.faces, idx, field, value),
     }))
   }
 
   /** @brief 将设备阵面切换为合同允许的单面阵或四面阵。 */
   const setArrayType = (count: 1 | 4) => {
-    const headings = count === 1 ? [0] : [0, 90, 180, 270]
-    setForm(prev => ({ ...prev, faces: headings.map((boresightAzimuth, index) => ({
-      label: String.fromCharCode(65 + index), boresightAzimuth, scanAngle: 45, active: true,
-    })) }))
+    setForm(prev => ({
+      ...prev,
+      faces: createRadarFaces(count, prev.faces[0]?.heading ?? 0, prev.faces),
+    }))
   }
 
   const setTarget = (key: string, val: { address: string; port: number }) => {
@@ -107,6 +105,9 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
 
   const valid = form.name.trim().length > 0 && form.model.trim().length > 0
     && form.protocolAdapterKey.trim().length > 0 && endpoint.localPort > 0
+    && form.faces.every(face => Number.isFinite(face.heading)
+      && Number.isFinite(face.pitch) && face.pitch >= -90 && face.pitch <= 90
+      && Number.isFinite(face.roll) && face.roll >= -90 && face.roll <= 90)
 
   const handleSave = () => {
     if (!valid) return
@@ -246,11 +247,11 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
           </div>
         </div>
 
-        {/* ═══ 6DOF Section ═══ */}
+        {/* ═══ Position Section ═══ */}
         <div className="flex items-center gap-1.5 mb-3 mt-4">
           <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--primaryContainer)' }} />
           <span className="text-[10px] font-semibold tracking-wide" style={{ color: 'var(--primaryContainer)' }}>
-            位置 / 姿态 (6DOF)
+            部署位置
           </span>
         </div>
 
@@ -313,24 +314,6 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-3 mb-3">
-          <div>
-            <div style={labelStyle}>安装航向 (°)</div>
-            <input style={inputStyle} type="number" step="any" min="0" max="359.999"
-              value={form.heading} onChange={(e) => update('heading', Number(e.target.value))} />
-          </div>
-          <div>
-            <div style={labelStyle}>俯仰 Pitch (°)</div>
-            <input style={inputStyle} type="number" step="any" min="-90" max="90"
-              value={form.pitch} onChange={(e) => update('pitch', Number(e.target.value))} />
-          </div>
-          <div>
-            <div style={labelStyle}>横滚 Roll (°)</div>
-            <input style={inputStyle} type="number" step="any" min="-180" max="180"
-              value={form.roll} onChange={(e) => update('roll', Number(e.target.value))} />
-          </div>
-        </div>
-
         {/* ═══ Face Array ═══ */}
         <div className="flex items-center gap-1.5 mb-3 mt-4">
           <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--primaryContainer)' }} />
@@ -340,23 +323,32 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
         </div>
 
         {/* Face table header */}
-        <div className="grid grid-cols-[auto_1fr_1fr_auto] gap-2 mb-1 px-1">
+        <div className="grid grid-cols-[auto_1fr_1fr_1fr_1fr] gap-2 mb-1 px-1">
           <span style={labelStyle}>阵面</span>
-          <span style={labelStyle}>绝对朝向 (°)</span>
-          <span style={labelStyle}>扫描范围 (°)</span>
-            <span />
+          <span style={labelStyle}>航向 (°)</span>
+          <span style={labelStyle}>俯仰 (°)</span>
+          <span style={labelStyle}>横滚 (°)</span>
+          <span style={labelStyle}>扫描半角 (°)</span>
         </div>
 
         {form.faces.map((face, fi) => (
-          <div key={fi} className="grid grid-cols-[auto_1fr_1fr_auto] gap-2 mb-1.5 items-center">
+          <div key={fi} className="grid grid-cols-[auto_1fr_1fr_1fr_1fr] gap-2 mb-1.5 items-center">
             <span className="text-[11px] font-medium" style={{ color: 'var(--ink)', minWidth: 20 }}>{face.label}</span>
             <input
               style={inputStyle}
               type="number"
               step="any"
-              value={face.boresightAzimuth}
-              onChange={(e) => updateFace(fi, 'boresightAzimuth', Number(e.target.value))}
+              min="0"
+              max="359.999"
+              value={face.heading}
+              disabled={form.faces.length === 4 && fi > 0}
+              title={form.faces.length === 4 && fi > 0 ? '由物理1#阵面航向自动确定' : undefined}
+              onChange={(e) => updateFace(fi, 'heading', Number(e.target.value))}
             />
+            <input style={inputStyle} type="number" step="any" min="-90" max="90"
+              value={face.pitch} onChange={(e) => updateFace(fi, 'pitch', Number(e.target.value))} />
+            <input style={inputStyle} type="number" step="any" min="-90" max="90"
+              value={face.roll} onChange={(e) => updateFace(fi, 'roll', Number(e.target.value))} />
             <input
               style={inputStyle}
               type="number"
@@ -364,7 +356,6 @@ export default function RadarEditForm({ device, onSave, onCancel }: Props) {
               value={face.scanAngle}
               onChange={(e) => updateFace(fi, 'scanAngle', Number(e.target.value))}
             />
-            <span />
           </div>
         ))}
 

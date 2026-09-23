@@ -7,6 +7,8 @@
 /** @brief 以下类型与核心服务公开的 HTTP/WebSocket JSON 字段逐项对应。 */
 
 export interface LogEntry {
+  /** EventTopic 的进程内序号，用于 WebSocket 重连补偿时去重。 */
+  sequence?: string
   level: string
   message: string
   timestamp: number
@@ -29,6 +31,8 @@ export interface LogsResponse {
 export interface TrackHistoryPoint {
   taskId: string
   deviceId: string
+  /** 协议阵面索引；旧归档尚未提供时不允许猜测安装姿态。 */
+  faceIndex?: number
   tsMs: number
   sceneNum: number
   targetId: number
@@ -76,7 +80,7 @@ export interface WsLogMessage extends LogEntry {
   type: 'log'
 }
 
-export type WsMessage = WsStatusMessage | WsTracksMessage | WsLogMessage
+export type WsMessage = WsStatusMessage | WsTracksMessage | WsLogMessage | WsDeviceStateMessage
 
 /** @brief 表示后端心跳 owner 已判定且V1网络合同允许的三态枚举。 */
 export type HeartbeatStatus = 'unknownOrTimedOut' | 'online' | 'offlineOrLate'
@@ -87,7 +91,7 @@ export interface WsDeviceStatePayload {
   spHeartbeat: HeartbeatStatus ///< SP心跳状态，由后端超时门禁判定。
   fpOnlineMask: number ///< DP报告的FP在线位图，bit0～bit3对应1～4号阵面。
   fpDataMask: number ///< SP报告的FP数据位图，bit0～bit3对应1～4号阵面。
-  devices: unknown[] ///< 完整设备运行时数组；当前联试尚未输出已激活设备。
+  devices: DeviceStatus[] ///< 当前本地采集设备完整快照，稳定UUID与设备台账一致。
 }
 
 /**

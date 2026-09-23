@@ -11,6 +11,8 @@
 #include "core/model/EntityIds.h"
 
 #include <QVector>
+
+#include <array>
 #include <QtGlobal>
 
 namespace core::model {
@@ -26,23 +28,20 @@ enum class DeviceConnectionState : quint8
     Faulted ///< 通信处于持续故障，需恢复动作。
 };
 
-/** @brief 表示设备经过 ACK 确认或正在等待 ACK 的工作阶段。 */
+/** @brief 表示本地采集编排所处的设备工作阶段，不推断外部设备是否执行命令。 */
 enum class DeviceOperatingState : quint8
 {
-    Idle = 0, ///< 未采集且没有设备操作正在执行。
-    Starting, ///< 启动命令已发出，等待设备 ACK。
-    Collecting, ///< 启动 ACK 与采集会话均已确认。
-    Stopping, ///< 停止命令已发出，等待设备 ACK。
-    Reconfiguring, ///< 配置命令已发出，等待设备确认。
+    Idle = 0, ///< 当前没有本地采集会话。
+    Collecting, ///< 本地采集会话已建立且 PPI 正在扫描。
+    Reconfiguring, ///< Owner 正在提交一组本地配置变化。
     Faulted ///< 工作状态无法继续，需恢复动作。
 };
 
-/** @brief 标记 DeviceRuntimeState 中两个可选运行时关联字段。 */
+/** @brief 标记 DeviceRuntimeState 中可选的采集会话字段。 */
 enum class DeviceStateFieldFlag : quint16
 {
-    None = 0, ///< 当前没有采集会话或待确认命令。
-    AcquisitionValid = 1U << 0, ///< acquisitionId 表示当前已确认采集会话。
-    ActiveRequestValid = 1U << 1 ///< activeRequestId 表示当前等待 ACK 的请求。
+    None = 0, ///< 当前没有采集会话。
+    AcquisitionValid = 1U << 0 ///< acquisitionId 表示当前本地采集会话。
 };
 
 /** @brief 保存多个 DeviceStateFieldFlag 的紧凑位集合。 */
@@ -79,13 +78,12 @@ using DeviceFaultFlags = quint32;
  */
 struct DeviceRuntimeState
 {
-    AcquisitionId acquisitionId; ///< AcquisitionValid 置位时为当前已确认采集会话，否则必须为零。
-    quint64 activeRequestId = 0; ///< ActiveRequestValid 置位时为唯一待 ACK 请求，否则必须为零。
+    std::array<AcquisitionId, 4> faceAcquisitionIds {}; ///< AcquisitionValid置位时，启用阵面保存各自独立会话；未启用阵面为零。
     DeviceId deviceId; ///< 已由 DeviceConfigService 激活的非零设备句柄。
     EndpointId primaryEndpointId; ///< 与当前配置 revision 一致的非零主设备端点。
     quint32 configurationRevision = 0; ///< 当前实际生效的 SQLite 配置 revision，必须大于零。
     DeviceFaultFlags currentFaultFlags = 0; ///< 当前持续故障位；未知位不得进入 State。
-    DeviceStateFieldFlags validity = 0; ///< acquisitionId 与 activeRequestId 的有效性位。
+    DeviceStateFieldFlags validity = 0; ///< acquisitionId 的有效性位。
     DeviceConnectionState connectionState = DeviceConnectionState::Disabled; ///< 当前通信状态。
     DeviceOperatingState operatingState = DeviceOperatingState::Idle; ///< 当前设备工作阶段。
 };
@@ -109,9 +107,7 @@ enum class TaskPhase : quint8
 {
     None = 0, ///< 当前没有活动任务，taskId 必须为零。
     Ready, ///< 已选择任务，但尚未启动设备采集。
-    Starting, ///< 至少一台设备正在执行启动流程。
-    Running, ///< 至少一个已确认采集会话正在运行。
-    Stopping, ///< 正在停止任务所属设备和采集会话。
+    Running, ///< 至少一个本地采集会话正在运行。
     Completed, ///< 本次任务运行已正常结束，等待清除当前任务。
     Faulted ///< 任务无法继续，等待处置或清除。
 };
@@ -188,7 +184,7 @@ struct SystemState
     SystemHealth health = SystemHealth::Healthy; ///< 当前总体健康状态。
 };
 
-static_assert(sizeof(DeviceRuntimeState) <= 48, "DeviceRuntimeState exceeds the low-frequency state budget");
+static_assert(sizeof(DeviceRuntimeState) <= 64, "DeviceRuntimeState exceeds the low-frequency state budget");
 static_assert(sizeof(TaskState) <= 8, "TaskState exceeds the compact state budget");
 static_assert(sizeof(SystemState) <= 24, "SystemState exceeds the compact state budget");
 

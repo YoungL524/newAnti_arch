@@ -1,5 +1,6 @@
 #include "core/web/DeviceRegistryHttpService.h"
-
+#include "core/web/DeviceRegistryHttpService.h"
+#include "core/app/ApplicationController.h"
 #include "core/app/StorageRuntime.h"
 
 #include <QJsonDocument>
@@ -24,6 +25,18 @@ QByteArray errorBody(const char *code, const QString &message)
                                                 {QStringLiteral("message"), message}}}})
         .toJson(QJsonDocument::Compact);
 }
+
+/**
+ * @brief 生成采集命令成功响应，不复制任务或设备运行状态。
+ */
+QByteArray acquisitionBody(bool acquisition)
+{
+    return QJsonDocument(QJsonObject {
+        {QStringLiteral("ok"), true},
+        {QStringLiteral("data"), QJsonObject {
+            {QStringLiteral("acquisition"), acquisition}}}})
+        .toJson(QJsonDocument::Compact);
+}
 }
 
 /**
@@ -40,16 +53,20 @@ DeviceRegistryHttpService::DeviceRegistryHttpService(QObject *parent)
  * @brief 保存已初始化StorageRuntime借用关系后仅监听Loopback，避免配置接口暴露到现场网络。
  */
 bool DeviceRegistryHttpService::start(
-    quint16 port, core::app::StorageRuntime &storageRuntime)
+    quint16 port,
+    core::app::StorageRuntime &storageRuntime,
+    core::app::ApplicationController &applicationController)
 {
-    if (m_server.isListening() || m_storageRuntime) {
+    if (m_server.isListening() || m_storageRuntime || m_applicationController) {
         m_lastError = QStringLiteral("设备台账HTTP服务已经启动");
         return false;
     }
     m_storageRuntime = &storageRuntime;
+    m_applicationController = &applicationController;
     if (!m_server.listen(QHostAddress::LocalHost, port)) {
         m_lastError = m_server.errorString();
         m_storageRuntime = nullptr;
+        m_applicationController = nullptr;
         return false;
     }
     m_lastError.clear();
@@ -65,6 +82,7 @@ void DeviceRegistryHttpService::stop()
     const auto sockets = m_server.findChildren<QTcpSocket*>();
     for (QTcpSocket *socket : sockets) socket->disconnectFromHost();
     m_storageRuntime = nullptr;
+    m_applicationController = nullptr;
 }
 
 /**
@@ -145,13 +163,13 @@ void DeviceRegistryHttpService::consumeRequest(QTcpSocket &socket)
 }
 
 /**
- * @brief 只路由/api/v1/devices与/api/v1/tasks的冻结V1子集，其他路径和方法明确返回404或405。
+ * @brief 只路由设备、任务与只读任务模板的冻结V1子集，其他路径和方法明确返回404或405。
  */
 QByteArray DeviceRegistryHttpService::dispatch(
     const QByteArray &method, const QString &path,
     const QByteArray &body, int &statusCode)
 {
-    if (!m_storageRuntime) {
+    if (!m_storageRuntime || !m_applicationController) {
         statusCode = 503;
         return errorBody("SERVICE_UNAVAILABLE", QStringLiteral("设备服务不可用"));
     }
@@ -181,6 +199,13 @@ QByteArray DeviceRegistryHttpService::dispatch(
             statusCode = 405;
             return errorBody("METHOD_NOT_ALLOWED", QStringLiteral("方法不允许"));
         }
+    } else if (path == QStringLiteral("/api/v1/task-templates")
+               && method == QByteArrayLiteral("GET")) {
+        invoked = QMetaObject::invokeMethod(m_storageRuntime, "listTaskTemplates",
+            Qt::BlockingQueuedConnection, Q_RETURN_ARG(QByteArray, response));
+    } else if (path == QStringLiteral("/api/v1/task-templates")) {
+        statusCode = 405;
+        return errorBody("METHOD_NOT_ALLOWED", QStringLiteral("V1模板只允许读取"));
     } else if (path == QStringLiteral("/api/v1/tasks") && method == QByteArrayLiteral("GET")) {
         invoked = QMetaObject::invokeMethod(m_storageRuntime, "listTasks",
             Qt::BlockingQueuedConnection, Q_RETURN_ARG(QByteArray, response));
@@ -197,10 +222,39 @@ QByteArray DeviceRegistryHttpService::dispatch(
             const QString uuid = taskPath.left(taskPath.size() - activateSuffix.size());
             invoked = QMetaObject::invokeMethod(m_storageRuntime, "activateTask",
                 Qt::BlockingQueuedConnection, Q_RETURN_ARG(QByteArray, response), Q_ARG(QString, uuid));
+        } else if (taskPath.endsWith(QStringLiteral("/acquisition/start"))
+                   && method == QByteArrayLiteral("POST")) {
+            const QString suffix = QStringLiteral("/acquisition/start");
+            const QUuid uuid(taskPath.left(taskPath.size() - suffix.size()));
+            invoked = true;
+            if (!uuid.isNull() && m_applicationController->startAcquisition(*m_storageRuntime, uuid)) {
+                response = acquisitionBody(true);
+            } else {
+                response = errorBody(uuid.isNull() ? "INVALID_REQUEST" : "COMMAND_REJECTED", uuid.isNull()
+                    ? QStringLiteral("任务UUID无效")
+                    : m_applicationController->lastError());
+            }
+        } else if (taskPath.endsWith(QStringLiteral("/acquisition/stop"))
+                   && method == QByteArrayLiteral("POST")) {
+            const QString suffix = QStringLiteral("/acquisition/stop");
+            const QUuid uuid(taskPath.left(taskPath.size() - suffix.size()));
+            invoked = true;
+            if (!uuid.isNull() && m_applicationController->stopAcquisition(*m_storageRuntime, uuid)) {
+                response = acquisitionBody(false);
+            } else {
+                response = errorBody(uuid.isNull() ? "INVALID_REQUEST" : "COMMAND_REJECTED", uuid.isNull()
+                    ? QStringLiteral("任务UUID无效")
+                    : m_applicationController->lastError());
+            }
         } else if (taskPath.endsWith(QStringLiteral("/complete"))
                    && method == QByteArrayLiteral("POST")) {
             const QString uuid = taskPath.left(taskPath.size() - QStringLiteral("/complete").size());
             invoked = QMetaObject::invokeMethod(m_storageRuntime, "completeTask",
+                Qt::BlockingQueuedConnection, Q_RETURN_ARG(QByteArray, response), Q_ARG(QString, uuid));
+        } else if (taskPath.endsWith(QStringLiteral("/archive"))
+                   && method == QByteArrayLiteral("POST")) {
+            const QString uuid = taskPath.left(taskPath.size() - QStringLiteral("/archive").size());
+            invoked = QMetaObject::invokeMethod(m_storageRuntime, "archiveTask",
                 Qt::BlockingQueuedConnection, Q_RETURN_ARG(QByteArray, response), Q_ARG(QString, uuid));
         } else if (method == QByteArrayLiteral("DELETE") && !taskPath.contains('/')) {
             invoked = QMetaObject::invokeMethod(m_storageRuntime, "deleteTask",

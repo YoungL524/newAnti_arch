@@ -11,19 +11,24 @@ ApplicationRuntime::ApplicationRuntime(QString databasePath, QString application
     : m_domain(4096,1024),
       m_databasePath(std::move(databasePath)),
       m_applicationVersion(std::move(applicationVersion)),
-      m_heartbeat(m_domain.deviceState()),
+      m_deviceController(m_domain.deviceState(),
+          [this](const QByteArray &bytes, const QHostAddress &address, quint16 port) {
+              return m_internal.send(bytes, address, port);
+          }),
       m_trackIngress(m_domain.trackTopic()),
+      m_applicationController(m_deviceController, m_trackIngress),
       m_adapter(
-          [this](const auto&,const auto& p,qint64 u,qint64 s){m_heartbeat.accept(false,p.dpOnline,p.fpOnlineMask,u,s);},
-          [this](const auto&,const auto& p,qint64 u,qint64 s){m_heartbeat.accept(true,p.spOnline,p.fpDataMask,u,s);},
+          [this](const auto&,const auto& p,qint64 u,qint64 s){m_deviceController.acceptHeartbeat(false,p.dpOnline,p.fpOnlineMask,u,s);},
+          [this](const auto&,const auto& p,qint64 u,qint64 s){m_deviceController.acceptHeartbeat(true,p.spOnline,p.fpDataMask,u,s);},
           [this](const auto&,quint8 face,quint32 sequence,const auto& track,qint64 u,qint64 s){
               m_trackIngress.accept(face,sequence,track,u,s);
           }),
       m_internal([this](const char* p,qint64 n,const QHostAddress&,quint16,qint64 u,qint64 s){m_adapter.onDatagram(p,n,u,s);}),
-      m_stateWeb(m_domain.deviceState(),m_lane,m_gateway),
-      m_trackWeb(m_domain.trackTopic(),m_lane,m_gateway,m_stableIds,256,256)
+      m_stateWeb(m_domain.deviceState(),m_lane,m_gateway,m_stableIds),
+      m_trackWeb(m_domain.trackTopic(),m_lane,m_gateway,m_stableIds,256,256),
+      m_eventWeb(m_domain.eventTopic(),m_lane,m_gateway,m_stableIds)
 {
-    m_heartbeat.stop();
+    m_deviceController.stop();
 }
 /**
  * @brief 成员逆序析构前停止接收，确保回调依赖仍存活。
@@ -44,18 +49,18 @@ bool ApplicationRuntime::start(quint16 internalPort,quint16 webSocketPort,quint1
         m_error=QStringLiteral("WebSocket Gateway启动失败");
         m_internal.stop(); stopStorage(); return false;
     }
-    if (!m_deviceHttp.start(deviceHttpPort, *m_storageRuntime)) {
+    if (!m_deviceHttp.start(deviceHttpPort, *m_storageRuntime, m_applicationController)) {
         m_error=QStringLiteral("设备与任务HTTP启动失败：")+m_deviceHttp.lastError();
         m_gateway.stop(); m_internal.stop(); stopStorage(); return false;
     }
-    m_trackWeb.refresh(); m_heartbeat.start(); m_running=true; m_error.clear(); return true;
+    m_trackWeb.refresh(); m_eventWeb.refresh(); m_deviceController.start(); m_running=true; m_error.clear(); return true;
 }
 /**
  * @brief 阻止新报文后关闭计时和Web；清理不依赖后续事件循环。
  */
 void ApplicationRuntime::stop()
 {
-    m_internal.stop(); m_heartbeat.stop(); m_deviceHttp.stop(); m_gateway.stop(); m_running=false; stopStorage();
+    m_internal.stop(); m_deviceController.stop(); m_deviceHttp.stop(); m_gateway.stop(); m_running=false; stopStorage();
 }
 
 /**

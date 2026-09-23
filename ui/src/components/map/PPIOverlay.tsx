@@ -1,35 +1,44 @@
 /**
  * @file PPIOverlay.tsx
- * @brief 绘制雷达量程环、方位刻度和阵面扫描扇区覆盖层。
- * @details 阵面朝向直接采用设备安装后测得的绝对航向：正北为 0°、顺时针为正，不叠加机体 Yaw。
+ * @brief 绘制雷达量程环、方位刻度和从原点向外传播的径向扫描波。
+ * @details 单面阵在其方位扇区内绘制波前，四面全开时四段波前拼成同心圆；不再为每个阵面绘制旋转扫描线。
+ * 阵面朝向直接采用设备安装后测得的绝对航向：正北为 0°、顺时针为正，不叠加机体 Yaw。
  */
 
 import { useEffect, useRef } from 'react'
 import type { RadarDevice } from './types'
 import { absoluteFaceHeading } from '../../lib/radarPose'
 
+/** @brief P 显覆盖层仅依赖的设备、地图和本地采集显示状态。 */
 interface PPIOverlayProps {
+  /** 当前雷达整机及阵面安装参数。 */
   device: RadarDevice
+  /** 高德地图实例，由 MapRadarView 持有。 */
   mapInstance: any
+  /** 高德地图构造入口，仅用于坐标投影。 */
   mapClass: any
+  /** 仅影响配色的通信状态，不决定动画是否运行。 */
   connected: boolean
+  /** 本地采集/PPI 扫描状态，是动画唯一启停条件。 */
   acquiring: boolean
+  /** 当前设备存在持续故障时点亮中心故障色。 */
   hasFault?: boolean
 }
 
+/**
+ * @brief 在地图 Canvas 上持续绘制静态 P 显和周期性的径向震荡波。
+ * @note 动画只表达本地采集显示，不代表 DP、SP 或 FP 已执行控制命令。
+ */
 export default function PPIOverlay({ device, mapInstance, mapClass, connected, acquiring, hasFault }: PPIOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animRef = useRef<number>(0)
-  const phaseRef = useRef<number>(0)
-  const cycleRef = useRef<number>(0)
-  const timeRef = useRef<number>(0)
+  const waveStartedAtRef = useRef<number>(0)
 
   useEffect(() => {
-    // Reset sweep state when acquisition starts
     if (acquiring) {
-      phaseRef.current = 0
-      cycleRef.current = 0
-      timeRef.current = 0
+      waveStartedAtRef.current = performance.now()
+    } else {
+      waveStartedAtRef.current = 0
     }
 
     const drawPPI = () => {
@@ -119,8 +128,8 @@ export default function PPIOverlay({ device, mapInstance, mapClass, connected, a
       // --- Scan sector boundary lines (dashed) — one per active face ---
       ctx.setLineDash([4, 4])
       device.faces.filter(f => f.active).forEach(face => {
-        const boresightRad = (absoluteFaceHeading(face.boresightAzimuth) * Math.PI) / 180
-        const scanHalfRad = (face.scanAngle * Math.PI) / 180
+        const boresightRad = (absoluteFaceHeading(face.heading) * Math.PI) / 180
+        const scanHalfRad = (Math.min(45, Math.max(0, Math.abs(face.scanAngle))) * Math.PI) / 180
         for (const sign of [-1, 1]) {
           const boundAngle = boresightRad + sign * scanHalfRad
           ctx.strokeStyle = ringColor(0.16)
@@ -152,93 +161,47 @@ export default function PPIOverlay({ device, mapInstance, mapClass, connected, a
       ctx.fillText('0°', cx, cy - labelDist)       // North
       ctx.fillText('180°', cx, cy + labelDist)     // South
 
-      // --- Sweep: synchronous, rotating shade depth per cycle ---
+      /** @brief 以较浅的灰绿色和 1.2 秒周期填充单峰径向渐变，保持波带两端无描边、自然消隐。 */
       if (acquiring) {
         const activeFaces = device.faces.filter(f => f.active)
         if (activeFaces.length > 0) {
           const now = performance.now()
-          if (timeRef.current === 0) { timeRef.current = now; phaseRef.current = 0; cycleRef.current = 0 }
-          const dt = (now - timeRef.current) / 1000
-          timeRef.current = now
+          if (waveStartedAtRef.current === 0) waveStartedAtRef.current = now
+          const phase = ((now - waveStartedAtRef.current) % 1200) / 1200
+          const waveCenterR = maxR * phase
+          const bandHalfWidth = maxR * 0.16
+          const fade = Math.sin(phase * Math.PI)
+          const waveColor = connected ? '45,95,80' : '150,150,150'
 
-          let phase = phaseRef.current + dt
-          if (phase >= 1) { phase = phase - 1; cycleRef.current++ }
-          phaseRef.current = phase
-
-          const boundaryZone = 0.07
-          const rgb = connected ? '30,90,70' : '160,160,160'
-          const N = activeFaces.length
-
-          // 4-tier opacity: darkest → lightest, rotates each sweep cycle
-          const sweepAlphas = [0.42, 0.32, 0.24, 0.16]
-          const trailAlphas = [0.36, 0.26, 0.18, 0.10]
-
-          activeFaces.forEach((face, fi) => {
-            const shadeIdx = N > 1 ? ((cycleRef.current - fi) % N + N) % N : 0
-            const sweepAlpha = sweepAlphas[Math.min(shadeIdx, 3)]
-            const trailMaxAlpha = trailAlphas[Math.min(shadeIdx, 3)]
-
-            const boresightRad = (absoluteFaceHeading(face.boresightAzimuth) * Math.PI) / 180
-            const scanHalfRad = (face.scanAngle * Math.PI) / 180
-
-            let primaryAlpha = 1
-            let primaryAngle = boresightRad - scanHalfRad + 2 * scanHalfRad * phase
-            let ghostAlpha = 0
-            let ghostAngle = 0
-
-            if (phase > 1 - boundaryZone) {
-              const t = (phase - (1 - boundaryZone)) / boundaryZone
-              primaryAlpha = 1 - t
-              ghostAlpha = t
-              ghostAngle = boresightRad - scanHalfRad
-            } else if (phase < boundaryZone) {
-              const t = phase / boundaryZone
-              primaryAlpha = t
-              ghostAlpha = 1 - t
-              ghostAngle = boresightRad + scanHalfRad
-            }
-
-            // Ghost sweep at opposite boundary
-            if (ghostAlpha > 0.01) {
-              ctx.save()
-              ctx.translate(cx, cy)
-              ctx.rotate(ghostAngle - Math.PI / 2)
-              ctx.strokeStyle = `rgba(${rgb},${sweepAlpha * ghostAlpha})`
-              ctx.lineWidth = 1.2
-              ctx.beginPath()
-              ctx.moveTo(0, 0)
-              ctx.lineTo(maxR, 0)
-              ctx.stroke()
-              ctx.restore()
-            }
-
-            // Primary sweep with trail
+          activeFaces.forEach(face => {
+            const boresightRad = (absoluteFaceHeading(face.heading) * Math.PI) / 180
+            const scanHalfRad = (Math.min(45, Math.max(0, Math.abs(face.scanAngle))) * Math.PI) / 180
             ctx.save()
             ctx.translate(cx, cy)
-            ctx.rotate(primaryAngle - Math.PI / 2)
+            ctx.rotate(boresightRad - Math.PI / 2)
 
-            const trailRad = Math.PI / 7
-            const layers = 48
-            for (let i = 0; i < layers; i++) {
-              const a = (-i / layers) * trailRad
-              const b = (-(i + 1) / layers) * trailRad
-              const alpha = trailMaxAlpha * Math.exp(-i / 14) * primaryAlpha
-              if (alpha < 0.003) continue
-              ctx.fillStyle = `rgba(${rgb},${alpha})`
-              ctx.beginPath()
-              ctx.moveTo(0, 0)
-              ctx.arc(0, 0, maxR, b, a)
-              ctx.closePath()
-              ctx.fill()
-            }
-
-            ctx.strokeStyle = `rgba(${rgb},${sweepAlpha * primaryAlpha})`
-            ctx.lineWidth = 1.3
             ctx.beginPath()
             ctx.moveTo(0, 0)
-            ctx.lineTo(maxR, 0)
-            ctx.stroke()
+            ctx.arc(0, 0, maxR, -scanHalfRad, scanHalfRad)
+            ctx.closePath()
+            ctx.clip()
 
+            const innerR = Math.max(0, waveCenterR - bandHalfWidth)
+            const outerR = Math.min(maxR, waveCenterR + bandHalfWidth)
+            if (outerR > innerR) {
+              const energy = ctx.createRadialGradient(0, 0, innerR, 0, 0, outerR)
+              energy.addColorStop(0, `rgba(${waveColor},0)`)
+              energy.addColorStop(0.3, `rgba(${waveColor},${0.12 * fade})`)
+              energy.addColorStop(0.5, `rgba(${waveColor},${0.28 * fade})`)
+              energy.addColorStop(0.7, `rgba(${waveColor},${0.12 * fade})`)
+              energy.addColorStop(1, `rgba(${waveColor},0)`)
+              ctx.beginPath()
+              ctx.arc(0, 0, outerR, -scanHalfRad, scanHalfRad)
+              ctx.arc(0, 0, innerR, scanHalfRad, -scanHalfRad, true)
+              ctx.closePath()
+              ctx.fillStyle = energy
+              ctx.fill()
+            }
             ctx.restore()
           })
         }
@@ -252,8 +215,8 @@ export default function PPIOverlay({ device, mapInstance, mapClass, connected, a
 
       // --- Scan sector arc highlight (subtle) — one per active face ---
       device.faces.filter(f => f.active).forEach(face => {
-        const boresightRad = (absoluteFaceHeading(face.boresightAzimuth) * Math.PI) / 180
-        const scanHalfRad = (face.scanAngle * Math.PI) / 180
+        const boresightRad = (absoluteFaceHeading(face.heading) * Math.PI) / 180
+        const scanHalfRad = (Math.min(45, Math.max(0, Math.abs(face.scanAngle))) * Math.PI) / 180
         ctx.save()
         ctx.translate(cx, cy)
         ctx.rotate(boresightRad - Math.PI / 2)
@@ -274,4 +237,3 @@ export default function PPIOverlay({ device, mapInstance, mapClass, connected, a
 
   return <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-10" />
 }
-

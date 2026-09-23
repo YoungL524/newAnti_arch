@@ -1,6 +1,7 @@
 #include "core/persistence/SqliteRuntimeRepository.h"
 
 #include "core/archive/SqliteArchiveRepository.h"
+#include "core/task/RadarControlSettingsJson.h"
 
 #include <QDateTime>
 #include <QJsonArray>
@@ -117,13 +118,15 @@ bool SqliteRuntimeRepository::saveDeviceRevision(
     const quint32 nextRevision = currentRevision + 1;
 
     QSqlQuery insert(m_databaseOwner.m_database);
-    insert.prepare(QStringLiteral(
+    if (!insert.prepare(QStringLiteral(
         "INSERT INTO devices("
         "device_uuid,revision,display_name,manufacturer,model,protocol_adapter_key,"
         "array_type,max_range_m,faces_json,"
-        "longitude_deg,latitude_deg,altitude_m,absolute_heading_deg,pitch_deg,roll_deg,"
-        "endpoints_json,protocol_config_json,changed_utc_ms,changed_by,change_reason,is_deleted) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)"));
+        "longitude_deg,latitude_deg,altitude_m,endpoints_json,protocol_config_json,"
+        "changed_utc_ms,changed_by,change_reason,is_deleted) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"))) {
+        return rollbackWithError(insert.lastError().text());
+    }
     insert.addBindValue(configuration.deviceUuid.toRfc4122());
     insert.addBindValue(nextRevision);
     insert.addBindValue(configuration.displayName);
@@ -136,14 +139,12 @@ bool SqliteRuntimeRepository::saveDeviceRevision(
     insert.addBindValue(configuration.longitudeDeg);
     insert.addBindValue(configuration.latitudeDeg);
     insert.addBindValue(configuration.altitudeM);
-    insert.addBindValue(configuration.absoluteHeadingDeg);
-    insert.addBindValue(configuration.pitchDeg);
-    insert.addBindValue(configuration.rollDeg);
     insert.addBindValue(configuration.endpointsJson);
     insert.addBindValue(configuration.protocolConfigJson);
     insert.addBindValue(QDateTime::currentMSecsSinceEpoch());
     insert.addBindValue(normalizedText(configuration.changedBy));
     insert.addBindValue(normalizedText(configuration.changeReason));
+    insert.addBindValue(0);
     if (!insert.exec()) {
         return rollbackWithError(insert.lastError().text());
     }
@@ -176,8 +177,8 @@ bool SqliteRuntimeRepository::loadCurrentDevices(
     if (!query.exec(QStringLiteral(
             "SELECT d.device_revision_id,d.device_uuid,d.revision,d.display_name,d.manufacturer,d.model,"
             "d.protocol_adapter_key,d.array_type,d.max_range_m,d.faces_json,"
-            "d.longitude_deg,d.latitude_deg,d.altitude_m,d.absolute_heading_deg,"
-            "d.pitch_deg,d.roll_deg,d.endpoints_json,d.protocol_config_json,d.changed_by,d.change_reason "
+            "d.longitude_deg,d.latitude_deg,d.altitude_m,d.endpoints_json,"
+            "d.protocol_config_json,d.changed_by,d.change_reason "
             "FROM devices d WHERE d.is_deleted=0 AND NOT EXISTS("
             "SELECT 1 FROM devices newer WHERE newer.device_uuid=d.device_uuid "
             "AND newer.revision>d.revision) ORDER BY d.device_revision_id"))) {
@@ -198,18 +199,59 @@ bool SqliteRuntimeRepository::loadCurrentDevices(
         configuration.longitudeDeg = query.value(10).toDouble();
         configuration.latitudeDeg = query.value(11).toDouble();
         configuration.altitudeM = query.value(12).toDouble();
-        configuration.absoluteHeadingDeg = query.value(13).toDouble();
-        configuration.pitchDeg = query.value(14).toDouble();
-        configuration.rollDeg = query.value(15).toDouble();
-        configuration.endpointsJson = query.value(16).toString();
-        configuration.protocolConfigJson = query.value(17).toString();
-        configuration.changedBy = query.value(18).toString();
-        configuration.changeReason = query.value(19).toString();
+        configuration.endpointsJson = query.value(13).toString();
+        configuration.protocolConfigJson = query.value(14).toString();
+        configuration.changedBy = query.value(15).toString();
+        configuration.changeReason = query.value(16).toString();
         loadedIds.push_back(query.value(0).toLongLong());
         loadedConfigurations.push_back(std::move(configuration));
     }
     configurations = std::move(loadedConfigurations);
     deviceRevisionIds = std::move(loadedIds);
+    m_lastError.clear();
+    return true;
+}
+
+/**
+ * @brief 按数据库创建顺序解析模板；任一损坏JSON会拒绝整批，避免UI展示部分真源。
+ */
+bool SqliteRuntimeRepository::loadControlTemplates(
+    QVector<QUuid> &templateUuids,
+    QVector<QString> &names,
+    QVector<core::task::RadarControlSettings> &settings)
+{
+    if (!requireDatabase("loadControlTemplates")) return false;
+    QVector<QUuid> loadedUuids;
+    QVector<QString> loadedNames;
+    QVector<core::task::RadarControlSettings> loadedSettings;
+    QSqlQuery query(m_databaseOwner.m_database);
+    if (!query.exec(QStringLiteral(
+            "SELECT template_uuid,template_name,settings_json FROM control_templates "
+            "WHERE is_deleted=0 ORDER BY created_utc_ms,template_id"))) {
+        m_lastError = query.lastError().text();
+        return false;
+    }
+    while (query.next()) {
+        const QUuid uuid = QUuid::fromRfc4122(query.value(0).toByteArray());
+        QJsonParseError parseError;
+        const QJsonDocument document = QJsonDocument::fromJson(
+            query.value(2).toString().toUtf8(), &parseError);
+        core::task::RadarControlSettings value;
+        QString validationError;
+        if (uuid.isNull() || parseError.error != QJsonParseError::NoError || !document.isObject()
+            || !core::task::radarControlSettingsFromJson(
+                document.object(), value, validationError)) {
+            m_lastError = validationError.isEmpty()
+                ? QStringLiteral("任务模板JSON无效") : validationError;
+            return false;
+        }
+        loadedUuids.push_back(uuid);
+        loadedNames.push_back(query.value(1).toString());
+        loadedSettings.push_back(value);
+    }
+    templateUuids = std::move(loadedUuids);
+    names = std::move(loadedNames);
+    settings = std::move(loadedSettings);
     m_lastError.clear();
     return true;
 }
@@ -232,10 +274,10 @@ bool SqliteRuntimeRepository::softDeleteDevice(
     QSqlQuery insert(m_databaseOwner.m_database);
     insert.prepare(QStringLiteral(
         "INSERT INTO devices(device_uuid,revision,display_name,manufacturer,model,protocol_adapter_key,"
-        "array_type,max_range_m,faces_json,longitude_deg,latitude_deg,altitude_m,absolute_heading_deg,"
-        "pitch_deg,roll_deg,endpoints_json,protocol_config_json,changed_utc_ms,changed_by,change_reason,is_deleted) "
+        "array_type,max_range_m,faces_json,longitude_deg,latitude_deg,altitude_m,"
+        "endpoints_json,protocol_config_json,changed_utc_ms,changed_by,change_reason,is_deleted) "
         "SELECT device_uuid,revision+1,display_name,manufacturer,model,protocol_adapter_key,array_type,"
-        "max_range_m,faces_json,longitude_deg,latitude_deg,altitude_m,absolute_heading_deg,pitch_deg,roll_deg,"
+        "max_range_m,faces_json,longitude_deg,latitude_deg,altitude_m,"
         "endpoints_json,protocol_config_json,?,?,?,1 FROM devices WHERE device_uuid=? AND revision=? "
         "AND is_deleted=0 AND NOT EXISTS(SELECT 1 FROM devices newer WHERE newer.device_uuid=devices.device_uuid "
         "AND newer.revision>devices.revision)"));
@@ -276,13 +318,17 @@ bool SqliteRuntimeRepository::createTask(core::task::TaskDefinition &task,
     QSqlQuery insert(m_databaseOwner.m_database);
     insert.prepare(QStringLiteral(
         "INSERT INTO tasks(task_uuid,task_name,operator_name,description,radar_array_type,"
-        "device_bindings_json,created_utc_ms,updated_utc_ms) VALUES(?,?,?,?,?,?,?,?)"));
+        "device_bindings_json,source_template_uuid,control_settings_json,created_utc_ms,updated_utc_ms) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?)"));
     insert.addBindValue(task.taskUuid.toRfc4122());
     insert.addBindValue(task.taskName);
     insert.addBindValue(normalizedText(task.operatorName));
     insert.addBindValue(normalizedText(task.description));
     insert.addBindValue(static_cast<int>(task.radarArrayType));
     insert.addBindValue(taskBindingsJson(task.deviceBindings));
+    insert.addBindValue(task.sourceTemplateUuid.toRfc4122());
+    insert.addBindValue(QString::fromUtf8(QJsonDocument(
+        core::task::radarControlSettingsToJson(task.controlSettings)).toJson(QJsonDocument::Compact)));
     insert.addBindValue(nowUtcMs);
     insert.addBindValue(nowUtcMs);
     if (!insert.exec()) {
@@ -314,9 +360,9 @@ bool SqliteRuntimeRepository::loadActiveTasks(
     QVector<core::task::TaskDefinition> loadedTasks;
     QVector<qint64> loadedIds;
     QSqlQuery query(m_databaseOwner.m_database);
-    if (!query.exec(QStringLiteral(
+        if (!query.exec(QStringLiteral(
             "SELECT task_id,task_uuid,task_name,operator_name,description,radar_array_type,"
-            "device_bindings_json,created_utc_ms,closed_utc_ms "
+            "device_bindings_json,source_template_uuid,control_settings_json,created_utc_ms,closed_utc_ms,archived_utc_ms "
             "FROM tasks WHERE is_deleted=0 ORDER BY task_id"))) {
         m_lastError = query.lastError().text();
         return false;
@@ -334,8 +380,22 @@ bool SqliteRuntimeRepository::loadActiveTasks(
             m_lastError = QStringLiteral("数据库任务的阵面形态或设备绑定JSON无效");
             return false;
         }
-        task.createdUtcMs = query.value(7).toLongLong();
-        task.completedUtcMs = query.value(8).isNull() ? 0 : query.value(8).toLongLong();
+        task.sourceTemplateUuid = QUuid::fromRfc4122(query.value(7).toByteArray());
+        QJsonParseError parseError;
+        const QJsonDocument settingsDocument = QJsonDocument::fromJson(
+            query.value(8).toString().toUtf8(), &parseError);
+        QString settingsError;
+        if (task.sourceTemplateUuid.isNull() || parseError.error != QJsonParseError::NoError
+            || !settingsDocument.isObject()
+            || !core::task::radarControlSettingsFromJson(
+                settingsDocument.object(), task.controlSettings, settingsError)) {
+            m_lastError = settingsError.isEmpty()
+                ? QStringLiteral("数据库任务参数快照无效") : settingsError;
+            return false;
+        }
+        task.createdUtcMs = query.value(9).toLongLong();
+        task.completedUtcMs = query.value(10).isNull() ? 0 : query.value(10).toLongLong();
+        task.archivedUtcMs = query.value(11).isNull() ? 0 : query.value(11).toLongLong();
         loadedIds.push_back(query.value(0).toLongLong());
         loadedTasks.push_back(std::move(task));
     }
@@ -366,6 +426,34 @@ bool SqliteRuntimeRepository::completeTask(qint64 databaseTaskId, qint64 complet
     if (!update.exec() || update.numRowsAffected() != 1) {
         m_lastError = update.lastError().text().isEmpty()
             ? QStringLiteral("任务不存在、已经完成或仍有活动采集") : update.lastError().text();
+        return false;
+    }
+    m_lastError.clear();
+    return true;
+}
+
+/**
+ * @brief 用 SQLite 条件更新保护归档一次性；已完成时间必须存在，采集会话和历史事实保持不变。
+ */
+bool SqliteRuntimeRepository::archiveTask(qint64 databaseTaskId, qint64 archivedUtcMs)
+{
+    if (!requireDatabase("archiveTask") || databaseTaskId <= 0 || archivedUtcMs <= 0) {
+        if (m_lastError.isEmpty()) m_lastError = QStringLiteral("归档任务参数无效");
+        return false;
+    }
+    QSqlQuery update(m_databaseOwner.m_database);
+    update.prepare(QStringLiteral(
+        "UPDATE tasks SET archived_utc_ms=?,updated_utc_ms=? "
+        "WHERE task_id=? AND is_deleted=0 AND closed_utc_ms IS NOT NULL "
+        "AND archived_utc_ms IS NULL AND NOT EXISTS("
+        "SELECT 1 FROM collection_sessions WHERE task_id=? AND stop_reason=0)"));
+    update.addBindValue(archivedUtcMs);
+    update.addBindValue(archivedUtcMs);
+    update.addBindValue(databaseTaskId);
+    update.addBindValue(databaseTaskId);
+    if (!update.exec() || update.numRowsAffected() != 1) {
+        m_lastError = update.lastError().text().isEmpty()
+            ? QStringLiteral("任务不存在、未完成、已归档或仍有活动采集") : update.lastError().text();
         return false;
     }
     m_lastError.clear();
@@ -408,13 +496,14 @@ bool SqliteRuntimeRepository::createCollectionSession(
     qint64 databaseTaskId,
     qint64 deviceRevisionId,
     const QString &endpointKey,
+    quint8 faceIndex,
     QUuid &sessionUuid,
     qint64 &collectionSessionId)
 {
     sessionUuid = QUuid();
     collectionSessionId = 0;
     if (!requireDatabase("createCollectionSession") || databaseTaskId <= 0
-        || deviceRevisionId <= 0 || endpointKey.trimmed().isEmpty()) {
+        || deviceRevisionId <= 0 || endpointKey.trimmed().isEmpty() || faceIndex > 3U) {
         if (m_lastError.isEmpty()) m_lastError = QStringLiteral("采集会话参数无效");
         return false;
     }
@@ -426,13 +515,14 @@ bool SqliteRuntimeRepository::createCollectionSession(
     QSqlQuery insert(m_databaseOwner.m_database);
     insert.prepare(QStringLiteral(
         "INSERT INTO collection_sessions("
-        "session_uuid,run_id,task_id,device_revision_id,endpoint_key,started_utc_ms,stop_reason) "
-        "VALUES(?,?,?,?,?,?,0)"));
+        "session_uuid,run_id,task_id,device_revision_id,endpoint_key,face_index,started_utc_ms,stop_reason) "
+        "VALUES(?,?,?,?,?,?,?,0)"));
     insert.addBindValue(newUuid.toRfc4122());
     insert.addBindValue(m_databaseOwner.m_runId);
     insert.addBindValue(databaseTaskId);
     insert.addBindValue(deviceRevisionId);
     insert.addBindValue(endpointKey);
+    insert.addBindValue(faceIndex);
     insert.addBindValue(QDateTime::currentMSecsSinceEpoch());
     if (!insert.exec()) {
         return rollbackWithError(insert.lastError().text());

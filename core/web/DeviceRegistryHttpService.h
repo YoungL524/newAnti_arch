@@ -11,7 +11,10 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 
-namespace core::app { class StorageRuntime; }
+namespace core::app {
+class ApplicationController;
+class StorageRuntime;
+}
 
 namespace core::web {
 
@@ -29,7 +32,9 @@ public:
      * @param storageRuntime 已移动到存储线程且完成initialize的唯一Owner。
      * @return 监听成功返回true。
      */
-    bool start(quint16 port, core::app::StorageRuntime &storageRuntime);
+    bool start(quint16 port,
+               core::app::StorageRuntime &storageRuntime,
+               core::app::ApplicationController &applicationController);
 
     /** @brief 停止接受新请求并清除StorageRuntime借用指针。 */
     void stop();
@@ -57,6 +62,7 @@ private:
 
     QTcpServer m_server; ///< 主线程唯一HTTP监听Socket。
     core::app::StorageRuntime *m_storageRuntime = nullptr; ///< 仅在服务启动期借用的存储线程组合根。
+    core::app::ApplicationController *m_applicationController = nullptr; ///< 主线程唯一采集编排入口。
     QString m_lastError; ///< 最近边界失败原因。
 };
 

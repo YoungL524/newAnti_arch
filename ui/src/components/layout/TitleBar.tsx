@@ -16,7 +16,9 @@ export default function TitleBar({ activeTask, viewTask, isHistoryView }: {
   viewTask: Task | null
   isHistoryView: boolean
 }) {
-  const { connected, acquisition, state, checkedDeviceIds, devices, noSelectionHint, commandError, interactionError, dismissNoSelectionHint, dismissCommandError, dismissInteractionError } = useCore()
+  const { connected, acquisition, state, commandPending, checkedDeviceIds, devices,
+    noSelectionHint, commandError, interactionError, toggleAcquisition,
+    dismissNoSelectionHint, dismissCommandError, dismissInteractionError } = useCore()
   const backendStatus = connected ? 'online' : 'offline'
 
   const isFault = state === 'Fault'
@@ -96,10 +98,15 @@ export default function TitleBar({ activeTask, viewTask, isHistoryView }: {
         className="px-3.5 py-1 rounded-lg text-white font-semibold text-[11px] border-none cursor-pointer
                    precision-shadow active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
         style={{ background: btnBg }}
-        disabled
-        title="设备控制平面尚未实现，当前只开放台账、任务、心跳和航迹显示"
+        disabled={!connected || !activeTask || isHistoryView || commandPending || isFault}
+        onClick={toggleAcquisition}
+        title={!connected ? '后端未连接'
+          : !activeTask ? '请先激活任务'
+          : isHistoryView ? '历史查看时不能启停当前采集'
+          : isFault ? '设备故障复位尚未实现'
+          : acquisition ? '停止当前任务的本地采集' : '开始当前任务的本地采集'}
       >
-        {btnLabel}
+        {commandPending ? '处理中…' : btnLabel}
       </button>
 
       {hasHints && (

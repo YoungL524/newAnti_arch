@@ -8,6 +8,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { HeartbeatStatus, WsDeviceStateMessage, WsMessage, WsTracksMessage, WsTrackDisplayPoint, RadarTrack, LogEntry, TrackHistoryPoint, SystemEvent } from '../lib/protocol'
 import { applyTrackStreamMessage } from '../lib/trackStream'
+import { startTaskAcquisitionApi, stopTaskAcquisitionApi } from '../lib/tasksApi'
 
 interface DeviceState {
   id: string
@@ -188,14 +189,24 @@ export function CoreProvider({
   }, [state.acquisition, flushTracksToState])
 
   /**
-   * @brief 在 ApplicationController 尚未实现时拒绝启停意图。
-   * @return 完成的 Promise；只写用户可见错误，不发送网络命令或推进运行状态。
+   * @brief 把当前活动任务的启停意图提交给后端唯一ApplicationController。
+   * @return 完成的 Promise；最终采集事实仍以后端DeviceState WebSocket为准。
    */
   const toggleAcquisition = useCallback(async () => {
+    const taskId = activeTaskIdRef.current
+    if (!taskId) {
+      setState(prev => ({ ...prev, commandError: '当前没有活动任务' }))
+      return
+    }
+    const stopping = workingRef.current
+    setState(prev => ({ ...prev, commandPending: true, commandError: '' }))
+    const result = stopping
+      ? await stopTaskAcquisitionApi(taskId)
+      : await startTaskAcquisitionApi(taskId)
     setState(prev => ({
       ...prev,
       commandPending: false,
-      commandError: '设备控制尚未接入 ApplicationController，未向设备发送任何命令',
+      commandError: result.ok ? '' : (result.error ?? '采集命令失败'),
     }))
   }, [])
 
@@ -370,9 +381,19 @@ export function CoreProvider({
         try {
           const msg: WsMessage = JSON.parse(raw)
           if (isDeviceStateMessage(msg)) {
-            setState(prev => ({ ...prev, deviceHeartbeat: msg }))
+            const acquisition = msg.payload.devices.some(device => device.acquisition)
+            setState(prev => ({
+              ...prev,
+              deviceHeartbeat: msg,
+              devices: msg.payload.devices,
+              acquisition,
+              state: acquisition ? 'Working' : 'Standby',
+              ...(!acquisition ? { tracks: [], trackRate: 0 } : {}),
+            }))
           } else if (msg.type === 'log') {
+            if (msg.sequence && logRef.current.some(log => log.sequence === msg.sequence)) return
             const entry: LogEntry = {
+              ...(msg.sequence ? { sequence: msg.sequence } : {}),
               level: msg.level,
               message: msg.message,
               timestamp: msg.timestamp,
@@ -388,6 +409,7 @@ export function CoreProvider({
 
       ws.onclose = () => {
         if (cancelled) return
+        logRef.current = []
         setState(prev => ({ ...prev, connected: false, deviceHeartbeat: null }))
         reconnectTimer = setTimeout(connect, 1000)
       }

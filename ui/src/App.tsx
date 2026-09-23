@@ -16,15 +16,17 @@ import { type AppDevice, type RadarDevice, type SubDevice } from './components/m
 import DeviceEditDialog from './components/dialogs/DeviceEditDialog'
 import { fetchDevices, createDevice, deleteDeviceApi, updateDevice as apiUpdateDevice, radarToApiPayload, subToApiPayload, apiDeviceToRadar, apiDeviceToSub, type DeviceRegistryStatus } from './lib/devicesApi'
 import TaskCreateDialog, { type TaskCreateResult } from './components/dialogs/TaskCreateDialog'
-import type { Task } from './lib/taskTypes'
+import type { Task, TaskTemplate } from './lib/taskTypes'
 import {
   fetchTasksFromBackend,
   createTaskApi,
   activateTaskApi,
   completeTaskApi,
+  archiveTaskApi,
   deleteTaskApi,
   apiTaskToTask,
   taskToApiPayload,
+  fetchTaskTemplates,
 } from './lib/tasksApi'
 /**
  * @brief 组装雷达上位机单页应用，并协调任务、设备及当前视图选择。
@@ -44,8 +46,9 @@ export default function App() {
   const [viewTaskRunId, setViewTaskRunId] = useState<string | null>(null)
   const [tasksReady, setTasksReady] = useState(false)
   const [tasksBackend, setTasksBackend] = useState(false)
+  const [taskTemplates, setTaskTemplates] = useState<TaskTemplate[]>([])
   const [showTaskDialog, setShowTaskDialog] = useState(false)
-  const taskActionPendingId: string | null = null
+  const [taskActionPendingId, setTaskActionPendingId] = useState<string | null>(null)
   const [taskActionError, setTaskActionError] = useState('')
   const tasksRef = useRef<Task[]>([])
   const activeTaskIdRef = useRef<string | null>(null)
@@ -86,6 +89,10 @@ export default function App() {
       })
       .catch(() => setTasksBackend(false))
       .finally(() => setTasksReady(true))
+
+    fetchTaskTemplates()
+      .then(result => setTaskTemplates(result.ok ? result.data?.templates ?? [] : []))
+      .catch(() => setTaskTemplates([]))
   }, [])
 
   useEffect(() => {
@@ -102,7 +109,7 @@ export default function App() {
   const isHistoryView = !!viewTaskRunId && viewTaskRunId !== activeTaskId
   const displayTask = isHistoryView ? viewTask : activeTask
   const lastReusableTask = useMemo(() =>
-    tasks.find(t => t.status === 'completed' || t.status === 'archived') ?? null,
+    [...tasks].reverse().find(t => t.status === 'completed' || t.status === 'archived') ?? null,
   [tasks])
   const historyViewNotice = useMemo(() => {
     if (!viewTaskRunId || viewTaskRunId === activeTaskId) return ''
@@ -180,10 +187,57 @@ export default function App() {
     return { ok: true }
   }, [tasksBackend])
 
+  /**
+   * @brief 从已完成任务创建新的执行记录；激活前核对后端复制的参数快照，防止模板变化导致旧配置被替换。
+   * @param sourceTaskId 历史任务的稳定 UUID；原记录和归档事实保持不变。
+   * @note 核对失败时删除刚创建的草稿；删除失败则保留草稿并提示用户处理。
+   */
   const rerunTask = useCallback(async (sourceTaskId: string) => {
-    void sourceTaskId
-    setTaskActionError('任务再次执行接口尚未实现，请新建任务')
-  }, [])
+    if (taskActionPendingId !== null) return
+    const source = tasksRef.current.find(task => task.id === sourceTaskId)
+    if (!source || (source.status !== 'completed' && source.status !== 'archived')) {
+      setTaskActionError('只能再次执行已完成或已归档的任务')
+      return
+    }
+    if (activeTaskIdRef.current) {
+      setTaskActionError('已有当前任务，请先完成当前任务')
+      return
+    }
+    if (!tasksBackend) {
+      setTaskActionError('核心服务未连接，无法再次执行任务')
+      return
+    }
+    setTaskActionPendingId(sourceTaskId)
+    setTaskActionError('')
+    try {
+      const created = await createTaskApi(taskToApiPayload(source))
+      if (!created.ok || !created.data?.task) {
+        setTaskActionError(created.error || '复制任务失败')
+        return
+      }
+      const copy = created.data.task
+      if (JSON.stringify(copy.controlSettings) !== JSON.stringify(source.controlSettings)) {
+        const removed = await deleteTaskApi(copy.taskId)
+        setTaskActionError(removed.ok
+          ? '原任务的参数快照与当前模板不同，已取消再次执行'
+          : `原任务参数与当前模板不同；新草稿“${copy.name}”未能自动删除，请手动处理`)
+        if (!removed.ok) reloadBackendData()
+        return
+      }
+      const activated = await activateTaskApi(copy.taskId)
+      if (!activated.ok || !activated.data?.task) {
+        setTasks(prev => [...prev, apiTaskToTask(copy)])
+        setTaskActionError(`任务已复制为草稿，但激活失败：${activated.error || '请检查设备绑定'}`)
+        return
+      }
+      const task = apiTaskToTask(activated.data.task)
+      setTasks(prev => [...prev, task])
+      setActiveTaskId(task.id)
+      setViewTaskRunId(task.id)
+    } finally {
+      setTaskActionPendingId(null)
+    }
+  }, [taskActionPendingId, tasksBackend, reloadBackendData])
 
   const completeTask = useCallback(async () => {
     const id = activeTaskIdRef.current
@@ -206,10 +260,30 @@ export default function App() {
     setViewTaskRunId(id)
   }, [tasksBackend])
 
+  /**
+   * @brief 请求后端持久化任务归档状态，成功后只替换该任务展示快照。
+   * @param taskId 已完成且非活动任务的稳定 UUID。
+   */
   const archiveTask = useCallback(async (taskId: string) => {
-    void taskId
-    setTaskActionError('任务归档接口尚未实现；完成任务不会删除已保存事实')
-  }, [])
+    if (taskActionPendingId !== null) return
+    setTaskActionError('')
+    if (!tasksBackend) {
+      setTaskActionError('核心服务未连接，无法归档任务')
+      return
+    }
+    setTaskActionPendingId(taskId)
+    try {
+      const result = await archiveTaskApi(taskId)
+      if (!result.ok || !result.data?.task) {
+        setTaskActionError(result.error || '归档任务失败')
+        return
+      }
+      const archived = apiTaskToTask(result.data.task)
+      setTasks(prev => prev.map(task => task.id === taskId ? archived : task))
+    } finally {
+      setTaskActionPendingId(null)
+    }
+  }, [taskActionPendingId, tasksBackend])
 
   const deleteTask = useCallback(async (taskId: string) => {
     const task = tasksRef.current.find(t => t.id === taskId)
@@ -400,6 +474,7 @@ export default function App() {
       {showTaskDialog && (
         <TaskCreateDialog
           radarDevices={devices}
+          taskTemplates={taskTemplates}
           onCreate={createTask}
           onCancel={() => setShowTaskDialog(false)}
         />

@@ -10,6 +10,7 @@
 
 #include "core/config/DeviceConfiguration.h"
 #include "core/task/TaskDefinition.h"
+#include "core/task/RadarControlSettings.h"
 
 #include <QString>
 #include <QVector>
@@ -60,6 +61,18 @@ public:
         QVector<qint64> &deviceRevisionIds);
 
     /**
+     * @brief 读取全部未删除控制模板，供TaskService建立低频选择快照。
+     * @param templateUuids 成功时按创建顺序写入稳定UUID。
+     * @param names 与UUID同下标的模板名称。
+     * @param settings 与UUID同下标的已解析完整控制参数。
+     * @return 查询、JSON解析和值域校验全部成功返回true。
+     */
+    bool loadControlTemplates(
+        QVector<QUuid> &templateUuids,
+        QVector<QString> &names,
+        QVector<core::task::RadarControlSettings> &settings);
+
+    /**
      * @brief 以追加tombstone revision的方式软删除一台完整雷达。
      * @param deviceUuid 待删除设备的稳定UUID。
      * @param expectedRevision UI最后读取的revision，用于拒绝覆盖并发修改。
@@ -105,10 +118,20 @@ public:
     bool completeTask(qint64 databaseTaskId, qint64 completedUtcMs);
 
     /**
+     * @brief 只给已完成且未归档任务写入归档时间，不修改航迹、事件和采集会话。
+     * @param databaseTaskId SQLite tasks 主键，必须大于零。
+     * @param archivedUtcMs Unix epoch UTC 毫秒，必须大于零。
+     * @return 条件更新恰好一行时返回 true；失败原因由 lastError() 提供。
+     * @warning 只能在 SQLite 单写线程调用。
+     */
+    bool archiveTask(qint64 databaseTaskId, qint64 archivedUtcMs);
+
+    /**
      * @brief 为当前 application run 创建一次 Running 采集会话。
      * @param databaseTaskId tasks 正主键。
      * @param deviceRevisionId devices revision 正主键。
      * @param endpointKey 本次实际接收航迹的稳定端点键。
+     * @param faceIndex 本次采集对应的0～3物理阵面索引。
      * @param sessionUuid 成功时回填新生成的稳定 UUID。
      * @param collectionSessionId 成功时回填 collection_sessions 主键。
      * @return 外键存在且事务提交成功返回 true。
@@ -117,6 +140,7 @@ public:
         qint64 databaseTaskId,
         qint64 deviceRevisionId,
         const QString &endpointKey,
+        quint8 faceIndex,
         QUuid &sessionUuid,
         qint64 &collectionSessionId);
 

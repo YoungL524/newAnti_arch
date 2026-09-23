@@ -209,7 +209,8 @@ export default function TrackLayer({ device, mapInstance, mapClass }: Props) {
 
       const trackId = t.trackId ?? t.batchId ?? 0
       if (!m.has(trackId)) m.set(trackId, [])
-      const projected = projectRadarTrack(device, t.azimuth, t.elevation, t.slantRange)
+      const projected = projectRadarTrack(device, t.faceIndex ?? -1, t.azimuth, t.elevation, t.slantRange)
+      if (!projected) continue
       m.get(trackId)!.push({
         lng: projected.lng, lat: projected.lat, deviceId, trackId,
         slantRange: t.slantRange,
@@ -311,4 +312,3 @@ export default function TrackLayer({ device, mapInstance, mapClass }: Props) {
 
   return <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-20" />
 }
-

@@ -6,11 +6,13 @@
  */
 #pragma once
 #include "core/datadomain/CoreDataDomain.h"
+#include "core/app/ApplicationController.h"
 #include "core/comm/UdpEndpoint.h"
 #include "core/protocol/DcmpProtocolAdapter.h"
-#include "core/producer/HeartbeatStateOwner.h"
+#include "core/control/DeviceController.h"
 #include "core/producer/TrackIngressProducer.h"
 #include "core/web/StateWebSocketService.h"
+#include "core/web/EventWebSocketService.h"
 #include "core/web/TrackWebSocketService.h"
 #include "core/web/WebSocketGateway.h"
 #include "core/web/DeviceRegistryHttpService.h"
@@ -51,14 +53,16 @@ private:
     QThread m_storageThread; ///< 最多一个 SQLite 单写线程；不承载实时 Topic 数据。
     StorageRuntime *m_storageRuntime = nullptr; ///< 仅由存储线程执行并随线程结束 deleteLater 的组合根。
     core::execution::ExecutionLane m_lane; ///< 共享主线程调度。
-    core::producer::HeartbeatStateOwner m_heartbeat; ///< 唯一设备状态owner。
+    core::control::DeviceController m_deviceController; ///< 唯一设备状态与后续命令owner。
     core::producer::TrackIngressProducer m_trackIngress; ///< 0x0100到TrackTopic的唯一Producer；未绑定会话时拒绝发布。
+    core::app::ApplicationController m_applicationController; ///< 唯一采集业务编排入口；绑定本地会话但不发送设备命令。
     core::protocol::DcmpProtocolAdapter m_adapter; ///< 同步协议入口。
     core::comm::UdpEndpoint m_internal; ///< 唯一内部UDP端点。
     core::web::WebSocketGateway m_gateway; ///< /ws/v1唯一网络连接owner。
     core::web::DeviceRegistryHttpService m_deviceHttp; ///< 设备与任务登记的低频HTTP边界，不进入数据域。
     core::web::StateWebSocketService m_stateWeb; ///< DeviceState只读Reader。
     core::web::TrackWebSocketService m_trackWeb; ///< TrackTopic独立cursor只读Reader。
+    core::web::EventWebSocketService m_eventWeb; ///< EventTopic独立cursor只读Reader；与归档共享事实，不复制历史。
     QString m_error; ///< 最近启动失败原因。
     bool m_running = false; ///< 重复启动保护。
 };

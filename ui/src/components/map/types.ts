@@ -5,10 +5,18 @@
  */
 
 export interface RadarFace {
-  label: string               // 阵面标识: "A" / "B" / "C" / "D"
-  boresightAzimuth: number    // 该阵面实测绝对朝向 (°), 0=North, CW
-  scanAngle: number           // 该阵面扫描半角 (°), e.g. 45 for ±45°
-  active: boolean             // 是否开启扫描
+  /** 阵面显示标识，依次为A、B、C、D。 */
+  label: string
+  /** 该阵面实测绝对航向，单位度；正北为0且顺时针为正。 */
+  heading: number
+  /** 该阵面安装俯仰角，单位度；抬头为正。 */
+  pitch: number
+  /** 该阵面安装横滚角，单位度；右侧下沉为正。 */
+  roll: number
+  /** 该阵面扫描半角，单位度；45表示覆盖正负45度。 */
+  scanAngle: number
+  /** 表示该阵面是否参与当前设备配置。 */
+  active: boolean
 }
 
 /** @brief 表示设备revision内嵌的一个UDP目标地址。 */
@@ -44,14 +52,16 @@ export interface RadarDevice {
   lng: number
   lat: number
   altitude: number
-  pitch: number                 // 整机俯仰角 (°), 抬头为正
-  roll: number                  // 整机横滚角 (°), 右倾为正
-  heading: number               // 整机真北顺时针绝对航向 (°)
-  maxRange: number            // km
-  faces: RadarFace[]          // 阵面列表
-  endpointId?: string         // 关联的后端通信端点 id
-  endpoint: RadarEndpoint     // 与本设备revision原子保存的内部UDP端点
-  backendManaged?: boolean    // 是否来自后端设备台账
+  /** 台账显示最大距离，单位千米。 */
+  maxRange: number
+  /** 随设备revision原子保存的逐阵面安装参数。 */
+  faces: RadarFace[]
+  /** 关联的后端通信端点稳定键。 */
+  endpointId?: string
+  /** 与本设备revision原子保存的内部UDP端点。 */
+  endpoint: RadarEndpoint
+  /** 表示该对象是否来自后端权威设备台账。 */
+  backendManaged?: boolean
 }
 
 export interface SubDevice {
@@ -77,12 +87,9 @@ export const DEFAULT_DEVICE: Omit<RadarDevice, 'id'> = {
   lng: 118.65303,
   lat: 31.93494,
   altitude: 63.9288,
-  pitch: 0,
-  roll: 0,
-  heading: 0,
   maxRange: 5,
   faces: [
-    { label: 'A', boresightAzimuth: 0, scanAngle: 45, active: true },
+    { label: 'A', heading: 0, pitch: 0, roll: 0, scanAngle: 45, active: true },
   ],
   endpointId: 'radar_cpu',
   endpoint: {

@@ -71,7 +71,6 @@ static_assert(std::is_standard_layout<DcmpFrameHeader>::value
               && std::is_trivially_copyable<DcmpFrameHeader>::value,
               "公共头必须是无动态资源的标准布局值对象");
 
-
 /** @brief 0x0001：DCMP 发给 DP 的 896 字节控制载荷，含四面独立控制区。 */
 struct DcmpToDpControlPayload
 {
@@ -88,7 +87,7 @@ struct DcmpToDpControlPayload
         std::uint32_t F_UI_STC_Mode = {}; ///< 区内偏移 20：STC方案；在STC开关打开时起效 00：方案一 01：方案二 10：方案三 11：方案四。
         std::uint32_t F_UI_Exc_Switch = {}; ///< 区内偏移 24：激励信号关闭开关；00：激励信号开（默认开） 01：激励信号关。
         std::int32_t F_UI_CFAR_Mode_Ctrl = {}; ///< 区内偏移 28：CFAR方案控制；00：方案一 01：方案二。
-        std::uint32_t F_UI_STBY_Ctrl = {}; ///< 区内偏移 32：待机控制；00：待机关（默认） 01：待机开（发送待机命令）。
+        std::uint32_t F_UI_STBY_Ctrl = {}; ///< 区内偏移 32：采集工作控制；00：停止采集，01：开始或保持采集。
         std::int32_t F_UI_CFAR_Ctrl_1 = {}; ///< 区内偏移 36：CFAR门限控制1。
         std::int32_t F_UI_CFAR_Ctrl_2 = {}; ///< 区内偏移 40：CFAR门限控制2。
         std::int32_t F_UI_Vel_Ctrl = {}; ///< 区内偏移 44：速度门限控制。

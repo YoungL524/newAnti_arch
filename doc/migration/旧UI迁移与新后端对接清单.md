@@ -17,12 +17,12 @@ CoreDataDomain::trackTopic
 UI Command
         --> ApplicationController
         --> DeviceController（唯一 owner）
-        --> Per-Device FIFO --> ProtocolAdapter --> Device
+        --> DcmpProtocolAdapter --> 本地 UDP Socket --> Device
 ```
 
 - `Qt signal/slot` Doorbell 只存在于进程内 `Topic -> WebReader/ExecutionLane` 调度边界，不跨 WebSocket 暴露。
 - `snapshot/delta` 是 WebReader 的序列化输出，不是第二份 Topic 历史；浏览器只保留当前显示态。
-- `/api/v1/tasks/{taskId}/start|stop` 和航迹交互均属于独立 Command 控制平面，HTTP 成功只能表示 owner 接受请求；ACK 后状态再由 State/Event 输出。Owner 落地前按钮必须禁用，不得请求旧 `/api/start|stop|reset`。
+- `/api/v1/tasks/{taskId}/acquisition/start|stop` 属于独立控制平面，HTTP 结果只表示本地请求处理结果；设备没有 ACK，不据此推断设备起控。航迹交互仍未接入 DeviceController，不得请求旧 `/api/start|stop|reset`。
 
 ## 接入前必须收敛的合同
 
@@ -30,7 +30,7 @@ UI Command
 |---|---|---|
 | `/api/v1/devices` | `DeviceConfigService` 的 HTTP 边界 | 保留页面，使用 `expectedRevision` 处理冲突 |
 | `/api/v1/tasks` | `TaskService` 的 HTTP 边界 | 保留页面；删除必须是软删除 |
-| `/api/v1/tasks/{taskId}/start|stop` | `ApplicationController -> DeviceController` | 控制面落地后启用，禁止映射到普通 Topic |
+| `/api/v1/tasks/{taskId}/acquisition/start|stop` | `ApplicationController -> DeviceController` | 已接入本地采集链，结果不表示设备收到或起控；禁止映射到普通 Topic |
 | `/api/status` | `LatestState<DeviceState/TaskState/SystemState>` 的 Web/HTTP Reader | State 类型合同已定义，待正式 owner 接入 |
 | `/api/v1/archive/tracks` | SQLite 查询服务 | 归档查询落地后启用页面，分页字段与六表 Schema 对齐 |
 | `/api/v1/archive/events` | SQLite `system_events` 查询服务 | 归档查询落地后启用页面 |

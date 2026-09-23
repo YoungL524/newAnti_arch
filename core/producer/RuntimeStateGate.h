@@ -27,7 +27,7 @@ enum class RuntimeStateRejection : quint8
     DuplicateOrUnsortedDeviceId, ///< DeviceId 重复或未严格升序。
     InvalidDeviceEnum, ///< 连接或工作状态枚举不在登记范围。
     InvalidDeviceFlags, ///< validity 或 currentFaultFlags 含未知位。
-    InvalidDeviceOptionalField, ///< validity 与 acquisitionId/activeRequestId 零值不一致。
+    InvalidDeviceOptionalField, ///< validity 与 acquisitionId 零值不一致。
     InvalidDeviceStateCombination, ///< 连接、工作、会话、请求或故障状态互相矛盾。
     InvalidTaskEnum, ///< TaskPhase 不在登记范围。
     InvalidTaskIdentity, ///< TaskId 与 None/活动阶段不一致。

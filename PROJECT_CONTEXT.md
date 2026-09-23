@@ -1,5 +1,68 @@
 # 项目上下文与新仓库启动交接
 
+> **2026-09-23 前端任务归档与活动日志断点**：已接通 `POST /api/v1/tasks/{taskId}/archive`，
+> Schema 12 为任务增加持久化归档时间；归档只改变展示状态，历史航迹和事件仍由原表保存。
+> TaskService 将创建、激活、完成、归档事实发布到统一 EventTopic；Web Reader 向活动日志推送，
+> 既有 ArchiveReader 向 `system_events` 写入。按用户要求，本轮仅静态检查，尚未编译或运行测试。
+
+> **2026-09-23 架构图更新**：现行总览图为 `doc/architecture/新架构4.png`；`新架构3.png` 仅为演进记录。
+> 设备控制由 `ApplicationController -> DeviceController -> DcmpProtocolAdapter -> 本地 UDP Socket` 单向发送；
+> 当前 `0x0001` 没有 FIFO、ACK 或设备起控确认，HTTP 结果只表示本地采集请求的处理结果。
+
+> **2026-09-22 0x0001端到端UDP联试完成断点**：
+> 1. DcmpHeartbeatSimulator已增加独立DPH监听模式，逐包验证944字节、声明长度932、0x0001、包尾与F_UI_STBY_Ctrl；仍不维护业务状态，不发ACK或航迹。
+> 2. 隔离SQLite下启动正式NewAntiDrone进程，通过正式HTTP创建、激活和启停任务：未开始无包；开始后连续实包字段为1；停止SP心跳并超时后无新包；恢复SP后续发；停止采集的最后一包为0，随后无新包。
+> 3. 实测有效周期多数为60～65 ms，可见50 ms Qt定时器在当前Windows调度下的抖动；未增加ACK、重试队列、第二Owner、workmode FIFO、0xFFFF或虚假航迹。本项已完成并停下，下一步由用户决定是否进入React控制参数面板；下方“下一步只做0x0001联试”已被本断点取代。
+
+> **2026-09-22 当前权威断点与下一步**：独立`DcmpToDpWorkModePayload/0xFFFF`已经取消；开始及采集期间由
+> `DcmpToDpControlPayload::CommonControl::F_UI_STBY_Ctrl=1`表达，停止为`0`。最小控制链保持
+> `HTTP/UI -> ApplicationController -> DeviceController -> DcmpProtocolAdapter -> sock2Internal -> DP`；
+> `DeviceController`只在本地采集且DP/SP心跳均在线时运行50 ms定时器，任一离线停止，恢复后自动续发，
+> 不等待ACK、不停止本地PPI，也没有FIFO、重试队列或第二条控制链。`0x0001`按设备台账中的DPH目标发送。
+> 隔离构建、20/20 CTest及中文Doxygen审计已通过；尚未用独立UDP接收端完成进程级实包联试。
+>
+> **下一步只做一项：0x0001端到端UDP联试。** 复用或最小扩展现有心跳模拟工具，使其在继续发送DP/SP心跳的
+> 同时监听设备台账DPH目标端口，逐包校验944字节完整封装、消息类型`0x0001`、声明长度932、包尾及
+> `F_UI_STBY_Ctrl`。验收顺序为：未开始不收包；开始后约50 ms一包且字段为1；断开任一心跳后停发；恢复双心跳
+> 后续发；停止采集时最后一包字段为0且此后不再发送。不得把模拟器变成第二个业务Owner，不构造虚假航迹，
+> 不新增ACK或修改已冻结架构。联试通过并记录结果后停下，再由用户决定是否进入React控制参数面板。
+>
+> 下方同日期及更早条目是实施历史；出现“待接入workmode/FIFO/50 ms发送”等旧描述时，以本条为准。
+
+> **2026-09-22 本地采集链路断点**：`POST /api/v1/tasks/{taskId}/acquisition/start|stop` 已接通
+> `ApplicationController -> TaskService/DeviceController -> TrackIngressProducer`；逐阵面会话、TaskState Running/Ready、
+> DeviceState Collecting/Idle、WebSocket设备采集状态和React PPI扫描共用一条正式链路。开始本地扫描不以心跳为门禁，
+> 停止后不再发布航迹。后端构建、20/20 CTest、中文Doxygen审计、前端9/9测试及生产构建均通过。
+> `DcmpToDpControlPayload::CommonControl::F_UI_STBY_Ctrl` 已替代独立workmode：采集期间为1，停止为0；
+> `DeviceController`在DP/SP均在线时每50 ms经既有`sock2Internal`发送，任一离线暂停并在恢复后续发。
+
+> **2026-09-22 逐阵面采集身份断点**：`DeviceRuntimeState` 已从单个会话句柄收敛为固定四槽
+> `faceAcquisitionIds`，门禁要求非零句柄互不重复；SQLite Schema 11 为 `collection_sessions` 增加
+> `face_index`，Schema 10 历史会话迁移为0号阵面；`TaskService::startCollection()` 只允许为任务
+> `faceMask` 已启用阵面创建独立 `AcquisitionId`。下一步按该合同装配本地采集会话与唯一
+> `TrackIngressProducer::bind()`，本轮尚未接入HTTP/UI、workmode或50 ms发送。
+
+> **2026-09-22 最小控制Owner断点**：`DeviceController` 已替换并删除 `HeartbeatStateOwner`，成为
+> `LatestState<DeviceState>` 唯一写入者，同时只持当前任务的一份 `RadarControlSettings` 运行副本和逐设备
+> `faceMask`；`ApplicationController` 已负责把任务稳定设备UUID原子收敛为强类型 `DeviceId`。当前没有采集会话
+> 编排、workmode FIFO、UDP控制发送或50 ms定时器。下一步装配本地采集会话与唯一
+> `TrackIngressProducer::bind()`；随后再把per-device FIFO与真实workmode发送一起落地。
+
+> **2026-09-21 任务模板持久化断点**：已落地唯一 `RadarControlSettings` 值类型、SQLite Schema 10
+> `control_templates` 表及任务参数快照，数据库升级写入一条只读默认模板并补齐既有任务；HTTP
+> `GET /api/v1/task-templates`、任务创建的 `sourceTemplateId` 和 React 模板选择已接通。浏览器只提交模板来源，
+> 后端负责复制任务独立快照，未引入第二套控制模型。下一步只实现最小
+> `ApplicationController -> DeviceController -> Per-Device FIFO -> ProtocolAdapter` Owner 骨架；在业务交互与
+> 生命周期确认前，不启动 50 ms 参数发送。
+
+> **2026-09-20 界面参数映射与设备姿态迁移断点**：已逐行核对表内版本 `20260915` Excel 的
+> `0x0001` 控制载荷，`doc/contracts/DCMP界面控制参数映射契约.md` 已冻结 CommonControl、
+> FrameControl、Navigation、FaceControl 的字段、控件、默认进制和模式依赖。设备台账已删除整机姿态，
+> SQLite Schema 9、HTTP DTO、React 类型、编辑表单和地图投影统一为逐阵面 `heading/pitch/roll`；四面阵
+> 由物理 1# 实测航向顺时针每 90° 推导其余阵面，航迹按 `faceIndex` 精确选择姿态。RF 复位保持周期及
+> 黄色指示退出条件仍待确认。下一步实现任务模板持久化，再设计最小 ApplicationController/DeviceController；
+> 不得提前启动 50 ms 控制发送。
+
 > **2026-09-18 协议/架构复核断点**：已以表内版本 `20260915` Excel 重新对齐公共封装、
 > `0x0001/0x0100/0x0101/0x0303`、FPGA 128 字节状态区和 224 字节航迹；设备/任务 HTTP 统一为
 > `/api/v1`，网络身份字段为 `deviceId/taskId`，成功/失败响应已统一为 `data` 与
@@ -7,19 +70,20 @@
 > C++14/C11 交付头语法检查及中文 Doxygen 审计均通过。恢复后从以下三项继续：
 > 1. 如需对 HTTP 状态码做 Socket 级黑盒验收，在现有 `StorageRuntimeContract` 之上增加最小路由测试；
 > 2. 最新 Excel、新增 Core/Web/测试/模拟器均是正式成果；`output.txt` 是用户提供材料，不擅自删除；
-> 3. 保持真实航迹拒绝未绑定上下文，待 Command Owner/ACK 和采集会话落地后，再由唯一 owner
+> 3. 保持真实航迹拒绝未绑定上下文，待最小 Command Owner 和本地采集会话落地后，再由唯一 owner
 > 调用 `TrackIngressProducer::bind()`；禁止伪造 ID 或增加第二条链路。
 
 > **2026-09-18 控制平面前置评审**：任务选择只是 `Ready`，UI 已改为“已就绪”，不再伪装“进行中”；
-> 开始采集按钮仍禁用，因 `ApplicationController/DeviceController/per-device FIFO/ACK` 尚未落地。
-> 实现时必须同时满足：心跳并入 `DeviceController` 权威快照，不保留两个 `DeviceState` Owner；
-> 设备 ACK 后按任务 faceMask 创建各阵面采集会话，再由唯一编排者绑定 `TrackIngressProducer`。
+> 开始采集按钮仍禁用，因 `ApplicationController/DeviceController` 与本地采集编排尚未落地。
+> 已冻结无 ACK 边界：开始操作先建立本地采集会话并驱动 PPI，按任务 faceMask 绑定唯一
+> `TrackIngressProducer`；workmode 只报告本地 UDP 发送结果。DP/SP 心跳只门控 50 ms 参数包，
+> 任一离线暂停、均恢复后续发，不得反向停止本地扫描。实现时心跳必须并入唯一 DeviceState Owner。
 > Schema 8 只为位置仍为全零的内置单/四面阵台账补齐 `118.65303,31.93494,63.9288m`，
 > 不覆盖用户修改值；同一默认已同步到 UI 新建表单和地图中心。
 
 > 2026-09-17 当前基线：内部 UDP 为 `127.0.0.1:7788`，设备/任务 HTTP 为 `127.0.0.1:8088`，
 > `DeviceState` 与航迹共用 `ws://127.0.0.1:8089/ws/v1`。协议唯一字段底表为表内版本 `20260915` 的最新版
-> Excel；`0x0100` Adapter、TrackTopic、归档与 Web Consumer 已存在，但生产环境尚缺控制 ACK 后创建采集会话
+> Excel；`0x0100` Adapter、TrackTopic、归档与 Web Consumer 已存在，但生产环境尚缺本地开始操作创建采集会话
 > 并调用 `TrackIngressProducer::bind()` 的装配，故真实航迹会被明确拒绝而不是使用伪造身份。以下旧日期条目只作迁移记录。
 
 > 2026-09-09 core收敛：ApplicationRuntime统一拥有心跳链依赖和端口启动、失败回滚、关闭顺序。
@@ -107,12 +171,12 @@ D:\NewAntiDrone-newArch\
 | --- | --- |
 | `README.md` | 软件目标、当前完成度、构建方式、启动方式、测试入口 |
 | `doc/architecture/00-架构索引.md` | 哪些文档是现行规范，哪些是 ADR、合同、迁移或测试文档 |
-| `doc/architecture/02-Command控制平面.md` | ApplicationController、DeviceController、每设备 FIFO、ACK、超时、Result |
+| `doc/architecture/10-采集控制实施清单.md` | 当前采集业务边界、无 ACK 语义、心跳门控及逐步实施状态 |
 | `doc/architecture/03-线程与生命周期.md` | GUI、通信、存储、WorkerPool 的线程亲和及启动/停机顺序 |
 | `doc/contracts/统一单位坐标时间契约.md` | 经纬高、绝对航向、俯仰、横滚、角度方向、长度单位、UTC/单调时间 |
 | `doc/contracts/TrackPacket契约.md` | 字段、单位、可空性、track key、识别状态、source/sample 元数据 |
 | `doc/contracts/设备状态与系统事件契约.md` | Device/Task/System State 及 SystemEvent severity 和字段 |
-| `doc/contracts/厂家协议适配边界.md` | 包头、命令字、声明长度、包尾、CRC、ACK 关联和错误分类 |
+| `doc/contracts/厂家协议适配边界.md` | 包头、命令字、声明长度、包尾、CRC 和错误分类 |
 | `doc/migration/旧系统资产映射.md` | 每个旧文件的保留、重写、参考或删除结论 |
 | `doc/test/核心链路验收基线.md` | 创建任务、启停、接收、显示、存储、4设备压力和 7×24 门禁 |
 | `doc/decisions/ADR-0001-共享强类型数据域.md` | 为什么选择共享 RingBuffer/cursor，而不是 Broker 或 per-consumer Queue |

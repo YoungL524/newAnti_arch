@@ -4,7 +4,7 @@
  * @details 客户端只提交意图并展示服务端结果，合法状态迁移和设备绑定约束由 TaskService 判定。
  */
 
-import type { Task, TaskRadarArrayType, TaskStatus } from './taskTypes'
+import type { RadarControlSettings, Task, TaskRadarArrayType, TaskStatus, TaskTemplate } from './taskTypes'
 
 const BASE = '/api/v1/tasks'
 
@@ -23,6 +23,10 @@ export interface ApiTask {
   radarArrayType?: TaskRadarArrayType
   deviceIds: string[]
   deviceFaceMasks?: Record<string, number>
+  /** 创建任务时选择的模板稳定UUID。 */
+  sourceTemplateId: string
+  /** 后端从模板复制出的任务独立参数快照。 */
+  controlSettings: RadarControlSettings
   createdAt: number
   activatedAt?: number
   completedAt?: number
@@ -32,6 +36,7 @@ export interface ApiTask {
 interface TaskListData { tasks: ApiTask[] }
 interface TaskResponseData { task: ApiTask }
 interface ActiveTaskData { activeTaskId: string | null; task?: ApiTask }
+interface TemplateListData { templates: TaskTemplate[] }
 
 async function apiCall<T = any>(url: string, options?: RequestInit): Promise<ApiResult<T>> {
   try {
@@ -67,6 +72,8 @@ export function apiTaskToTask(item: ApiTask): Task {
     radarArrayType: item.radarArrayType ?? 'singleFace',
     deviceIds: item.deviceIds ?? [],
     deviceFaceMasks: item.deviceFaceMasks ?? {},
+    sourceTemplateId: item.sourceTemplateId,
+    controlSettings: item.controlSettings,
     createdAt: item.createdAt,
     activatedAt: item.activatedAt || undefined,
     completedAt: item.completedAt || undefined,
@@ -81,6 +88,7 @@ export function taskToApiPayload(data: {
   deviceIds?: string[]
   radarArrayType?: TaskRadarArrayType
   deviceFaceMasks?: Record<string, number>
+  sourceTemplateId: string
 }): Record<string, unknown> {
   return {
     name: data.name,
@@ -89,7 +97,13 @@ export function taskToApiPayload(data: {
     deviceIds: data.deviceIds ?? [],
     radarArrayType: data.radarArrayType ?? 'singleFace',
     deviceFaceMasks: data.deviceFaceMasks ?? {},
+    sourceTemplateId: data.sourceTemplateId,
   }
+}
+
+/** @brief 读取后端权威任务模板；模板参数不会在前端生成默认值。 */
+export async function fetchTaskTemplates(): Promise<ApiResult<TemplateListData>> {
+  return apiCall('/api/v1/task-templates')
 }
 
 export async function fetchTasksFromBackend(): Promise<{ tasks: Task[]; activeTaskId: string | null } & ApiResult> {
@@ -126,6 +140,25 @@ export async function activateTaskApi(id: string): Promise<ApiResult<TaskRespons
 
 export async function completeTaskApi(id: string): Promise<ApiResult<TaskResponseData>> {
   return apiCall(`${BASE}/${encodeURIComponent(id)}/complete`, { method: 'POST' })
+}
+
+/**
+ * @brief 请求后端持久化已完成任务的归档时间，保留任务关联的航迹与事件事实。
+ * @param id 已完成任务的稳定 UUID。
+ * @return 更新后的权威任务；拒绝或存储失败时返回可展示错误。
+ */
+export async function archiveTaskApi(id: string): Promise<ApiResult<TaskResponseData>> {
+  return apiCall(`${BASE}/${encodeURIComponent(id)}/archive`, { method: 'POST' })
+}
+
+/** @brief 请求后端为指定活动任务创建本地逐阵面采集会话。 */
+export async function startTaskAcquisitionApi(id: string): Promise<ApiResult<{ acquisition: boolean }>> {
+  return apiCall(`${BASE}/${encodeURIComponent(id)}/acquisition/start`, { method: 'POST' })
+}
+
+/** @brief 请求后端收口指定活动任务的全部本地逐阵面采集会话。 */
+export async function stopTaskAcquisitionApi(id: string): Promise<ApiResult<{ acquisition: boolean }>> {
+  return apiCall(`${BASE}/${encodeURIComponent(id)}/acquisition/stop`, { method: 'POST' })
 }
 
 export async function deleteTaskApi(id: string): Promise<ApiResult> {

@@ -10,7 +10,7 @@ namespace {
 
 /**
  * @brief 把Core已冻结的三态心跳值映射为V1网络枚举，不在Web边界细分新状态。
- * @param status HeartbeatStateOwner写入DeviceState的0、1或2。
+ * @param status DeviceController写入DeviceState的0、1或2。
  * @return 与前后端接口合同一致的稳定字符串；门禁外数值按未知处理。
  */
 QString heartbeatStatusName(quint8 status)
@@ -30,10 +30,12 @@ namespace core::web {
 StateWebSocketService::StateWebSocketService(
     const core::domain::LatestState<core::model::DeviceState> &state,
     core::execution::ExecutionLane &lane,
-    WebSocketGateway &gateway)
+    WebSocketGateway &gateway,
+    const core::model::StableIdRegistry &stableIds)
     : m_state(state)
     , m_lane(lane)
     , m_gateway(gateway)
+    , m_stableIds(stableIds)
     , m_slot(lane.acquireSlot())
 {
     QObject::connect(state.doorbell(), &core::domain::TopicDoorbell::advanced,
@@ -78,10 +80,22 @@ QJsonObject StateWebSocketService::message() const
     const auto record = m_state.latest();
     if (!record) return {};
     const auto &value = record->sample->value;
+    QJsonArray devices;
+    for (const auto &device : value.devices) {
+        const QUuid stableId = m_stableIds.resolveDevice(device.deviceId);
+        if (stableId.isNull()) continue;
+        const bool acquisition = device.operatingState
+            == core::model::DeviceOperatingState::Collecting;
+        devices.append(QJsonObject {
+            {QStringLiteral("id"), stableId.toString(QUuid::WithoutBraces)},
+            {QStringLiteral("state"), acquisition ? QStringLiteral("Working")
+                                                   : QStringLiteral("Standby")},
+            {QStringLiteral("acquisition"), acquisition}});
+    }
     const QJsonObject payload{{"dpHeartbeat", heartbeatStatusName(value.dpHeartbeat)},
         {"spHeartbeat", heartbeatStatusName(value.spHeartbeat)},
         {"fpOnlineMask", value.fpOnlineMask}, {"fpDataMask", value.fpDataMask},
-        {"devices", QJsonArray{}}};
+        {"devices", devices}};
     return QJsonObject{{"type", "deviceState"},
         {"sentUtcMs", QDateTime::currentMSecsSinceEpoch()},
         {"revision", QString::number(record->revision)}, {"payload", payload}};

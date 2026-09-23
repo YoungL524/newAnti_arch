@@ -64,20 +64,18 @@ core::model::Sample<core::model::SystemEvent> makeGapEvent()
 }
 
 /**
- * @brief 构造请求 88 等待 500 ms 后超时的 Control 域事件。
- * @return 同时声明 requestId 与超时参数有效的事件。
+ * @brief 构造请求 88 的控制数据报未能交给本地 UDP Socket 的 Control 域事件。
+ * @return 声明 requestId 有效的本地发送失败事件。
  */
 core::model::Sample<core::model::SystemEvent> makeControlEvent()
 {
     auto sample = makeDeviceEvent();
-    sample.value.eventCode = core::model::EventCode::ControlCommandTimeout;
+    sample.value.eventCode = core::model::EventCode::ControlDatagramSendFailed;
     sample.value.domain = core::model::EventDomain::Control;
     sample.value.severity = core::model::EventSeverity::Error;
     sample.value.requestId = 88;
-    sample.value.argument0 = 500;
     sample.value.flags =
-        core::model::eventSubjectBit(core::model::EventSubjectFlag::RequestIdValid)
-        | core::model::eventSubjectBit(core::model::EventSubjectFlag::Argument0Valid);
+        core::model::eventSubjectBit(core::model::EventSubjectFlag::RequestIdValid);
     return sample;
 }
 
@@ -148,7 +146,7 @@ void SystemEventPublisherTest::firstRegisteredCodeOfEachDomainPublishes()
     QCOMPARE(scratch[0].sample.value.eventCode, core::model::EventCode::DeviceMalformedFrame);
     QCOMPARE(scratch[1].sample.value.eventCode, core::model::EventCode::TrackPublishRejected);
     QCOMPARE(scratch[2].sample.value.eventCode, core::model::EventCode::SystemTopicSequenceGap);
-    QCOMPARE(scratch[3].sample.value.eventCode, core::model::EventCode::ControlCommandTimeout);
+    QCOMPARE(scratch[3].sample.value.eventCode, core::model::EventCode::ControlDatagramSendFailed);
 }
 
 /**
@@ -171,7 +169,7 @@ void SystemEventPublisherTest::rejectsDomainMismatchWithoutPublishing()
 }
 
 /**
- * @brief 分别制造无标志参数、孤立 trackId 和缺少 requestId 的控制超时。
+ * @brief 分别制造无标志参数、孤立 trackId 和缺少 requestId 的控制发送失败。
  * @details 每次拒绝均不写入 Topic，确保消费者和归档永远只看到满足字段解释合同的事件。
  */
 void SystemEventPublisherTest::rejectsInvalidSubjectContracts()

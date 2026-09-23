@@ -54,7 +54,11 @@ void StorageRuntimeContractTest::exposesFrozenV1JsonFields()
     QVERIFY(device.contains(QStringLiteral("displayName")));
     QVERIFY(device.contains(QStringLiteral("longitudeDeg")));
     QVERIFY(device.contains(QStringLiteral("latitudeDeg")));
-    QVERIFY(device.contains(QStringLiteral("absoluteHeadingDeg")));
+    QVERIFY(device.value(QStringLiteral("faces")).isArray());
+    const QJsonObject firstFace = device.value(QStringLiteral("faces")).toArray().first().toObject();
+    QVERIFY(firstFace.contains(QStringLiteral("headingDeg")));
+    QVERIFY(firstFace.contains(QStringLiteral("pitchDeg")));
+    QVERIFY(firstFace.contains(QStringLiteral("rollDeg")));
     QCOMPARE(device.value(QStringLiteral("longitudeDeg")).toDouble(), 118.65303);
     QCOMPARE(device.value(QStringLiteral("latitudeDeg")).toDouble(), 31.93494);
     QCOMPARE(device.value(QStringLiteral("altitudeM")).toDouble(), 63.9288);
@@ -63,6 +67,9 @@ void StorageRuntimeContractTest::exposesFrozenV1JsonFields()
     QVERIFY(!device.contains(QStringLiteral("lng")));
     QVERIFY(!device.contains(QStringLiteral("lat")));
     QVERIFY(!device.contains(QStringLiteral("headingDeg")));
+    QVERIFY(!device.contains(QStringLiteral("absoluteHeadingDeg")));
+    QVERIFY(!device.contains(QStringLiteral("pitchDeg")));
+    QVERIFY(!device.contains(QStringLiteral("rollDeg")));
 
     const QString deviceId = device.value(QStringLiteral("deviceId")).toString();
     const QJsonObject single = QJsonDocument::fromJson(runtime.getDevice(deviceId)).object();
@@ -81,10 +88,21 @@ void StorageRuntimeContractTest::exposesFrozenV1JsonFields()
                  .value(QStringLiteral("revision")).toString(),
              QString::number(originalRevision + 1U));
 
+    const QJsonObject templateResponse = QJsonDocument::fromJson(runtime.listTaskTemplates()).object();
+    QVERIFY(templateResponse.value(QStringLiteral("ok")).toBool());
+    const QJsonArray templates = templateResponse.value(QStringLiteral("data")).toObject()
+                                     .value(QStringLiteral("templates")).toArray();
+    QCOMPARE(templates.size(), 1);
+    const QJsonObject controlTemplate = templates.at(0).toObject();
+    QVERIFY(controlTemplate.value(QStringLiteral("controlSettings")).isObject());
+    const QString templateId = controlTemplate.value(QStringLiteral("templateId")).toString();
+    QVERIFY(!templateId.isEmpty());
+
     const QJsonObject taskRequest {
         {QStringLiteral("name"), QStringLiteral("contract-task")},
         {QStringLiteral("operatorName"), QStringLiteral("tester")},
         {QStringLiteral("description"), QStringLiteral("V1字段验收")},
+        {QStringLiteral("sourceTemplateId"), templateId},
         {QStringLiteral("radarArrayType"), device.value(QStringLiteral("arrayType"))},
         {QStringLiteral("deviceIds"), QJsonArray {deviceId}},
         {QStringLiteral("deviceFaceMasks"), QJsonObject {{deviceId, 1}}}
@@ -97,6 +115,9 @@ void StorageRuntimeContractTest::exposesFrozenV1JsonFields()
     QVERIFY(task.value(QStringLiteral("taskId")).isString());
     QVERIFY(!task.contains(QStringLiteral("id")));
     QCOMPARE(task.value(QStringLiteral("status")).toString(), QStringLiteral("Draft"));
+    QCOMPARE(task.value(QStringLiteral("sourceTemplateId")).toString(), templateId);
+    QCOMPARE(task.value(QStringLiteral("controlSettings")).toObject(),
+             controlTemplate.value(QStringLiteral("controlSettings")).toObject());
 
     const QString taskId = task.value(QStringLiteral("taskId")).toString();
     const QJsonObject activated = QJsonDocument::fromJson(runtime.activateTask(taskId)).object();

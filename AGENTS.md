@@ -21,16 +21,13 @@ flowchart LR
 
     UiApi[UI / API] --> ApplicationController[ApplicationController]
     ApplicationController --> DeviceController[DeviceController<br/>唯一命令 owner]
-    DeviceController --> DeviceFifo[Per-Device Command FIFO]
-    DeviceFifo --> ProtocolAdapter[ProtocolAdapter]
-    ProtocolAdapter --> Device[Device]
-    Device -->|ACK / Reply| ProtocolAdapter
-    ProtocolAdapter --> DeviceController
-    DeviceController -->|已确认状态/已发生事实| Domain
+    DeviceController --> ProtocolAdapter[DCMP ProtocolAdapter<br/>临时编码 0x0001]
+    ProtocolAdapter -->|UDP 单向发送| Device[Device]
+    DeviceController -->|本地状态变化/已发生事实| Domain
 ```
-固定总览图为 `doc/architecture/新架构3.png`，后续模块划分、箭头方向和职责边界均不得偏离该图；
+固定总览图为 `doc/architecture/新架构4.png`，后续模块划分、箭头方向和职责边界均不得偏离该图；
 `doc/architecture/09-共享强类型数据域与游标读取模型.md` 负责补充图片无法承载的读取、内存和并发合同。
-旧版架构图已清理；历史材料如需查阅使用 Git 或只读旧仓库，不得作为编码依据。
+`新架构3.png` 仅保留作本仓库架构演进记录，不得作为现行控制链编码依据；旧系统材料如需查阅使用 Git 或只读旧仓库。
 
 箭头语义不得颠倒：
 
@@ -70,16 +67,16 @@ flowchart LR
 UI/API
   -> ApplicationController
   -> DeviceController
-  -> Per-Device Command FIFO
-  -> ProtocolAdapter
+  -> DcmpProtocolAdapter（临时编码 0x0001）
+  -> 本地 UDP Socket
   -> Device
 ```
 
 - `DeviceController` 是设备命令的唯一 owner；
-- 每台设备拥有独立、有界 FIFO，满时必须明确返回 Busy，禁止静默覆盖；
-- ACK、超时、失败和设备状态变化先由 owner 处理，再写入 `LatestState<DeviceState>` 或 `EventTopic<SystemEvent>`；
-- `CommandResult` 返回原请求者，不把普通 Topic 当 RPC；
-- 禁止把 Command FIFO 抽象成跨类型中央消息总线。
+- `DeviceController` 持有最新控制参数；采集且 DP/SP 心跳均在线时，每 50 ms 临时编码并发送完整 `0x0001` 控制报文，不为周期发送创建 FIFO；
+- UDP 报文提交本地 Socket 后，本次发送即结束；设备没有 ACK，DCMP 不确认对方收到或设备起控，也不创建超时重试队列；
+- HTTP 结果只表达本地请求处理结果，不能把本地发送成功表述为设备确认；本地状态变化和已发生事实分别写入 `LatestState<DeviceState>` 或 `EventTopic<SystemEvent>`；
+- 控制请求和结果不进入普通 Topic，不建立跨类型中央命令总线。
 
 ### 禁止重新引入
 
@@ -174,4 +171,10 @@ UI/API
 2. 运行仓库注释审计脚本。
 3. 新增公开符号缺少注释时，验收直接失败。
 4. 搜索并拒绝无项目知识也能生成的模板化注释。
-5. 注释修改后必须重新编译并运行测试。
+5. 注释修改后进行静态检查；编译与测试由用户自行执行。
+
+## 用户负责的编译与测试
+
+- 代码实现完成后，代理不得编译项目，也不得运行测试；在交付中明确标注未经编译和测试验证。
+- 代理不得新增测试程序或测试用例，除非用户在后续任务中明确要求。
+- 代理可以阅读现有测试和执行不涉及编译、运行测试程序的静态检查，以评估契约和实现。

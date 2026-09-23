@@ -2,7 +2,8 @@
 #include "core/app/ApplicationRuntime.h"
 #include "core/comm/UdpEndpoint.h"
 #include "core/protocol/DcmpProtocolAdapter.h"
-#include "core/producer/HeartbeatStateOwner.h"
+#include "core/control/DeviceController.h"
+#include "core/model/StableIdRegistry.h"
 #include "core/web/StateWebSocketService.h"
 #include "core/web/WebSocketGateway.h"
 #include <QtTest>
@@ -27,29 +28,29 @@ private Q_SLOTS:
 void HeartbeatPathTest::deadlines()
 {
     core::domain::CoreDataDomain domain(2,2);
-    core::producer::HeartbeatStateOwner owner(domain.deviceState());
-    owner.accept(false,1,5,100,1000000000LL);
+    core::control::DeviceController owner(domain.deviceState());
+    owner.acceptHeartbeat(false,1,5,100,1000000000LL);
     const auto revision=domain.deviceState().revision();
-    owner.accept(false,1,5,100,1000000000LL);
+    owner.acceptHeartbeat(false,1,5,100,1000000000LL);
     QCOMPARE(domain.deviceState().revision(),revision);
-    owner.check(101,2999999999LL);
+    owner.checkHeartbeatDeadlines(101,2999999999LL);
     QCOMPARE(domain.deviceState().latest()->sample->value.dpHeartbeat,quint8(1));
-    owner.check(102,3000000000LL);
+    owner.checkHeartbeatDeadlines(102,3000000000LL);
     QCOMPARE(domain.deviceState().latest()->sample->value.dpHeartbeat,quint8(2));
-    owner.check(105,6000000000LL);
+    owner.checkHeartbeatDeadlines(105,6000000000LL);
     QCOMPARE(domain.deviceState().latest()->sample->value.dpHeartbeat,quint8(0));
     QCOMPARE(domain.deviceState().latest()->sample->value.fpOnlineMask,quint16(0));
-    owner.accept(true,1,15,106,7000000000LL);
+    owner.acceptHeartbeat(true,1,15,106,7000000000LL);
     QCOMPARE(domain.deviceState().latest()->sample->value.spHeartbeat,quint8(1));
     QCOMPARE(domain.deviceState().latest()->sample->value.dpHeartbeat,quint8(0));
-    owner.accept(false,1,1,107,8000000000LL);
+    owner.acceptHeartbeat(false,1,1,107,8000000000LL);
     QCOMPARE(domain.deviceState().latest()->sample->value.dpHeartbeat,quint8(1));
-    owner.accept(false,0,0,108,9000000000LL);
+    owner.acceptHeartbeat(false,0,0,108,9000000000LL);
     QCOMPARE(domain.deviceState().latest()->sample->value.dpHeartbeat,quint8(2));
     const auto beforeInvalid = domain.deviceState().revision();
-    owner.accept(false,2,0,109,10000000000LL);
+    owner.acceptHeartbeat(false,2,0,109,10000000000LL);
     QCOMPARE(domain.deviceState().revision(),beforeInvalid);
-    owner.check(113,14000000000LL);
+    owner.checkHeartbeatDeadlines(113,14000000000LL);
     QCOMPARE(domain.deviceState().latest()->sample->value.dpHeartbeat,quint8(0));
 }
 /**
@@ -59,15 +60,16 @@ void HeartbeatPathTest::network()
 {
     core::domain::CoreDataDomain domain(2,2);
     core::execution::ExecutionLane lane;
-    core::producer::HeartbeatStateOwner owner(domain.deviceState());
+    core::model::StableIdRegistry stableIds;
+    core::control::DeviceController owner(domain.deviceState());
     owner.start();
     core::protocol::DcmpProtocolAdapter adapter(
-        [&owner](const auto&,const auto& p,qint64 u,qint64 s){owner.accept(false,p.dpOnline,p.fpOnlineMask,u,s);},
-        [&owner](const auto&,const auto& p,qint64 u,qint64 s){owner.accept(true,p.spOnline,p.fpDataMask,u,s);});
+        [&owner](const auto&,const auto& p,qint64 u,qint64 s){owner.acceptHeartbeat(false,p.dpOnline,p.fpOnlineMask,u,s);},
+        [&owner](const auto&,const auto& p,qint64 u,qint64 s){owner.acceptHeartbeat(true,p.spOnline,p.fpDataMask,u,s);});
     core::comm::UdpEndpoint endpoint([&adapter](const char* p,qint64 n,const QHostAddress&,quint16,qint64 u,qint64 s){adapter.onDatagram(p,n,u,s);});
     QVERIFY(endpoint.start(QHostAddress::LocalHost,0));
     core::web::WebSocketGateway gateway;
-    core::web::StateWebSocketService web(domain.deviceState(),lane,gateway);
+    core::web::StateWebSocketService web(domain.deviceState(),lane,gateway,stableIds);
     QVERIFY(gateway.start(0));
     QWebSocket client;
     QSignalSpy messages(&client,&QWebSocket::textMessageReceived);
@@ -106,7 +108,7 @@ void HeartbeatPathTest::lifecycle()
     QVERIFY(!runtime.start(0,blocker.serverPort(),0));
     QCOMPARE(runtime.internalPort(),quint16(0));
     QVERIFY(!runtime.lastError().isEmpty());
-    QVERIFY(runtime.start(0,0,0));
+    QVERIFY2(runtime.start(0,0,0), qPrintable(runtime.lastError()));
     const auto port=runtime.internalPort();
     QVERIFY(!runtime.start(0,0,0));
     QCOMPARE(runtime.internalPort(),port);

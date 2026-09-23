@@ -30,7 +30,7 @@ core::model::SampleMeta validStateMeta()
 /**
  * @brief 构造通信正常且空闲的设备运行状态。
  * @param deviceId 用于生成严格升序的设备快照。
- * @return 无会话、无待 ACK 请求且配置 revision 有效的设备值。
+ * @return 无会话且配置 revision 有效的设备值。
  */
 core::model::DeviceRuntimeState idleDevice(quint32 deviceId)
 {
@@ -53,7 +53,7 @@ core::model::Sample<core::model::DeviceState> validDeviceSample()
     sample.meta = validStateMeta();
     sample.value.devices.append(idleDevice(1));
     auto collecting = idleDevice(2);
-    collecting.acquisitionId = core::model::AcquisitionId::fromRaw(9);
+    collecting.faceAcquisitionIds[0] = core::model::AcquisitionId::fromRaw(9);
     collecting.validity = core::model::deviceStateFieldBit(
         core::model::DeviceStateFieldFlag::AcquisitionValid);
     collecting.operatingState = core::model::DeviceOperatingState::Collecting;
@@ -139,13 +139,13 @@ private slots:
  */
 void RuntimeStateGateTest::preservesCompactLayouts()
 {
-    QCOMPARE(sizeof(core::model::DeviceRuntimeState), std::size_t(40));
+    QCOMPARE(sizeof(core::model::DeviceRuntimeState), std::size_t(56));
     QCOMPARE(alignof(core::model::DeviceRuntimeState), std::size_t(8));
-    QCOMPARE(offsetof(core::model::DeviceRuntimeState, acquisitionId), std::size_t(0));
-    QCOMPARE(offsetof(core::model::DeviceRuntimeState, activeRequestId), std::size_t(8));
-    QCOMPARE(offsetof(core::model::DeviceRuntimeState, deviceId), std::size_t(16));
-    QCOMPARE(offsetof(core::model::DeviceRuntimeState, configurationRevision), std::size_t(24));
-    QCOMPARE(offsetof(core::model::DeviceRuntimeState, validity), std::size_t(32));
+    QCOMPARE(offsetof(core::model::DeviceRuntimeState, faceAcquisitionIds), std::size_t(0));
+    QCOMPARE(offsetof(core::model::DeviceRuntimeState, deviceId), std::size_t(32));
+    QCOMPARE(offsetof(core::model::DeviceRuntimeState, primaryEndpointId), std::size_t(36));
+    QCOMPARE(offsetof(core::model::DeviceRuntimeState, configurationRevision), std::size_t(40));
+    QCOMPARE(offsetof(core::model::DeviceRuntimeState, validity), std::size_t(48));
 
     QCOMPARE(sizeof(core::model::TaskState), std::size_t(8));
     QCOMPARE(alignof(core::model::TaskState), std::size_t(4));
@@ -173,6 +173,10 @@ void RuntimeStateGateTest::validatesCompleteDeviceSnapshot()
     QCOMPARE(core::producer::RuntimeStateGate::validateDeviceState(sample, -1), Rejection::InvalidCapacity);
 
     sample = validDeviceSample();
+    sample.value.devices[1].connectionState = core::model::DeviceConnectionState::Disconnected;
+    QCOMPARE(core::producer::RuntimeStateGate::validateDeviceState(sample, 4), Rejection::None);
+
+    sample = validDeviceSample();
     std::swap(sample.value.devices[0], sample.value.devices[1]);
     QCOMPARE(core::producer::RuntimeStateGate::validateDeviceState(sample, 4),
              Rejection::DuplicateOrUnsortedDeviceId);
@@ -183,7 +187,13 @@ void RuntimeStateGateTest::validatesCompleteDeviceSnapshot()
              Rejection::InvalidDeviceOptionalField);
 
     sample = validDeviceSample();
-    sample.value.devices[0].operatingState = core::model::DeviceOperatingState::Starting;
+    sample.value.devices[1].faceAcquisitionIds[1] =
+        sample.value.devices[1].faceAcquisitionIds[0];
+    QCOMPARE(core::producer::RuntimeStateGate::validateDeviceState(sample, 4),
+             Rejection::InvalidDeviceOptionalField);
+
+    sample = validDeviceSample();
+    sample.value.devices[0].operatingState = core::model::DeviceOperatingState::Collecting;
     QCOMPARE(core::producer::RuntimeStateGate::validateDeviceState(sample, 4),
              Rejection::InvalidDeviceStateCombination);
 

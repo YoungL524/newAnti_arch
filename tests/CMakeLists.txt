@@ -254,3 +254,7 @@ add_test(NAME integration.TrackIngressPath COMMAND $<TARGET_FILE:tst_TrackIngres
 add_executable(tst_StorageRuntimeContract tst_StorageRuntimeContract.cpp)
 target_link_libraries(tst_StorageRuntimeContract PRIVATE NewAntiDrone_datadomain Qt5::Test)
 add_test(NAME web.StorageRuntimeContract COMMAND $<TARGET_FILE:tst_StorageRuntimeContract>)
+
+add_executable(tst_ControlOwners tst_ControlOwners.cpp)
+target_link_libraries(tst_ControlOwners PRIVATE NewAntiDrone_datadomain Qt5::Test)
+add_test(NAME control.Owners COMMAND $<TARGET_FILE:tst_ControlOwners>)

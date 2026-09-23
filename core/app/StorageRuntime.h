@@ -18,6 +18,7 @@
 #include <QByteArray>
 #include <QString>
 
+#include <array>
 #include <memory>
 
 namespace core::archive {
@@ -41,11 +42,17 @@ namespace core::persistence {
 class SqliteRuntimeRepository;
 }
 
+namespace core::producer {
+class SystemEventPublisher;
+}
+
 namespace core::task {
 class TaskService;
 }
 
 namespace core::app {
+
+struct ActiveTaskRuntimeContext;
 
 /**
  * @brief 在一个存储线程内建立和关闭全部 SQLite 单写依赖。
@@ -68,7 +75,7 @@ public:
     StorageRuntime(QString databasePath, QString applicationVersion,
                    core::model::StableIdRegistry &stableIds,
                    const core::domain::HistoryTopic<core::model::TrackPacket> &trackTopic,
-                   const core::domain::EventTopic<core::model::SystemEvent> &eventTopic,
+                   core::domain::EventTopic<core::model::SystemEvent> &eventTopic,
                    core::domain::LatestState<core::model::TaskState> &taskState);
 
     /** @brief 释放前要求 shutdown() 已完成，防止跨线程销毁 Qt SQL 连接。 */
@@ -110,6 +117,9 @@ public:
     /** @brief 返回当前未删除任务及其持久化设备阵面绑定。 */
     Q_INVOKABLE QByteArray listTasks();
 
+    /** @brief 返回可复用控制模板；模板不是运行状态且不会随任务参数修改。 */
+    Q_INVOKABLE QByteArray listTaskTemplates();
+
     /** @brief 校验任务JSON并通过唯一TaskService创建Draft任务。 */
     Q_INVOKABLE QByteArray createTask(const QByteArray &requestBody);
 
@@ -119,11 +129,23 @@ public:
     /** @brief 完成当前Ready任务并解除后续新建任务门禁。 */
     Q_INVOKABLE QByteArray completeTask(const QString &taskUuid);
 
+    /** @brief 请求 TaskService 归档已完成任务，只返回本地持久化结果。 */
+    Q_INVOKABLE QByteArray archiveTask(const QString &taskUuid);
+
     /** @brief 返回当前已选择进入Ready阶段的任务；尚未选择时返回空。 */
     Q_INVOKABLE QByteArray activeTask();
 
     /** @brief 按稳定UUID软删除没有活动采集的任务。 */
     Q_INVOKABLE QByteArray deleteTask(const QString &taskUuid);
+
+    /** @brief 解析当前Ready任务的唯一设备运行身份，不创建会话或改变状态。 */
+    bool resolveActiveTaskContext(ActiveTaskRuntimeContext &context);
+
+    /** @brief 为已解析上下文创建逐阵面会话并推进TaskState至Running。 */
+    bool startCollections(ActiveTaskRuntimeContext &context);
+
+    /** @brief 收口上下文中的全部活动会话，最后一个停止后TaskState回到Ready。 */
+    bool stopCollections(const std::array<core::model::AcquisitionId, 4> &acquisitionIds);
 
     /** @brief 返回最近初始化或关闭失败原因；只在同步调用返回后由组合根读取。 */
     QString lastError() const;
@@ -133,11 +155,12 @@ private:
     QString m_applicationVersion; ///< application_runs 记录的应用版本。
     core::model::StableIdRegistry &m_stableIds; ///< 跨线程稳定身份注册表，生命周期由 ApplicationRuntime 管理。
     const core::domain::HistoryTopic<core::model::TrackPacket> &m_trackTopic; ///< 数据域唯一航迹历史，只由 Reader 读取。
-    const core::domain::EventTopic<core::model::SystemEvent> &m_eventTopic; ///< 数据域唯一事件历史，只由 Reader 读取。
+    core::domain::EventTopic<core::model::SystemEvent> &m_eventTopic; ///< 数据域唯一事件历史；Producer 写入，Reader 只读。
     core::domain::LatestState<core::model::TaskState> &m_taskState; ///< TaskService唯一写入的任务运行状态。
     std::unique_ptr<core::archive::SqliteArchiveRepository> m_archiveRepository; ///< 当前线程唯一 SQLite 连接 Owner。
     std::unique_ptr<core::persistence::SqliteRuntimeRepository> m_runtimeRepository; ///< 复用唯一连接的低频持久化入口。
     std::unique_ptr<core::config::DeviceConfigService> m_deviceService; ///< 设备 revision 与运行时句柄唯一 Owner。
+    std::unique_ptr<core::producer::SystemEventPublisher> m_eventPublisher; ///< 借用唯一 EventTopic 的任务事件门禁；先于 TaskService 创建并晚于它释放。
     std::unique_ptr<core::task::TaskService> m_taskService; ///< 任务和采集会话唯一 Owner。
     std::unique_ptr<core::execution::ExecutionLane> m_archiveLane; ///< 唯一存储线程上的合并唤醒通道。
     std::unique_ptr<core::archive::ArchiveReader> m_archiveReader; ///< Track/Event Topic 的正式归档 Consumer。

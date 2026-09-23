@@ -1,4 +1,6 @@
- #include "core/producer/RuntimeStateGate.h"
+#include "core/producer/RuntimeStateGate.h"
+
+#include <algorithm>
 
 namespace {
 
@@ -47,8 +49,7 @@ core::producer::RuntimeStateRejection validateDeviceEntry(
     using namespace core::model;
     using Rejection = core::producer::RuntimeStateRejection;
     constexpr DeviceStateFieldFlags knownValidity =
-        deviceStateFieldBit(DeviceStateFieldFlag::AcquisitionValid)
-        | deviceStateFieldBit(DeviceStateFieldFlag::ActiveRequestValid);
+        deviceStateFieldBit(DeviceStateFieldFlag::AcquisitionValid);
     constexpr DeviceFaultFlags knownFaults =
         static_cast<DeviceFaultFlags>(DeviceFaultFlag::CommunicationUnavailable)
         | static_cast<DeviceFaultFlags>(DeviceFaultFlag::DeviceReportedFault)
@@ -73,29 +74,25 @@ core::producer::RuntimeStateRejection validateDeviceEntry(
         return Rejection::InvalidDeviceFlags;
     }
 
-    const bool hasAcquisition = hasDeviceStateField(
+    const bool hasAcquisitionFlag = hasDeviceStateField(
         device.validity, DeviceStateFieldFlag::AcquisitionValid);
-    const bool hasRequest = hasDeviceStateField(
-        device.validity, DeviceStateFieldFlag::ActiveRequestValid);
-    if (hasAcquisition != device.acquisitionId.isSet()
-        || hasRequest != (device.activeRequestId != 0)) {
+    const bool hasAcquisition = std::any_of(
+        device.faceAcquisitionIds.cbegin(), device.faceAcquisitionIds.cend(),
+        [](core::model::AcquisitionId id) { return id.isSet(); });
+    if (hasAcquisitionFlag != hasAcquisition) {
         return Rejection::InvalidDeviceOptionalField;
     }
+    for (std::size_t left = 0; left < device.faceAcquisitionIds.size(); ++left) {
+        for (std::size_t right = left + 1; right < device.faceAcquisitionIds.size(); ++right) {
+            if (device.faceAcquisitionIds[left].isSet()
+                && device.faceAcquisitionIds[left] == device.faceAcquisitionIds[right]) {
+                return Rejection::InvalidDeviceOptionalField;
+            }
+        }
+    }
 
-    const bool connected = device.connectionState == DeviceConnectionState::Connected
-        || device.connectionState == DeviceConnectionState::Degraded;
-    const bool awaitingAck = device.operatingState == DeviceOperatingState::Starting
-        || device.operatingState == DeviceOperatingState::Stopping
-        || device.operatingState == DeviceOperatingState::Reconfiguring;
-    if ((device.operatingState == DeviceOperatingState::Collecting && (!connected || !hasAcquisition))
-        || (awaitingAck && (!connected || !hasRequest))
-        || (device.operatingState == DeviceOperatingState::Idle && (hasAcquisition || hasRequest))
-        || ((device.connectionState == DeviceConnectionState::Disabled
-             || device.connectionState == DeviceConnectionState::Disconnected
-             || device.connectionState == DeviceConnectionState::Connecting)
-            && device.operatingState != DeviceOperatingState::Idle)
-        || (device.connectionState == DeviceConnectionState::Faulted
-            && device.operatingState != DeviceOperatingState::Faulted)
+    if ((device.operatingState == DeviceOperatingState::Collecting && !hasAcquisition)
+        || (device.operatingState == DeviceOperatingState::Idle && hasAcquisition)
         || ((device.connectionState == DeviceConnectionState::Faulted
              || device.operatingState == DeviceOperatingState::Faulted)
             && device.currentFaultFlags == 0)

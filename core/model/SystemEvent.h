@@ -20,7 +20,7 @@ enum class EventDomain : quint8
     Device = 1, ///< 设备通信、协议输入或设备主动上报的事实。
     Track = 2, ///< 航迹映射、门禁、识别或连续性相关事实。
     System = 3, ///< 数据域、调度、存储和运行时基础设施事实。
-    Control = 4 ///< 命令排队、执行、ACK、超时和重试相关事实。
+    Control = 4 ///< 本地命令受理、状态转换和设备数据报发送相关事实。
 };
 
 /** @brief 表示事件对当前运行和操作员处置的影响程度。 */
@@ -79,7 +79,8 @@ enum class EventCode : quint32
     DeviceMalformedFrame = 0x01010001U, ///< 设备接入收到包头、长度、包尾或校验不成立的帧。
     TrackPublishRejected = 0x02010001U, ///< 航迹 Sample 被发布前门禁拒绝；argument0 保存拒绝原因编号。
     SystemTopicSequenceGap = 0x03010001U, ///< Reader cursor 落后于 Topic 历史窗口；两个参数保存丢失闭区间。
-    ControlCommandTimeout = 0x04010001U ///< 设备命令等待 ACK 超时；requestId 和 argument0 超时毫秒数有效。
+    ControlDatagramSendFailed = 0x04010002U, ///< 控制数据报未能交给本地 UDP Socket；requestId 有效。
+    ControlTaskLifecycleChanged = 0x04010003U ///< 任务本地持久化生命周期变化；argument0 为1创建、2激活、3完成、4归档。
 };
 
 /**

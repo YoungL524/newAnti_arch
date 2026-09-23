@@ -107,6 +107,16 @@ public:
         core::model::DeviceId deviceId,
         qint64 &deviceRevisionId) const;
 
+    /** @brief 返回指定运行时设备对应的用户配置revision，用于形成DeviceState。 */
+    bool resolveConfigurationRevision(
+        core::model::DeviceId deviceId,
+        quint32 &configurationRevision) const;
+
+    /** @brief 返回指定运行时设备的不可变配置值副本，供控制Owner在启动采集时冻结。 */
+    bool resolveConfiguration(
+        core::model::DeviceId deviceId,
+        DeviceConfiguration &configuration) const;
+
     /**
      * @brief 验证设备/端点组合并返回持久 endpointKey。
      * @param deviceId 已激活设备 revision 句柄。
@@ -148,6 +158,8 @@ private:
     struct ActiveDevice
     {
         qint64 deviceRevisionId = 0; ///< devices.device_revision_id。
+        quint32 configurationRevision = 0; ///< 用户可见且随不可变设备配置递增的revision。
+        DeviceConfiguration configuration; ///< 当前revision完整低频配置；不进入实时Topic。
         core::model::EndpointId trackEndpointId; ///< role=track_receive 的进程内句柄。
         QString trackEndpointKey; ///< 对应设备 JSON 中的稳定键。
         QString protocolAdapterKey; ///< 非空才允许 TaskService 启动采集。

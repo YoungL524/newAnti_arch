@@ -9,6 +9,7 @@
 #include "core/datadomain/LatestState.h"
 #include "core/execution/ExecutionLane.h"
 #include "core/model/RuntimeState.h"
+#include "core/model/StableIdRegistry.h"
 
 #include <QJsonObject>
 
@@ -26,7 +27,8 @@ public:
     StateWebSocketService(
         const core::domain::LatestState<core::model::DeviceState> &state,
         core::execution::ExecutionLane &lane,
-        WebSocketGateway &gateway);
+        WebSocketGateway &gateway,
+        const core::model::StableIdRegistry &stableIds);
 
     /** @brief 断开三项借用依赖的信号并释放Lane位，必须在所属线程析构。 */
     ~StateWebSocketService() override;
@@ -41,6 +43,7 @@ private:
     const core::domain::LatestState<core::model::DeviceState> &m_state; ///< 唯一事实来源。
     core::execution::ExecutionLane &m_lane; ///< 借用当前事件循环执行器。
     WebSocketGateway &m_gateway; ///< 借用唯一网络连接owner。
+    const core::model::StableIdRegistry &m_stableIds; ///< 只读稳定UUID映射，不保存第二份设备状态。
     core::execution::ExecutionSlot m_slot; ///< Reader在共享Lane中的调度位。
     quint64 m_revision = 0; ///< 已处理的DeviceState独立修订号。
 };

@@ -56,7 +56,7 @@ SeededContext seedConfiguration(const QString &databasePath, qint64 runId)
         device.prepare(QStringLiteral(
             "INSERT INTO devices("
             "device_uuid,revision,display_name,manufacturer,model,protocol_adapter_key,"
-            "longitude_deg,latitude_deg,altitude_m,absolute_heading_deg,pitch_deg,roll_deg,"
+            "array_type,max_range_m,faces_json,longitude_deg,latitude_deg,altitude_m,"
             "endpoints_json,protocol_config_json,changed_utc_ms,changed_by,change_reason,is_deleted) "
             "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)"));
         device.addBindValue(QUuid::createUuid().toRfc4122());
@@ -65,12 +65,14 @@ SeededContext seedConfiguration(const QString &databasePath, qint64 runId)
         device.addBindValue(QStringLiteral("云禾锋"));
         device.addBindValue(QStringLiteral("test"));
         device.addBindValue(QStringLiteral("test.radar"));
+        device.addBindValue(1);
+        device.addBindValue(5000.0);
+        device.addBindValue(QStringLiteral(
+            "[{\"faceIndex\":0,\"headingDeg\":180,\"pitchDeg\":0,\"rollDeg\":0,"
+            "\"scanHalfAngleDeg\":45,\"enabled\":true}]"));
         device.addBindValue(118.65309);
         device.addBindValue(31.93502);
         device.addBindValue(10.0);
-        device.addBindValue(180.0);
-        device.addBindValue(0.0);
-        device.addBindValue(0.0);
         device.addBindValue(QStringLiteral(
             "[{\"endpointKey\":\"track-rx\",\"role\":\"track_receive\","
             "\"transport\":\"udp\",\"localAddress\":\"0.0.0.0\","
@@ -105,13 +107,14 @@ SeededContext seedConfiguration(const QString &databasePath, qint64 runId)
         QSqlQuery session(database);
         session.prepare(QStringLiteral(
             "INSERT INTO collection_sessions("
-            "session_uuid,run_id,task_id,device_revision_id,endpoint_key,started_utc_ms,stop_reason) "
-            "VALUES(?,?,?,?,?,?,0)"));
+            "session_uuid,run_id,task_id,device_revision_id,endpoint_key,face_index,started_utc_ms,stop_reason) "
+            "VALUES(?,?,?,?,?,?,?,0)"));
         session.addBindValue(QUuid::createUuid().toRfc4122());
         session.addBindValue(runId);
         session.addBindValue(result.taskId);
         session.addBindValue(result.deviceRevisionId);
         session.addBindValue(QStringLiteral("track-rx"));
+        session.addBindValue(0);
         session.addBindValue(nowUtcMs);
         if (!session.exec()) {
             qWarning() << session.lastError().text();
@@ -248,17 +251,40 @@ void SqliteArchiveRepositoryTest::createsSixTablesAndClosesRun()
     QVERIFY2(reopened.open(), qPrintable(reopened.lastError()));
     QVERIFY(reopened.closeCleanly(QDateTime::currentMSecsSinceEpoch()));
 
-    QCOMPARE(queryInteger(databasePath, QStringLiteral("PRAGMA user_version")), qint64(8));
+    QCOMPARE(queryInteger(databasePath, QStringLiteral("PRAGMA user_version")), qint64(11));
+    QCOMPARE(queryInteger(
+                 databasePath,
+                 QStringLiteral("SELECT count(*) FROM pragma_table_info('collection_sessions') "
+                                "WHERE name='face_index'")),
+             qint64(1));
+    QCOMPARE(queryInteger(
+                 databasePath,
+                 QStringLiteral("SELECT count(*) FROM pragma_table_info('devices') WHERE name IN("
+                                "'absolute_heading_deg','pitch_deg','roll_deg')")),
+             qint64(0));
+    QCOMPARE(queryInteger(
+                 databasePath,
+                 QStringLiteral("SELECT count(*) FROM devices WHERE "
+                                "instr(faces_json,'\"headingDeg\"')>0 AND "
+                                "instr(faces_json,'\"pitchDeg\"')>0 AND "
+                                "instr(faces_json,'\"rollDeg\"')>0")),
+             qint64(4));
     QCOMPARE(queryInteger(
                  databasePath,
                  QStringLiteral("SELECT count(*) FROM sqlite_master "
                                 "WHERE type='table' AND name NOT LIKE 'sqlite_%'")),
-             qint64(6));
+             qint64(7));
+    QCOMPARE(queryInteger(databasePath, QStringLiteral("SELECT count(*) FROM control_templates WHERE is_deleted=0")), qint64(1));
+    QCOMPARE(queryInteger(
+                 databasePath,
+                 QStringLiteral("SELECT count(*) FROM tasks WHERE source_template_uuid IS NULL "
+                                "OR control_settings_json IS NULL")),
+             qint64(0));
     QCOMPARE(queryInteger(
                  databasePath,
                  QStringLiteral("SELECT shutdown_state FROM application_runs LIMIT 1")),
              qint64(1));
-    /** @brief Schema 8 保留两个预置 revision，并为其具名发送目标各追加一个不可变 revision。 */
+    /** @brief Schema 10 保留既有revision数量，并把整机姿态迁入各自faces_json。 */
     QCOMPARE(queryInteger(databasePath, QStringLiteral("SELECT count(*) FROM devices")), qint64(4));
     QCOMPARE(queryInteger(
                  databasePath,

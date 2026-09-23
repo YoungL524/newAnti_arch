@@ -16,6 +16,8 @@
 #include <QHash>
 #include <QString>
 
+#include <array>
+
 namespace core::archive {
 class SqliteArchiveRepository;
 }
@@ -26,6 +28,10 @@ class DeviceConfigService;
 
 namespace core::persistence {
 class SqliteRuntimeRepository;
+}
+
+namespace core::producer {
+class SystemEventPublisher;
 }
 
 namespace core::model {
@@ -45,7 +51,7 @@ enum class CollectionStopReason : quint8
 
 /**
  * @brief 持久化任务并管理当前 run 内多次、不可复用的 AcquisitionId 生命周期。
- * @warning 所有方法必须在 SQLite 单写线程调用；设备 Command/ACK 完成后再调用 startCollection()。
+ * @warning 所有方法必须在 SQLite 单写线程调用；由唯一采集编排者调用 startCollection()。
  */
 class TaskService final
 {
@@ -57,19 +63,33 @@ public:
      * @param archiveRepository 登记 TaskId/AcquisitionId 的归档映射。
      * @param stableIds 跨线程稳定身份注册表，只登记SQLite已经提交的实体。
      * @param taskState CoreDataDomain中唯一的任务完整状态，由本服务独占写入。
+     * @param eventPublisher 可空的统一事件入口；正式运行时由存储组合根提供，单元级调用可省略。
      */
     TaskService(
         core::persistence::SqliteRuntimeRepository &runtimeRepository,
         core::config::DeviceConfigService &deviceConfigService,
         core::archive::SqliteArchiveRepository &archiveRepository,
         core::model::StableIdRegistry &stableIds,
-        core::domain::LatestState<core::model::TaskState> &taskState);
+        core::domain::LatestState<core::model::TaskState> &taskState,
+        core::producer::SystemEventPublisher *eventPublisher = nullptr);
 
     /**
      * @brief 从 SQLite 未删除任务重建当前进程 TaskId。
      * @return 全部任务成功分配并绑定返回 true；只允许在空注册域调用一次。
      */
     bool loadFromDatabase();
+
+    /**
+     * @brief 返回当前可选任务模板的稳定UUID、名称和完整参数。
+     * @param templateUuids 成功时按稳定UUID顺序写入模板UUID。
+     * @param names 与UUID同下标的用户可见名称。
+     * @param settings 与UUID同下标的完整控制参数。
+     * @return 三组内部模板数据数量一致时返回true。
+     */
+    bool listControlTemplates(
+        QVector<QUuid> &templateUuids,
+        QVector<QString> &names,
+        QVector<RadarControlSettings> &settings) const;
 
     /**
      * @brief 先创建数据库任务，再分配并登记非零 TaskId。
@@ -118,6 +138,15 @@ public:
     bool completeTask(const QUuid &taskUuid, TaskDefinition &task);
 
     /**
+     * @brief 将已完成且非活动任务标记为已归档，保留原任务和全部采集事实。
+     * @param taskUuid UI 持有的稳定任务 UUID。
+     * @param task 成功时返回带归档时间的任务快照。
+     * @return SQLite 条件更新成功时返回 true；其他情况返回 false 并保留旧状态。
+     * @warning 只能在 SQLite 单写线程调用。
+     */
+    bool archiveTask(const QUuid &taskUuid, TaskDefinition &task);
+
+    /**
      * @brief 软删除一项尚无活动采集的任务。
      * @param taskUuid UI持有的跨重启稳定任务UUID。
      * @param deletedBy 执行删除的用户或系统标识。
@@ -138,16 +167,34 @@ public:
      * @param taskId 已加载或创建的任务句柄。
      * @param deviceId DeviceConfigService 已激活且协议配置就绪的设备句柄。
      * @param endpointId 与 deviceId 同 revision 的主航迹接收端点。
+     * @param faceIndex 本次会话所属0～3阵面，必须在任务冻结的faceMask中启用。
      * @param acquisitionId 成功时写入不可复用的采集会话句柄。
      * @return 数据库会话创建与完整归档身份绑定成功返回 true。
-     * @warning 本函数不替代 DeviceController 启动 ACK；调用者只能在设备确认进入接收状态后调用。
-     * 目标任务必须是当前Ready或Starting任务，设备必须属于该任务已经持久化的绑定集合。
+     * @warning 本函数只创建本地采集会话，不证明 DP、SP 或 FP 已执行 workmode。
+     * 目标任务必须是当前 Ready 任务，设备必须属于该任务已经持久化的绑定集合。
      */
     bool startCollection(
         core::model::TaskId taskId,
         core::model::DeviceId deviceId,
         core::model::EndpointId endpointId,
+        quint8 faceIndex,
         core::model::AcquisitionId &acquisitionId);
+
+    /**
+     * @brief 按任务阵面位图建立一次本地开始操作所需的全部独立会话。
+     * @param taskId 当前Ready任务句柄。
+     * @param deviceId 任务绑定的完整雷达句柄。
+     * @param endpointId 与设备revision一致的主航迹端点。
+     * @param faceMask bit0～bit3表示本次启用阵面，必须与任务冻结绑定一致。
+     * @param acquisitionIds 成功时按阵面下标写入独立句柄，未启用阵面保持零。
+     * @return 全部会话创建且TaskState进入Running时返回true；中途失败会收口已创建会话。
+     */
+    bool startCollections(
+        core::model::TaskId taskId,
+        core::model::DeviceId deviceId,
+        core::model::EndpointId endpointId,
+        quint8 faceMask,
+        std::array<core::model::AcquisitionId, 4> &acquisitionIds);
 
     /**
      * @brief 停止一个当前活动采集会话，但保留其身份供 Topic 中晚到批次完成归档。
@@ -176,6 +223,7 @@ private:
     {
         qint64 collectionSessionId = 0; ///< collection_sessions 本地主键。
         core::model::TaskId taskId; ///< 创建该会话的任务，用于阻止活动任务被删除。
+        quint8 faceIndex = 0; ///< 本次会话唯一对应的物理阵面索引。
         bool active = false; ///< true 时 Producer 才能继续使用对应 AcquisitionId。
     };
 
@@ -193,14 +241,25 @@ private:
      */
     bool publishTaskState(core::model::TaskId taskId, core::model::TaskPhase phase);
 
+    /**
+     * @brief 在任务事实已提交后追加一条定长生命周期事件，供 Web 和归档各自读取。
+     * @param taskId 已登记的非零任务句柄。
+     * @param stage 稳定阶段码：1创建、2激活、3完成、4归档。
+     * @note 事件发布失败不回滚已提交的任务操作，避免向用户伪报本地事务失败。
+     */
+    void publishTaskEvent(core::model::TaskId taskId, qint64 stage);
+
     core::persistence::SqliteRuntimeRepository &m_runtimeRepository; ///< 借用的任务/会话持久化端口。
     core::config::DeviceConfigService &m_deviceConfigService; ///< 借用的设备 revision 与任务绑定校验owner。
     core::archive::SqliteArchiveRepository &m_archiveRepository; ///< 借用的归档身份登记入口。
     core::model::StableIdRegistry &m_stableIds; ///< 借用的稳定 UUID 注册表；只登记已提交实体。
     core::domain::LatestState<core::model::TaskState> &m_taskState; ///< 任务运行阶段唯一共享快照；仅本服务写入。
+    core::producer::SystemEventPublisher *m_eventPublisher = nullptr; ///< 借用的可空统一事件入口；正式运行由存储组合根持有。
     QHash<quint32, qint64> m_databaseTaskIds; ///< TaskId 原值到 tasks 主键。
     QHash<QUuid, core::model::TaskId> m_taskIdsByUuid; ///< 稳定任务 UUID 到当前进程句柄。
     QHash<quint32, TaskDefinition> m_tasks; ///< 当前未删除任务元数据；SQLite仍是跨重启唯一真源。
+    QHash<QUuid, QString> m_templateNames; ///< 模板UUID到用户可见名称；SQLite是跨重启真源。
+    QHash<QUuid, RadarControlSettings> m_templateSettings; ///< 模板UUID到已校验控制参数。
     QHash<quint64, ActiveCollection> m_collections; ///< AcquisitionId 原值到当前 run 会话。
     quint32 m_nextTaskId = 1; ///< 下一个候选 TaskId，零不分配。
     quint64 m_nextAcquisitionId = 1; ///< 下一个候选 AcquisitionId，零不分配。

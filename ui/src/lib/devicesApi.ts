@@ -1,7 +1,7 @@
 /**
  * @file devicesApi.ts
  * @brief 封装设备台账的读取、创建、更新和删除接口。
- * @details 雷达 6DOF、阵面绝对朝向与端点绑定均按核心 JSON 契约传输，客户端不额外换算航向角。
+ * @details 雷达经纬高、逐阵面安装姿态与端点绑定均按核心JSON契约传输，客户端不叠加整机姿态。
  */
 
 export type DeviceRegistryStatus = 'loading' | 'available' | 'unavailable'
@@ -20,8 +20,7 @@ export interface ApiDevice {
   deviceId: string; revision: string; displayName: string; manufacturer: string; model: string
   protocolAdapterKey: string; arrayType: 'singleFace' | 'fourFace'
   longitudeDeg: number; latitudeDeg: number; altitudeM: number; maxRangeM: number
-  absoluteHeadingDeg: number; pitchDeg: number; rollDeg: number
-  faces: Array<{ faceIndex: number; boresightAzimuthDeg: number; scanHalfAngleDeg: number; enabled: boolean }>
+  faces: Array<{ faceIndex: number; headingDeg: number; pitchDeg: number; rollDeg: number; scanHalfAngleDeg: number; enabled: boolean }>
   endpoints: Array<{ endpointKey: string; role: string; transport: string; localAddress: string; localPort: number; remoteAddress: string; remotePort: number }>
   protocolConfig: Record<string, unknown>
 }
@@ -106,12 +105,10 @@ export function apiDeviceToRadar(item: ApiDevice): RadarDevice | null {
     lng: item.longitudeDeg,
     lat: item.latitudeDeg,
     altitude: item.altitudeM,
-    heading: item.absoluteHeadingDeg,
-    pitch: item.pitchDeg ?? 0,
-    roll: item.rollDeg ?? 0,
     maxRange: item.maxRangeM / 1000,
     faces: item.faces.map(face => ({ label: String.fromCharCode(65 + face.faceIndex),
-      boresightAzimuth: face.boresightAzimuthDeg, scanAngle: face.scanHalfAngleDeg, active: face.enabled })),
+      heading: face.headingDeg, pitch: face.pitchDeg, roll: face.rollDeg,
+      scanAngle: face.scanHalfAngleDeg, active: face.enabled })),
     endpointId: endpoint?.endpointKey,
     endpoint: {
       id: endpoint?.endpointKey ?? 'radar_cpu', protocol: 'udp',
@@ -149,10 +146,10 @@ export function radarToApiPayload(id: string, d: RadarDevice): any {
     protocolAdapterKey: d.protocolAdapterKey,
     arrayType: d.faces.length === 4 ? 'fourFace' : 'singleFace',
     longitudeDeg: d.lng, latitudeDeg: d.lat, altitudeM: d.altitude,
-    absoluteHeadingDeg: d.heading, pitchDeg: d.pitch, rollDeg: d.roll,
     maxRangeM: d.maxRange * 1000,
     faces: d.faces.map((face, faceIndex) => ({ faceIndex,
-      boresightAzimuthDeg: face.boresightAzimuth, scanHalfAngleDeg: face.scanAngle,
+      headingDeg: face.heading, pitchDeg: face.pitch, rollDeg: face.roll,
+      scanHalfAngleDeg: face.scanAngle,
       enabled: face.active })),
     endpoints: [{ endpointKey: d.endpoint.id, role: 'track_receive', transport: d.endpoint.protocol,
       localAddress: d.endpoint.localAddress, localPort: d.endpoint.localPort,

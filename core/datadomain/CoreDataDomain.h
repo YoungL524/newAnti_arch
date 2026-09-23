@@ -73,7 +73,7 @@ public:
     const EventTopic<core::model::SystemEvent>& eventTopic() const noexcept;
 
 public:
-    /** @brief 返回设备完整快照；心跳阶段唯一写入者为HeartbeatStateOwner，读取方使用const重载。 */
+    /** @brief 返回设备完整快照；唯一写入者为DeviceController，读取方使用const重载。 */
     LatestState<core::model::DeviceState>& deviceState() noexcept { return m_deviceState; }
     /** @brief 返回设备状态只读入口，生命周期由数据域拥有。 */
     const LatestState<core::model::DeviceState>& deviceState() const noexcept { return m_deviceState; }

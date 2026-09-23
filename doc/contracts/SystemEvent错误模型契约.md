@@ -6,7 +6,7 @@
 `Sample<SystemEvent>`，并发布到唯一的 `EventTopic<SystemEvent>`；监控、日志、Web 和归档消费者分别维护
 自己的 cursor，通过 `readAfter()` 顺序读取。
 
-本合同遵守固定架构 `doc/architecture/新架构3.png`：
+本合同遵守现行架构 `doc/architecture/新架构4.png`：
 
 ```text
 Device / Track / System / Control Producer
@@ -28,13 +28,13 @@ Device / Track / System / Control Producer
 
 | 域         | 典型生产者                                              | 典型事实                                |
 | --------- | -------------------------------------------------- | ----------------------------------- |
-| `Device`  | `UdpEndpoint`、协议适配器、设备状态 owner                     | 通信中断、协议帧非法、设备上报故障、ACK 内容异常          |
+| `Device`  | `UdpEndpoint`、协议适配器、设备状态 owner                     | 通信中断、协议帧非法、设备上报故障                     |
 | `Track`   | 航迹协议映射器、发布门禁、识别处理器                                 | 航迹字段越界、时间倒退、身份无效、Topic sequence gap |
 | `System`  | 数据域、执行调度、存储和运行时基础设施                                | 容量覆盖、归档失败、资源耗尽、内部不变量被破坏             |
-| `Control` | `ApplicationController`、`DeviceController`、命令 FIFO | Busy、命令超时、重试耗尽、设备拒绝、控制状态转换失败        |
+| `Control` | `ApplicationController`、`DeviceController`             | Busy、本地状态转换失败、控制数据报发送失败               |
 
-归类以“拥有该事实的模块”为准。例如设备未返回启动 ACK 属于 `Control`；设备主动上报自身故障属于
-`Device`；存储消费者发现自身 cursor gap 属于 `System`。
+归类以“拥有该事实的模块”为准。例如本地控制数据报发送失败属于 `Control`；设备主动上报自身故障属于
+`Device`；存储消费者发现自身 cursor gap 属于 `System`。DP/SP 不提供命令 ACK，禁止构造确认超时事件。
 
 ## 3. 严重级别
 
@@ -126,7 +126,7 @@ struct SystemEvent
    条数或厂家错误码；不得把它们当作无类型万能载荷。
 4. 人类可读文本由 `messageTemplateId + eventCode + 定长参数` 在展示边界格式化。原始厂家文本若必须保留，
    应在协议原始记录或专用归档边界保存，不能进入实时 `SystemEvent` 热路径。
-5. `requestId` 由控制平面分配，用于将 ACK、超时和重试结果关联到原请求；`traceId` 用于跨模块处理链追踪，
+5. `requestId` 由控制平面分配，用于将本地受理和发送结果关联到原请求；`traceId` 用于跨模块处理链追踪，
    两者不得合并。
 
 ## 6. 事件码合同
@@ -145,6 +145,11 @@ struct SystemEvent
 - `reason` 标识具体事实；已发布的含义永久保留，不得改名复用；
 - 未登记事件码不得写入持久化存储；未知厂家码放入登记事件的 `argument0`。
 
+当前登记的 `ControlTaskLifecycleChanged = 0x04010003` 属于 Control 域，必须携带有效
+`TaskId` 与 `argument0`。`argument0` 的稳定取值为 `1=创建`、`2=激活`、`3=完成`、`4=归档`；
+它记录本地任务事实，不表示设备确认。Web Reader 将事件码与参数映射为中文活动日志，
+ArchiveReader 按独立 cursor 将同一事实写入 `system_events`。
+
 第一批实现前应建立独立事件码登记表。建议预留但暂不创建空壳枚举项；只登记当前代码能够真实产生、测试和
 处置的事件。
 
@@ -153,18 +158,17 @@ struct SystemEvent
 一次控制失败可以同时产生不同语义的结果，但不能互相替代：
 
 ```text
-DeviceCommand
+本地采集控制请求
    -> DeviceController
-      |-> CommandResult 返回唯一请求者：成功 / Busy / Timeout / Rejected
-      |-> LatestState<DeviceState>：仅在已确认的设备当前状态变化时 set
+       |-> 本地请求结果返回唯一请求者；不表示设备收到或起控
+       |-> LatestState<DeviceState>：本地采集或心跳当前状态变化时 set
       `-> EventTopic<SystemEvent>：发布值得观测或归档的已发生事实
 ```
 
-- 普通参数校验失败应直接返回 `CommandResult`；只有需要审计、告警或运维统计时才额外发布事件。
+- 普通参数校验失败应直接返回原请求者；只有需要审计、告警或运维统计时才额外发布事件。
 - `Fault/Alarm` 事件不会自动代表故障仍然存在；当前故障状态属于相应 `LatestState`。
-- ACK 本身不是错误。异常 ACK、迟到 ACK 或与请求不匹配的 ACK 才按登记规则形成事件。
-- 重试过程不应每次都产生 Error 风暴；可记录一次 Warning，重试耗尽后产生最终 Error/Fault，并在参数中记录
-  尝试次数。
+- 设备没有 ACK；`succeeded` 只表示本地状态、必要持久化和本地 UDP 发送成功，不表示设备执行成功。
+- 50 ms 参数包随 DP/SP 心跳自动暂停和恢复，正常心跳门控不产生控制错误风暴。
 
 ## 8. 持久化与丢失语义
 

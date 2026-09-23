@@ -14,7 +14,7 @@ private slots:
     void layout();
     /** @brief 验证声明长度排除两端标志，且命令字忠实保留工作表定义。 */
     void constantsAndLength();
-    /** @brief 验收指定四种载荷的真实字段和四面控制隔离。 */
+    /** @brief 验收现行载荷的真实字段和四面控制隔离。 */
     void payloadLayouts();
 };
 

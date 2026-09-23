@@ -1,12 +1,15 @@
 #include "core/app/StorageRuntime.h"
+#include "core/app/ApplicationController.h"
 
 #include "core/archive/SqliteArchiveRepository.h"
 #include "core/archive/ArchiveReader.h"
+#include "core/producer/SystemEventPublisher.h"
 #include "core/config/DeviceConfigService.h"
 #include "core/execution/ExecutionLane.h"
 #include "core/model/StableIdRegistry.h"
 #include "core/persistence/SqliteRuntimeRepository.h"
 #include "core/task/TaskService.h"
+#include "core/task/RadarControlSettingsJson.h"
 
 #include <QDateTime>
 #include <QJsonArray>
@@ -40,9 +43,6 @@ QJsonObject deviceJson(const core::config::DeviceConfiguration &configuration)
     object.insert(QStringLiteral("longitudeDeg"), configuration.longitudeDeg);
     object.insert(QStringLiteral("latitudeDeg"), configuration.latitudeDeg);
     object.insert(QStringLiteral("altitudeM"), configuration.altitudeM);
-    object.insert(QStringLiteral("absoluteHeadingDeg"), configuration.absoluteHeadingDeg);
-    object.insert(QStringLiteral("pitchDeg"), configuration.pitchDeg);
-    object.insert(QStringLiteral("rollDeg"), configuration.rollDeg);
     object.insert(QStringLiteral("faces"), QJsonDocument::fromJson(configuration.facesJson.toUtf8()).array());
     object.insert(QStringLiteral("endpoints"), QJsonDocument::fromJson(configuration.endpointsJson.toUtf8()).array());
     object.insert(QStringLiteral("protocolConfig"), QJsonDocument::fromJson(configuration.protocolConfigJson.toUtf8()).object());
@@ -67,15 +67,20 @@ QJsonObject taskJson(const core::task::TaskDefinition &task, bool active = false
         {QStringLiteral("description"), task.description},
         {QStringLiteral("operatorName"), task.operatorName},
         {QStringLiteral("status"), active ? QStringLiteral("Ready")
+            : task.archivedUtcMs > 0 ? QStringLiteral("Archived")
             : task.completedUtcMs > 0 ? QStringLiteral("Completed") : QStringLiteral("Draft")},
         {QStringLiteral("radarArrayType"),
          task.radarArrayType == core::config::RadarArrayType::FourFace
              ? QStringLiteral("fourFace") : QStringLiteral("singleFace")},
         {QStringLiteral("deviceIds"), deviceIds},
         {QStringLiteral("deviceFaceMasks"), faceMasks},
+        {QStringLiteral("sourceTemplateId"), task.sourceTemplateUuid.toString(QUuid::WithoutBraces)},
+        {QStringLiteral("controlSettings"), core::task::radarControlSettingsToJson(task.controlSettings)},
         {QStringLiteral("createdAt"), task.createdUtcMs},
         {QStringLiteral("completedAt"), task.completedUtcMs > 0
-            ? QJsonValue(task.completedUtcMs) : QJsonValue(QJsonValue::Null)}
+            ? QJsonValue(task.completedUtcMs) : QJsonValue(QJsonValue::Null)},
+        {QStringLiteral("archivedAt"), task.archivedUtcMs > 0
+            ? QJsonValue(task.archivedUtcMs) : QJsonValue(QJsonValue::Null)}
     };
 }
 
@@ -94,6 +99,11 @@ bool parseTask(const QByteArray &body, core::task::TaskDefinition &task, QString
     task.taskName = object.value(QStringLiteral("name")).toString();
     task.operatorName = object.value(QStringLiteral("operatorName")).toString();
     task.description = object.value(QStringLiteral("description")).toString();
+    task.sourceTemplateUuid = QUuid(object.value(QStringLiteral("sourceTemplateId")).toString());
+    if (task.sourceTemplateUuid.isNull()) {
+        error = QStringLiteral("sourceTemplateId必须是有效模板UUID");
+        return false;
+    }
     const QString arrayType = object.value(QStringLiteral("radarArrayType")).toString();
     if (arrayType != QStringLiteral("singleFace") && arrayType != QStringLiteral("fourFace")) {
         error = QStringLiteral("radarArrayType必须是singleFace或fourFace");
@@ -176,9 +186,6 @@ bool parseDevice(const QByteArray &body, core::config::DeviceConfiguration &conf
     configuration.longitudeDeg = object.value(QStringLiteral("longitudeDeg")).toDouble();
     configuration.latitudeDeg = object.value(QStringLiteral("latitudeDeg")).toDouble();
     configuration.altitudeM = object.value(QStringLiteral("altitudeM")).toDouble();
-    configuration.absoluteHeadingDeg = object.value(QStringLiteral("absoluteHeadingDeg")).toDouble();
-    configuration.pitchDeg = object.value(QStringLiteral("pitchDeg")).toDouble();
-    configuration.rollDeg = object.value(QStringLiteral("rollDeg")).toDouble();
     configuration.facesJson = QString::fromUtf8(QJsonDocument(
         object.value(QStringLiteral("faces")).toArray()).toJson(QJsonDocument::Compact));
     configuration.endpointsJson = QString::fromUtf8(QJsonDocument(
@@ -199,7 +206,7 @@ StorageRuntime::StorageRuntime(
     QString databasePath, QString applicationVersion,
     core::model::StableIdRegistry &stableIds,
     const core::domain::HistoryTopic<core::model::TrackPacket> &trackTopic,
-    const core::domain::EventTopic<core::model::SystemEvent> &eventTopic,
+    core::domain::EventTopic<core::model::SystemEvent> &eventTopic,
     core::domain::LatestState<core::model::TaskState> &taskState)
     : m_databasePath(std::move(databasePath))
     , m_applicationVersion(std::move(applicationVersion))
@@ -244,13 +251,16 @@ bool StorageRuntime::initialize()
         *m_archiveRepository);
     m_deviceService = std::make_unique<core::config::DeviceConfigService>(
         *m_runtimeRepository, *m_archiveRepository, m_stableIds);
+    m_eventPublisher = std::make_unique<core::producer::SystemEventPublisher>(m_eventTopic);
     m_taskService = std::make_unique<core::task::TaskService>(
-        *m_runtimeRepository, *m_deviceService, *m_archiveRepository, m_stableIds, m_taskState);
+        *m_runtimeRepository, *m_deviceService, *m_archiveRepository, m_stableIds,
+        m_taskState, m_eventPublisher.get());
 
     if (!m_deviceService->loadFromDatabase() || !m_taskService->loadFromDatabase()) {
         m_lastError = !m_deviceService->lastError().isEmpty()
             ? m_deviceService->lastError() : m_taskService->lastError();
         m_taskService.reset();
+        m_eventPublisher.reset();
         m_deviceService.reset();
         m_runtimeRepository.reset();
         m_archiveRepository->closeCleanly(QDateTime::currentMSecsSinceEpoch());
@@ -277,6 +287,7 @@ bool StorageRuntime::shutdown()
     m_archiveReader.reset();
     m_archiveLane.reset();
     m_taskService.reset();
+    m_eventPublisher.reset();
     m_deviceService.reset();
     m_runtimeRepository.reset();
     if (!m_archiveRepository) {
@@ -415,6 +426,29 @@ QByteArray StorageRuntime::listTasks()
 }
 
 /**
+ * @brief 从TaskService读取模板快照，并把同一RadarControlSettings字段集合返回前端。
+ */
+QByteArray StorageRuntime::listTaskTemplates()
+{
+    if (!m_taskService) return errorJson(QStringLiteral("SERVICE_UNAVAILABLE"), QStringLiteral("任务服务尚未初始化"));
+    QVector<QUuid> uuids;
+    QVector<QString> names;
+    QVector<core::task::RadarControlSettings> settings;
+    if (!m_taskService->listControlTemplates(uuids, names, settings)) {
+        return ownerErrorJson(m_taskService->lastError());
+    }
+    QJsonArray templates;
+    for (qsizetype index = 0; index < uuids.size(); ++index) {
+        templates.append(QJsonObject {
+            {QStringLiteral("templateId"), uuids[index].toString(QUuid::WithoutBraces)},
+            {QStringLiteral("name"), names[index]},
+            {QStringLiteral("controlSettings"), core::task::radarControlSettingsToJson(settings[index])}
+        });
+    }
+    return successJson(QJsonObject {{QStringLiteral("templates"), templates}});
+}
+
+/**
  * @brief 解析HTTP意图后只调用TaskService创建任务，不启动采集或发送设备命令。
  */
 QByteArray StorageRuntime::createTask(const QByteArray &requestBody)
@@ -463,6 +497,22 @@ QByteArray StorageRuntime::completeTask(const QString &taskUuid)
 }
 
 /**
+ * @brief 只把已完成任务写成归档状态；原有航迹、事件和会话始终留在 SQLite 真源。
+ */
+QByteArray StorageRuntime::archiveTask(const QString &taskUuid)
+{
+    if (!m_taskService) return errorJson(QStringLiteral("SERVICE_UNAVAILABLE"), QStringLiteral("任务服务尚未初始化"));
+    const QUuid uuid(taskUuid);
+    core::task::TaskDefinition task;
+    if (uuid.isNull() || !m_taskService->archiveTask(uuid, task)) {
+        return uuid.isNull()
+            ? errorJson(QStringLiteral("INVALID_REQUEST"), QStringLiteral("任务UUID无效"))
+            : ownerErrorJson(m_taskService->lastError());
+    }
+    return successJson(QJsonObject {{QStringLiteral("task"), taskJson(task)}});
+}
+
+/**
  * @brief 从TaskService读取Ready任务；未选择任务时明确返回null。
  */
 QByteArray StorageRuntime::activeTask()
@@ -490,6 +540,87 @@ QByteArray StorageRuntime::deleteTask(const QString &taskUuid)
             : ownerErrorJson(m_taskService->lastError());
     }
     return successJson();
+}
+
+/**
+ * @brief 在SQLite Owner线程把当前活动任务的稳定身份解析为一次采集所需的紧凑运行句柄。
+ * @details V1主链只接受一台完整雷达；多雷达异构组合仍属于插件边界，不在此处猜测分配策略。
+ */
+bool StorageRuntime::resolveActiveTaskContext(ActiveTaskRuntimeContext &context)
+{
+    context = {};
+    if (!m_taskService || !m_deviceService) {
+        m_lastError = QStringLiteral("任务或设备服务尚未初始化");
+        return false;
+    }
+    if (!m_taskService->activeTask(context.task)
+        || context.task.deviceBindings.size() != 1) {
+        m_lastError = QStringLiteral("当前必须有且仅有一台完整雷达的活动任务");
+        return false;
+    }
+    const auto &binding = context.task.deviceBindings.front();
+    if (binding.faceMask == 0U || (binding.faceMask & 0xF0U) != 0U
+        || !m_taskService->resolveTask(context.task.taskUuid, context.taskId)
+        || !m_deviceService->resolveLatestDevice(
+            binding.deviceUuid, context.deviceId, context.endpointId)
+        || !m_deviceService->resolveConfigurationRevision(
+            context.deviceId, context.configurationRevision)
+        || !m_deviceService->resolveConfiguration(
+            context.deviceId, context.configuration)) {
+        m_lastError = QStringLiteral("活动任务的设备、端点或配置revision无法解析");
+        return false;
+    }
+    context.faceMask = binding.faceMask;
+    m_lastError.clear();
+    return true;
+}
+
+/**
+ * @brief 把已解析身份交给TaskService一次创建全部阵面会话；失败时由TaskService完成内部回滚。
+ */
+bool StorageRuntime::startCollections(ActiveTaskRuntimeContext &context)
+{
+    if (!m_taskService || !m_taskService->startCollections(
+            context.taskId, context.deviceId, context.endpointId,
+            context.faceMask, context.faceAcquisitionIds)) {
+        m_lastError = m_taskService ? m_taskService->lastError()
+                                    : QStringLiteral("任务服务尚未初始化");
+        return false;
+    }
+    m_lastError.clear();
+    return true;
+}
+
+/**
+ * @brief 使用同一停止时刻依次收口全部非零阵面会话，并保留首个失败原因供原HTTP请求者诊断。
+ */
+bool StorageRuntime::stopCollections(
+    const std::array<core::model::AcquisitionId, 4> &acquisitionIds)
+{
+    if (!m_taskService) {
+        m_lastError = QStringLiteral("任务服务尚未初始化");
+        return false;
+    }
+    bool found = false;
+    bool success = true;
+    QString firstError;
+    const qint64 stoppedUtcMs = QDateTime::currentMSecsSinceEpoch();
+    for (const auto acquisitionId : acquisitionIds) {
+        if (!acquisitionId.isSet()) continue;
+        found = true;
+        if (!m_taskService->stopCollection(
+                acquisitionId, core::task::CollectionStopReason::UserStop, stoppedUtcMs)) {
+            if (firstError.isEmpty()) firstError = m_taskService->lastError();
+            success = false;
+        }
+    }
+    if (!found) firstError = QStringLiteral("当前没有可停止的采集会话");
+    if (!found || !success) {
+        m_lastError = firstError;
+        return false;
+    }
+    m_lastError.clear();
+    return true;
 }
 
 } // namespace core::app

@@ -8,6 +8,7 @@
 #pragma once
 
 #include "core/config/DeviceConfiguration.h"
+#include "core/task/RadarControlSettings.h"
 
 #include <QString>
 #include <QUuid>
@@ -31,8 +32,11 @@ struct TaskDefinition
     QString description; ///< 任务目的与现场备注，允许为空。
     core::config::RadarArrayType radarArrayType = core::config::RadarArrayType::SingleFace; ///< 任务要求的整机阵面形态。
     QVector<TaskDeviceBinding> deviceBindings; ///< 本任务选中的设备及阵面；创建后由 SQLite 持久化。
+    QUuid sourceTemplateUuid; ///< 创建任务时选用的模板UUID；只作来源追溯，后续模板修改不影响本任务。
+    RadarControlSettings controlSettings; ///< 创建时从模板复制的独立参数快照，任务运行修改不回写共享模板。
     qint64 createdUtcMs = 0; ///< SQLite 提交时刻，Unix epoch UTC 毫秒；创建请求不得自行指定。
     qint64 completedUtcMs = 0; ///< 用户完成任务的 Unix epoch UTC 毫秒；零表示仍可被选择执行。
+    qint64 archivedUtcMs = 0; ///< 用户归档已完成任务的 Unix epoch UTC 毫秒；零表示尚未归档，历史事实仍留在原表。
 };
 
 } // namespace core::task
