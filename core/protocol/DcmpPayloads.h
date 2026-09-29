@@ -1,7 +1,8 @@
 /**
  * @file DcmpPayloads.h
  * @brief 定义 DCMP 控制、DP 状态航迹及 DP/SP 心跳的线协议载荷。
- * @details 上游为控制 owner 提供的字段或设备报文字节，下游为边界 Adapter；从四个顶层载荷阅读。
+ * @details 字段以 doc/protocol/★数据协议(四面阵雷达)_应用版（1.0）_20260923.xlsx 为准；
+ * 上游为控制 owner 提供的字段或设备报文字节，下游为边界 Adapter；从四个顶层载荷阅读。
  * 子结构对应工作表真实信息区，仅在调用方拥有的短期报文对象中嵌套，不进入 Topic，不产生新数据链。
  * 本文件不实现编解码、设备状态机或航迹映射；所有数值保持线协议原始单位，自然对齐不能替代逐字段编码。
  * 默认零值仅用于确定性初始化，不保证整份控制指令可执行；发送前仍须按设备模式校验。
@@ -10,6 +11,18 @@
 #include "DcmpProtocolTypes.h"
 
 namespace core::protocol {
+
+/**
+ * @brief DCMP 发给 DP 的 20 字节工作/待机载荷。
+ * @details 使用统一公共头尾，消息类型为 0xFFFF；当前只定义线协议布局，不改变现有控制发送路径。
+ */
+struct DcmpToDpWorkModePayload
+{
+    static constexpr DcmpMessageType messageType = DcmpMessageType::DcmpToDpWorkMode; ///< 公共头中的消息类型。
+    static constexpr quint32 wireSize = 20U; ///< 仅载荷字节数，不含公共头尾。
+    quint32 workStandbyMode = 1U; ///< 偏移 0：0 待机，1 工作；2、3 保留，当前禁止发送。
+    qint32 reserved[4] {}; ///< 偏移 4：16 字节备份区，无业务含义，发送时置零。
+};
 
 /** @brief 0x0001：DCMP 发给 DP 的 896 字节控制载荷，含四面独立控制区。 */
 struct DcmpToDpControlPayload
@@ -141,7 +154,7 @@ struct DpToDcmpTrackPayload
         quint32 B_FP_Frame_Time = {}; ///< 区内偏移 0：FPGA帧时间原始字；表格同时出现秒和毫秒描述，暂不转换。
         quint32 B_FP_Packet_Count = {}; ///< 区内偏移 4：包计数；包个数自动累加。
         quint32 B_FP__Antenna_Idx = {}; ///< 区内偏移 8：当前阵面索引号，0～3对应1～4号阵面。
-        quint32 B_FP_Primary_Confirm = {}; ///< 区内偏移 12：主定时确认；Y-2型FP暂时保留不用。
+        quint32 B_FP_Screen_Count = {}; ///< 区内偏移 12：FPGA 景幅计数，从 1 开始累计；不再表示主定时确认。
         quint32 B_FP_Executed_State = {}; ///< 区内偏移 16：已执行标志；有效时DP立即给FP发送新命令包。
         quint32 B_FP_InvalidComm_Count = {}; ///< 区内偏移 20：命令包异常累计数。
         quint32 F_FP_FrameWave = {}; ///< 区内偏移 24：控制后的波形模式字。
@@ -316,6 +329,12 @@ struct SpHeartbeatPayload
     quint32 bak[20] {}; ///< 偏移 4：80 字节备份区，默认置零，无业务含义。
 };
 
+static_assert(sizeof(DcmpToDpWorkModePayload) == DcmpToDpWorkModePayload::wireSize,
+              "DcmpToDpWorkModePayload 尺寸不符");
+static_assert(alignof(DcmpToDpWorkModePayload) == 4U
+                  && std::is_trivially_copyable<DcmpToDpWorkModePayload>::value
+                  && std::is_standard_layout<DcmpToDpWorkModePayload>::value,
+              "DcmpToDpWorkModePayload 必须自然对齐且无动态资源");
 static_assert(sizeof(DcmpToDpControlPayload) == 896U, "DcmpToDpControlPayload 尺寸不符");
 static_assert(alignof(DcmpToDpControlPayload) == 4U && std::is_trivially_copyable<DcmpToDpControlPayload>::value
               && std::is_standard_layout<DcmpToDpControlPayload>::value, "DcmpToDpControlPayload 必须自然对齐且无动态资源");

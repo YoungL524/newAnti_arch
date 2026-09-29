@@ -1,10 +1,11 @@
 /**
  * @file toDP.h
- * @brief 交付 DP 的独立 C++14 协议头：公共封装及 0x0001、0x0100、0x0101 载荷。
+ * @brief 交付 DP 的独立 C++14 协议头：公共封装及 0x0001、0xFFFF、0x0100、0x0101 载荷。
  * @details 从 dcmp::DcmpFrameHeader 阅读；线上为 44 字节头 + N 字节载荷 + 4 字节尾。
- * 声明长度为 36+N，实际长度为 48+N。控制 N=896；心跳 N=84，声明长度120，整包132字节。
+ * 声明长度为 36+N，实际长度为 48+N。控制 N=896；工作/待机 N=20；心跳 N=84，声明长度120，整包132字节。
  * 0x0100 含384字节状态及224字节航迹点，声明长度644，实际报文656字节。
- * 本文件可单独复制给 DP，无 Qt 或仓库头文件依赖；字段语义与 core/protocol 保持一致。
+ * 本文件可单独复制给 DP，无 Qt 或仓库头文件依赖；字段以应用版（1.0）_20260923.xlsx 为准，
+ * 与 core/protocol 保持一致。
  * 调用方拥有报文对象；不含通信、线程或编解码。自然布局不保证线字节序，发送时应逐字段编码。
  * 日期字编码仍未明确；惯导字段按表格约定保留缩放前整数，默认控制值不能代替发送前的业务校验。
  */
@@ -23,6 +24,7 @@ namespace dcmp {
 enum class DcmpMessageType : std::uint32_t
 {
     DcmpToDpControl = 0x0001U, ///< DCMP 向 DP 发送控制指令。
+    DcmpToDpWorkMode = 0xFFFFU, ///< DCMP 向 DP 发送工作/待机指令；当前仅定义线协议类型。
     DpToDcmpTrack = 0x0100U,  ///< DP 向 DCMP 返回状态及航迹。
     DpHeartbeat = 0x0101U,    ///< DP 向 DCMP 发送心跳。
 };
@@ -70,6 +72,18 @@ static_assert(sizeof(DcmpFrameTail) == 4U, "包尾必须保持 4 字节");
 static_assert(std::is_standard_layout<DcmpFrameHeader>::value
               && std::is_trivially_copyable<DcmpFrameHeader>::value,
               "公共头必须是无动态资源的标准布局值对象");
+
+/**
+ * @brief DCMP 发给 DP 的 20 字节工作/待机载荷。
+ * @details 使用统一公共头尾，消息类型为 0xFFFF；当前仅定义布局，DCMP 尚未接入发送。
+ */
+struct DcmpToDpWorkModePayload
+{
+    static constexpr DcmpMessageType messageType = DcmpMessageType::DcmpToDpWorkMode; ///< 公共头中的消息类型。
+    static constexpr std::uint32_t wireSize = 20U; ///< 仅载荷字节数，不含公共头尾。
+    std::uint32_t workStandbyMode = 1U; ///< 偏移 0：0 待机，1 工作；2、3 保留，当前禁止发送。
+    std::int32_t reserved[4] {}; ///< 偏移 4：16 字节备份区，无业务含义，发送时置零。
+};
 
 /** @brief 0x0001：DCMP 发给 DP 的 896 字节控制载荷，含四面独立控制区。 */
 struct DcmpToDpControlPayload
@@ -197,7 +211,7 @@ struct DpToDcmpTrackPayload
         std::uint32_t B_FP_Frame_Time = {}; ///< 区内偏移 0：FPGA帧时间原始字；表格同时出现秒和毫秒描述，暂不转换。
         std::uint32_t B_FP_Packet_Count = {}; ///< 区内偏移 4：包计数；包个数自动累加。
         std::uint32_t B_FP__Antenna_Idx = {}; ///< 区内偏移 8：当前阵面索引号，0～3对应1～4号阵面。
-        std::uint32_t B_FP_Primary_Confirm = {}; ///< 区内偏移 12：主定时确认；Y-2型FP暂时保留不用。
+        std::uint32_t B_FP_Screen_Count = {}; ///< 区内偏移 12：FPGA 景幅计数，从 1 开始累计；不再表示主定时确认。
         std::uint32_t B_FP_Executed_State = {}; ///< 区内偏移 16：已执行标志；有效时DP立即给FP发送新命令包。
         std::uint32_t B_FP_InvalidComm_Count = {}; ///< 区内偏移 20：命令包异常累计数。
         std::uint32_t F_FP_FrameWave = {}; ///< 区内偏移 24：控制后的波形模式字。
@@ -352,6 +366,12 @@ struct DpHeartbeatPayload
     std::uint32_t bak[20] {}; ///< 偏移 4：80 字节备份区，默认置零，无业务含义。
 };
 
+static_assert(sizeof(DcmpToDpWorkModePayload) == DcmpToDpWorkModePayload::wireSize,
+              "DcmpToDpWorkModePayload 尺寸不符");
+static_assert(alignof(DcmpToDpWorkModePayload) == 4U
+                  && std::is_trivially_copyable<DcmpToDpWorkModePayload>::value
+                  && std::is_standard_layout<DcmpToDpWorkModePayload>::value,
+              "DcmpToDpWorkModePayload 必须自然对齐且无动态资源");
 static_assert(sizeof(DcmpToDpControlPayload) == 896U, "DcmpToDpControlPayload 尺寸不符");
 static_assert(sizeof(DpToDcmpTrackPayload) == 608U, "DpToDcmpTrackPayload 尺寸不符");
 static_assert(sizeof(DpHeartbeatPayload) == 84U, "DpHeartbeatPayload 尺寸不符");

@@ -20,19 +20,4 @@ endif()
 set(NEWANTI_QT_SEARCH_HINTS ${CMAKE_PREFIX_PATH})
 find_package(Qt5 5.14 REQUIRED COMPONENTS Core Network Sql WebSockets HINTS ${NEWANTI_QT_SEARCH_HINTS})
 
-option(BUILD_TESTS "构建新架构自动化测试" ON)
-if(BUILD_TESTS)
-    enable_testing()
-    find_package(Qt5 5.14 REQUIRED COMPONENTS Test HINTS ${NEWANTI_QT_SEARCH_HINTS})
-endif()
-
 add_subdirectory(core)
-
-option(BUILD_TOOLS "构建协议联试工具" ON)
-if(BUILD_TOOLS)
-    add_subdirectory(tools)
-endif()
-
-if(BUILD_TESTS)
-    add_subdirectory(tests)
-endif()

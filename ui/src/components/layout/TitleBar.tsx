@@ -8,18 +8,24 @@ import type { Task } from '../../lib/taskTypes'
 import { useCore } from '../../hooks/useCoreApi'
 
 const STATUS_LABEL: Record<string, string> = {
-  draft: '草稿', ready: '已就绪', active: '进行中', completed: '已完成', archived: '已归档',
+  draft: '草稿', ready: '已就绪', active: '进行中', faulted: '故障',
+  completed: '已完成', archived: '已归档',
 }
 
-export default function TitleBar({ activeTask, viewTask, isHistoryView }: {
+export default function TitleBar({ activeTask, viewTask, isHistoryView, onOpenRadarSettings, radarSettingsDisabled = false }: {
   activeTask: Task | null
   viewTask: Task | null
   isHistoryView: boolean
+  /** 打开当前任务的“雷达参数”面板；由 App.tsx 提供。 */
+  onOpenRadarSettings: () => void
+  /** 任务缺失、历史视图、非活动阶段或更新进行中时为 true；后端断开在本组件内一并判定。 */
+  radarSettingsDisabled?: boolean
 }) {
   const { connected, acquisition, state, commandPending, checkedDeviceIds, devices,
     noSelectionHint, commandError, interactionError, toggleAcquisition,
     dismissNoSelectionHint, dismissCommandError, dismissInteractionError } = useCore()
   const backendStatus = connected ? 'online' : 'offline'
+  const settingsDisabled = radarSettingsDisabled || !connected
 
   const isFault = state === 'Fault'
   const checkedCount = checkedDeviceIds.length
@@ -94,20 +100,32 @@ export default function TitleBar({ activeTask, viewTask, isHistoryView }: {
         )}
       </div>
 
-      <button
-        className="px-3.5 py-1 rounded-lg text-white font-semibold text-[11px] border-none cursor-pointer
-                   precision-shadow active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-        style={{ background: btnBg }}
-        disabled={!connected || !activeTask || isHistoryView || commandPending || isFault}
-        onClick={toggleAcquisition}
-        title={!connected ? '后端未连接'
-          : !activeTask ? '请先激活任务'
-          : isHistoryView ? '历史查看时不能启停当前采集'
-          : isFault ? '设备故障复位尚未实现'
-          : acquisition ? '停止当前任务的本地采集' : '开始当前任务的本地采集'}
-      >
-        {commandPending ? '处理中…' : btnLabel}
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          className="px-3 py-1 rounded-lg text-[11px] font-medium border cursor-pointer transition-colors
+                     disabled:opacity-40 disabled:cursor-not-allowed"
+          style={{ borderColor: 'var(--hairline)', background: '#fff', color: 'var(--onSurfaceVariant)' }}
+          disabled={settingsDisabled}
+          onClick={onOpenRadarSettings}
+          title={settingsDisabled
+            ? '当前任务或连接状态不可编辑雷达参数'
+            : '编辑当前任务的雷达控制参数'}
+        >雷达参数</button>
+        <button
+          className="px-3.5 py-1 rounded-lg text-white font-semibold text-[11px] border-none cursor-pointer
+                     precision-shadow active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          style={{ background: btnBg }}
+          disabled={!connected || !activeTask || isHistoryView || commandPending || isFault}
+          onClick={toggleAcquisition}
+          title={!connected ? '后端未连接'
+            : !activeTask ? '请先激活任务'
+            : isHistoryView ? '历史查看时不能启停当前采集'
+            : isFault ? '设备故障复位尚未实现'
+            : acquisition ? '停止当前任务的本地采集' : '开始当前任务的本地采集'}
+        >
+          {commandPending ? '处理中…' : btnLabel}
+        </button>
+      </div>
 
       {hasHints && (
         <div className="absolute top-full right-4 mt-1 flex flex-col gap-2 z-50">

@@ -147,6 +147,20 @@ public:
     bool archiveTask(const QUuid &taskUuid, TaskDefinition &task);
 
     /**
+     * @brief 保存当前活动任务的独立控制参数快照，不修改模板、TaskState 或采集会话。
+     * @param taskUuid 稳定任务 UUID；必须已加载且是当前唯一活动任务。
+     * @param settings 已通过 validateRadarControlSettings 的完整参数。
+     * @param taskId 成功时写入该任务在当前进程的句柄，供上层同步设备运行副本。
+     * @param task 成功时返回更新后的完整任务台账快照。
+     * @return 任务存在、是当前活动任务、阶段为 Ready 或 Running、值域合法且 SQLite 提交成功返回 true。
+     * @warning 必须在 SQLite 单写线程调用；失败时不修改内存快照、TaskState、模板或采集会话。
+     */
+    bool updateControlSettings(const QUuid &taskUuid,
+                               const RadarControlSettings &settings,
+                               core::model::TaskId &taskId,
+                               TaskDefinition &task);
+
+    /**
      * @brief 软删除一项尚无活动采集的任务。
      * @param taskUuid UI持有的跨重启稳定任务UUID。
      * @param deletedBy 执行删除的用户或系统标识。

@@ -127,6 +127,19 @@ public:
     bool archiveTask(qint64 databaseTaskId, qint64 archivedUtcMs);
 
     /**
+     * @brief 覆盖一项未完成且未归档任务的独立控制参数快照。
+     * @param databaseTaskId TaskService 持有的 tasks 本地主键，必须大于零。
+     * @param settings 已通过值域校验的完整参数；序列化后写入 control_settings_json。
+     * @param updatedUtcMs 本次修改的 Unix epoch UTC 毫秒，必须大于零。
+     * @return 唯一未删除、未闭合且未归档的任务行成功更新返回 true；其他情况返回 false。
+     * @note 单条 UPDATE 由 SQLite 自身原子提交；不修改模板、采集会话或事件表，也不建立第二份参数真源。
+     * @warning 只能在 SQLite 单写线程调用。
+     */
+    bool updateTaskControlSettings(qint64 databaseTaskId,
+                                   const core::task::RadarControlSettings &settings,
+                                   qint64 updatedUtcMs);
+
+    /**
      * @brief 为当前 application run 创建一次 Running 采集会话。
      * @param databaseTaskId tasks 正主键。
      * @param deviceRevisionId devices revision 正主键。

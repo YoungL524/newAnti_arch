@@ -10,6 +10,7 @@
 #include "core/datadomain/EventTopic.h"
 #include "core/datadomain/HistoryTopic.h"
 #include "core/datadomain/LatestState.h"
+#include "core/model/EntityIds.h"
 #include "core/model/RuntimeState.h"
 #include "core/model/SystemEvent.h"
 #include "core/model/TrackPacket.h"
@@ -48,6 +49,7 @@ class SystemEventPublisher;
 
 namespace core::task {
 class TaskService;
+struct TaskDefinition;
 }
 
 namespace core::app {
@@ -138,6 +140,34 @@ public:
     /** @brief 按稳定UUID软删除没有活动采集的任务。 */
     Q_INVOKABLE QByteArray deleteTask(const QString &taskUuid);
 
+    /**
+     * @brief 在存储线程内校验并持久化任务控制参数，返回供上层同步设备运行副本的任务值。
+     * @param taskUuid 请求路径中的稳定任务 UUID 文本。
+     * @param requestBody 完整请求体，顶层必须是含 controlSettings 的 JSON object。
+     * @param preparedTaskId 主线程读取的 DeviceController 准备任务句柄；零表示该任务没有运行副本。
+     * @param appliedTaskId 成功时写入目标任务的当前进程句柄。
+     * @param appliedTask 成功时写入更新后的完整任务台账快照。
+     * @param response 始终写入 V1 成功或失败 JSON；失败时含稳定 error.code。
+     * @return 结构、值域、任务状态与 SQLite 提交全部通过返回 true。
+     * @note 仅由 ApplicationController 在存储线程同步调用；不调用 DeviceController、不发送 UDP，
+     * 也不保存第二份长期参数。Running 阶段且 preparedTaskId 与目标任务不一致时在落库前拒绝。
+     */
+    bool updateTaskControlSettings(const QString &taskUuid,
+                                   const QByteArray &requestBody,
+                                   core::model::TaskId preparedTaskId,
+                                   core::model::TaskId &appliedTaskId,
+                                   core::task::TaskDefinition &appliedTask,
+                                   QByteArray &response);
+
+    /**
+     * @brief 在存储线程发布一条“任务快照已更新但设备运行副本替换失败”的 Control 域故障事实。
+     * @param taskId 已确认属于当前 TaskService 的任务句柄。
+     * @return 事件通过门禁并写入 EventTopic 返回 true；未初始化或门禁拒绝返回 false。
+     * @note 只发布已发生事实，不改变任务或设备状态，也不重试；发布失败不回滚任何业务结果。
+     * @warning 必须在存储线程调用；主线程应通过 BlockingQueuedConnection 调用本方法。
+     */
+    bool publishTaskSettingsInvariantFault(core::model::TaskId taskId);
+
     /** @brief 解析当前Ready任务的唯一设备运行身份，不创建会话或改变状态。 */
     bool resolveActiveTaskContext(ActiveTaskRuntimeContext &context);
 
@@ -151,6 +181,21 @@ public:
     QString lastError() const;
 
 private:
+    /**
+     * @brief 构造并发布一条携带 TaskId 的 Control 域任务参数故障事实。
+     * @param code 已登记的 Control 域事件码；严重级别由事件码决定。
+     * @param taskId 非零目标任务句柄。
+     * @return 门禁通过并写入 EventTopic 返回 true；入口为空、句柄为零或门禁拒绝返回 false。
+     */
+    bool publishTaskSettingsFault(core::model::EventCode code, core::model::TaskId taskId);
+
+    /**
+     * @brief 读取唯一 TaskState 的当前阶段，且仅当它属于给定任务时返回。
+     * @param taskId 待核对的任务句柄；零返回 None。
+     * @return 该任务当前阶段；不是当前活动任务时返回 None，避免把别的任务阶段套用过来。
+     */
+    core::model::TaskPhase activePhaseOf(core::model::TaskId taskId) const;
+
     QString m_databasePath; ///< SQLite 文件路径；父目录必须在进入存储线程前存在。
     QString m_applicationVersion; ///< application_runs 记录的应用版本。
     core::model::StableIdRegistry &m_stableIds; ///< 跨线程稳定身份注册表，生命周期由 ApplicationRuntime 管理。
@@ -165,6 +210,7 @@ private:
     std::unique_ptr<core::execution::ExecutionLane> m_archiveLane; ///< 唯一存储线程上的合并唤醒通道。
     std::unique_ptr<core::archive::ArchiveReader> m_archiveReader; ///< Track/Event Topic 的正式归档 Consumer。
     QString m_lastError; ///< 最近失败原因；不进入 Topic 或 Web 数据流。
+    quint64 m_nextFaultTraceId = 1; ///< 任务参数故障事件的进程内诊断关联号；零不使用。
 };
 
 } // namespace core::app

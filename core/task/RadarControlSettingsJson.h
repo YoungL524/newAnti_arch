@@ -22,6 +22,19 @@ namespace core::task {
  */
 bool validateRadarControlSettings(const RadarControlSettings &settings, QString &error);
 
+/**
+ * @brief 只解析完整控制参数的嵌套结构与字段类型，不做枚举和值域判断。
+ * @param object HTTP 或 SQLite 提供的完整对象；四个 faces 必须全部提供。
+ * @param settings 成功时写入结构合法的候选值，失败时保持调用前内容。
+ * @param error 失败时写入首个结构或类型错误字段。
+ * @return 顶层 common/frame/faces 与全部字段类型均合法返回 true。
+ * @note 供网络边界先区分“结构与类型错误（400）”与“枚举值域错误（422）”；值域由
+ * validateRadarControlSettings() 单独校验。读取模板或数据库快照仍应使用 radarControlSettingsFromJson()，
+ * 它是结构与值域的完整组合。
+ */
+bool radarControlSettingsStructureFromJson(
+    const QJsonObject &object, RadarControlSettings &settings, QString &error);
+
 /** @brief 把完整控制参数序列化成稳定字段名的JSON对象。 */
 QJsonObject radarControlSettingsToJson(const RadarControlSettings &settings);
 

@@ -204,9 +204,10 @@ QJsonObject radarControlSettingsToJson(const RadarControlSettings &settings)
 }
 
 /**
- * @brief 在局部候选对象中完成解析和校验，保证失败不会部分修改调用者状态。
+ * @brief 只读取嵌套结构与字段类型，把范围判断留给 validateRadarControlSettings()。
+ * @details 失败时调用者的 settings 保持不变；四个 faces 缺一即视为结构错误。
  */
-bool radarControlSettingsFromJson(
+bool radarControlSettingsStructureFromJson(
     const QJsonObject &object, RadarControlSettings &settings, QString &error)
 {
     if (!object.value(QStringLiteral("common")).isObject()
@@ -264,6 +265,18 @@ bool radarControlSettingsFromJson(
             return false;
         }
     }
+    settings = candidate;
+    return true;
+}
+
+/**
+ * @brief 在局部候选对象中完成结构解析和值域校验，保证失败不会部分修改调用者状态。
+ */
+bool radarControlSettingsFromJson(
+    const QJsonObject &object, RadarControlSettings &settings, QString &error)
+{
+    RadarControlSettings candidate;
+    if (!radarControlSettingsStructureFromJson(object, candidate, error)) return false;
     if (!validateRadarControlSettings(candidate, error)) return false;
     settings = candidate;
     return true;

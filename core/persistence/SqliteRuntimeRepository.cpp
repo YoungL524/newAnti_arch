@@ -461,6 +461,36 @@ bool SqliteRuntimeRepository::archiveTask(qint64 databaseTaskId, qint64 archived
 }
 
 /**
+ * @brief 用单条条件更新覆盖控制参数快照；未完成、已归档或不存在时由 SQL 条件拒绝。
+ * @details 任务元数据、模板、采集会话和事件表都不改动；写入的是任务自己的独立参数快照。
+ */
+bool SqliteRuntimeRepository::updateTaskControlSettings(
+    qint64 databaseTaskId, const core::task::RadarControlSettings &settings, qint64 updatedUtcMs)
+{
+    if (!requireDatabase("updateTaskControlSettings") || databaseTaskId <= 0 || updatedUtcMs <= 0) {
+        if (m_lastError.isEmpty()) m_lastError = QStringLiteral("更新任务控制参数参数无效");
+        return false;
+    }
+    const QString settingsJson = QString::fromUtf8(QJsonDocument(
+        core::task::radarControlSettingsToJson(settings)).toJson(QJsonDocument::Compact));
+    QSqlQuery update(m_databaseOwner.m_database);
+    update.prepare(QStringLiteral(
+        "UPDATE tasks SET control_settings_json=?,updated_utc_ms=? "
+        "WHERE task_id=? AND is_deleted=0 AND closed_utc_ms IS NULL AND archived_utc_ms IS NULL"));
+    update.addBindValue(settingsJson);
+    update.addBindValue(updatedUtcMs);
+    update.addBindValue(databaseTaskId);
+    if (!update.exec() || update.numRowsAffected() != 1) {
+        m_lastError = update.lastError().text().isEmpty()
+            ? QStringLiteral("任务不存在、已完成或已归档，无法更新控制参数")
+            : update.lastError().text();
+        return false;
+    }
+    m_lastError.clear();
+    return true;
+}
+
+/**
  * @brief 只更新当前未删除任务；活动会话检查由拥有运行时状态的TaskService先完成。
  */
 bool SqliteRuntimeRepository::softDeleteTask(qint64 databaseTaskId, const QString &deletedBy)

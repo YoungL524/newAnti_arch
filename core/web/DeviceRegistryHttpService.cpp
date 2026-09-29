@@ -8,6 +8,7 @@
 #include <QHostAddress>
 #include <QMetaObject>
 #include <QTcpSocket>
+#include <QUuid>
 
 namespace core::web {
 
@@ -222,6 +223,17 @@ QByteArray DeviceRegistryHttpService::dispatch(
             const QString uuid = taskPath.left(taskPath.size() - activateSuffix.size());
             invoked = QMetaObject::invokeMethod(m_storageRuntime, "activateTask",
                 Qt::BlockingQueuedConnection, Q_RETURN_ARG(QByteArray, response), Q_ARG(QString, uuid));
+        } else if (taskPath.endsWith(QStringLiteral("/control-settings"))
+                   && method == QByteArrayLiteral("PUT")) {
+            const QString suffix = QStringLiteral("/control-settings");
+            const QString uuid = taskPath.left(taskPath.size() - suffix.size());
+            invoked = true;
+            if (uuid.isEmpty() || uuid.contains('/')) {
+                response = errorBody("INVALID_REQUEST", QStringLiteral("任务UUID无效"));
+            } else {
+                m_applicationController->updateTaskControlSettings(
+                    *m_storageRuntime, QUuid(uuid), body, response);
+            }
         } else if (taskPath.endsWith(QStringLiteral("/acquisition/start"))
                    && method == QByteArrayLiteral("POST")) {
             const QString suffix = QStringLiteral("/acquisition/start");
@@ -275,10 +287,17 @@ QByteArray DeviceRegistryHttpService::dispatch(
     if (!object.value(QStringLiteral("ok")).toBool()) {
         const QString code = object.value(QStringLiteral("error")).toObject()
                                  .value(QStringLiteral("code")).toString();
+        if (code.isEmpty()) {
+            statusCode = 503;
+            return errorBody("SERVICE_UNAVAILABLE", QStringLiteral("内部调用未返回有效结果"));
+        }
         statusCode = code == QStringLiteral("INVALID_REQUEST") ? 400
             : code == QStringLiteral("RESOURCE_NOT_FOUND") ? 404
             : code == QStringLiteral("REVISION_CONFLICT") ? 409
-            : code == QStringLiteral("SERVICE_UNAVAILABLE") ? 503 : 422;
+            : code == QStringLiteral("TASK_STATE_CONFLICT") ? 409
+            : code == QStringLiteral("SERVICE_UNAVAILABLE") ? 503
+            : code == QStringLiteral("PERSISTENCE_FAILED") ? 500
+            : code == QStringLiteral("INTERNAL_ERROR") ? 500 : 422;
     } else if (method == QByteArrayLiteral("POST")
                && (path == QStringLiteral("/api/v1/devices")
                    || path == QStringLiteral("/api/v1/tasks"))) {
@@ -300,6 +319,7 @@ void DeviceRegistryHttpService::writeResponse(
         : statusCode == 409 ? QByteArrayLiteral("Conflict")
         : statusCode == 413 ? QByteArrayLiteral("Payload Too Large")
         : statusCode == 422 ? QByteArrayLiteral("Unprocessable Entity")
+        : statusCode == 500 ? QByteArrayLiteral("Internal Server Error")
         : QByteArrayLiteral("Service Unavailable");
     QByteArray header = QByteArrayLiteral("HTTP/1.1 ") + QByteArray::number(statusCode) + ' ' + reason
         + QByteArrayLiteral("\r\nContent-Type: application/json; charset=utf-8\r\nConnection: close\r\nContent-Length: ")

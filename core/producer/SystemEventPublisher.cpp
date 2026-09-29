@@ -15,6 +15,8 @@ bool isRegisteredEventCode(core::model::EventCode code) noexcept
     case core::model::EventCode::SystemTopicSequenceGap:
     case core::model::EventCode::ControlDatagramSendFailed:
     case core::model::EventCode::ControlTaskLifecycleChanged:
+    case core::model::EventCode::ControlTaskControlSettingsPersistFailed:
+    case core::model::EventCode::ControlTaskControlSettingsInvariantFailed:
         return true;
     }
     return false;
@@ -43,6 +45,10 @@ bool hasRequiredContext(const core::model::SystemEvent &event) noexcept
         return core::model::hasEventSubject(event.flags, EventSubjectFlag::TaskIdValid)
             && core::model::hasEventSubject(event.flags, EventSubjectFlag::Argument0Valid)
             && event.argument0 >= 1 && event.argument0 <= 4;
+    }
+    if (event.eventCode == EventCode::ControlTaskControlSettingsPersistFailed
+        || event.eventCode == EventCode::ControlTaskControlSettingsInvariantFailed) {
+        return core::model::hasEventSubject(event.flags, EventSubjectFlag::TaskIdValid);
     }
     if (event.eventCode == EventCode::TrackPublishRejected) {
         return core::model::hasEventSubject(event.flags, EventSubjectFlag::Argument0Valid)

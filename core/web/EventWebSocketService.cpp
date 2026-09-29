@@ -60,7 +60,7 @@ void EventWebSocketService::drain(quint64 pendingMask)
             {QStringLiteral("type"), QStringLiteral("log")},
             {QStringLiteral("level"), QStringLiteral("WARN")},
             {QStringLiteral("message"), QStringLiteral("实时事件缺失：序号 %1 至 %2")
-                .arg(result.gap.firstLost).arg(result.gap.lastLost)},
+                .arg(result.gap->firstLost).arg(result.gap->lastLost)},
             {QStringLiteral("timestamp"), QDateTime::currentMSecsSinceEpoch()}});
     }
     for (qsizetype index = 0; index < result.count; ++index) {

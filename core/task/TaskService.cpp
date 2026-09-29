@@ -6,6 +6,7 @@
 #include "core/model/StableIdRegistry.h"
 #include "core/producer/RuntimeStateGate.h"
 #include "core/producer/SystemEventPublisher.h"
+#include "core/task/RadarControlSettingsJson.h"
 
 #include <QDateTime>
 #include <QVector>
@@ -280,6 +281,51 @@ bool TaskService::archiveTask(const QUuid &taskUuid, TaskDefinition &task)
     m_tasks[id->value()].archivedUtcMs = archivedUtcMs;
     task = m_tasks.value(id->value());
     publishTaskEvent(*id, 4);
+    m_lastError.clear();
+    return true;
+}
+
+/**
+ * @brief 只允许当前 Ready 或 Running 活动任务改写参数快照；先过值域，再落库，成功后才替换内存值。
+ * @details 任一步失败都不触碰内存快照、TaskState、模板或采集会话，保证失败时两份参数都保持旧值。
+ */
+bool TaskService::updateControlSettings(
+    const QUuid &taskUuid,
+    const RadarControlSettings &settings,
+    core::model::TaskId &taskId,
+    TaskDefinition &task)
+{
+    taskId = core::model::TaskId();
+    const auto id = m_taskIdsByUuid.constFind(taskUuid);
+    if (taskUuid.isNull() || id == m_taskIdsByUuid.cend()) {
+        m_lastError = QStringLiteral("任务不存在或已经删除");
+        return false;
+    }
+    const auto current = m_taskState.latest();
+    if (!current || current->sample->value.taskId != *id
+        || (current->sample->value.phase != core::model::TaskPhase::Ready
+            && current->sample->value.phase != core::model::TaskPhase::Running)) {
+        m_lastError = QStringLiteral("任务当前状态不允许修改控制参数");
+        return false;
+    }
+    QString validationError;
+    if (!validateRadarControlSettings(settings, validationError)) {
+        m_lastError = QStringLiteral("任务控制参数无效：") + validationError;
+        return false;
+    }
+    const qint64 databaseId = m_databaseTaskIds.value(id->value(), 0);
+    if (databaseId <= 0) {
+        m_lastError = QStringLiteral("任务数据库主键缺失");
+        return false;
+    }
+    if (!m_runtimeRepository.updateTaskControlSettings(
+            databaseId, settings, QDateTime::currentMSecsSinceEpoch())) {
+        m_lastError = m_runtimeRepository.lastError();
+        return false;
+    }
+    m_tasks[id->value()].controlSettings = settings;
+    taskId = *id;
+    task = m_tasks.value(id->value());
     m_lastError.clear();
     return true;
 }

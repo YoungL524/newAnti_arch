@@ -1,7 +1,7 @@
 # DCMP 统一报文封装实现合同
 
-字段底表：[统一报文封装 Excel](../protocol/数据协议(新雷达)_第二版20260903(针对Y-2型FP四面阵)_[刘阳返回][第一版_统一报文封装-202609015].xlsx)。
-本文件记录 2026-09-15 的 C++ 映射，表格更新时须同步复核。
+字段底表：[四面阵雷达应用版 Excel](../protocol/★数据协议(四面阵雷达)_应用版（1.0）_20260923.xlsx)。
+本文件记录按 2026-09-24 现行底表复核的 C++ 映射，表格更新时须同步复核。
 当前底表规定 SP 心跳为 0x0303，长度为 36+N，协议版本为 20260915。
 入口：`core/protocol/DcmpProtocolTypes.h`。
 
@@ -61,8 +61,9 @@ Adapter不持有socket、队列、定时器或State，不打印逐包日志，�
 | 0x0101 | DpHeartbeatPayload | 84 | DP → Adapter → 后续设备状态 owner |
 | 0x0303 | SpHeartbeatPayload | 84 | SP → Adapter → 后续设备状态 owner |
 
-工作/停止控制不再定义独立载荷或消息类型；`DcmpToDpControlPayload::CommonControl::F_UI_STBY_Ctrl`
-为唯一入口，1表示开始或保持采集，0表示停止采集。历史`0xFFFF` workmode定义已取消。
+按 2026-09-29 用户要求，`0xFFFF` 已重新定义为 20 字节 `DcmpToDpWorkModePayload`，使用统一公共头尾；
+`workStandbyMode` 的 0 表示待机、1 表示工作，2/3 保留且当前禁止发送。现行运行链路仍由
+`DcmpToDpControlPayload::CommonControl::F_UI_STBY_Ctrl` 表示采集启停，尚未接入 `0xFFFF` 发送。
 
 控制载荷嵌套 CommonControl、FrameControl、Navigation 及 FaceControl，均对应实际 128 字节信息区。
 四面以 `faces[0..3]` 表达，区内字段去掉工作表 No1～No4 后缀，保持字段次序和类型。
@@ -72,7 +73,8 @@ Adapter不持有socket、队列、定时器或State，不打印逐包日志，�
 惯导经纬度接收值除以1000000，高度及其余姿态、速度相关量接收值除以100；线协议结构只保存原始整数，
 换算发生在使用方。FP 帧时间的秒/毫秒说明仍有冲突，因此暂保留原始整数。
 
-0x0100 的 FPGA 状态区严格从 `B_FP_Frame_Time` 开始：包计数偏移4、阵面索引偏移8；偏移92和96分别为
+0x0100 的 FPGA 状态区严格从 `B_FP_Frame_Time` 开始：包计数偏移4、阵面索引偏移8、
+`B_FP_Screen_Count` 景幅计数偏移12且从1开始累计；该字不再是主定时确认。偏移92和96分别为
 方位、俯仰 S 曲线系数，末字段 `B_FS_SF` 位于偏移124。该128字节区不存在包长度字段或备份字。
 
 对象采用自然对齐；尺寸和偏移测试不构成可直接发送对象内存的承诺。

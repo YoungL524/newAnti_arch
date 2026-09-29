@@ -82,6 +82,7 @@ const STATUS_META: Record<string, { icon: string; label: string }> = {
   draft: { icon: 'edit_note', label: '草稿' },
   ready: { icon: 'pending_actions', label: '已就绪' },
   active: { icon: 'radio_button_checked', label: '进行中' },
+  faulted: { icon: 'error', label: '故障' },
   completed: { icon: 'check_circle', label: '已完成' },
   archived: { icon: 'archive', label: '已归档' },
 }

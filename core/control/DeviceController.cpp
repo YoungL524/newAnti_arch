@@ -215,6 +215,20 @@ core::task::RadarControlSettings DeviceController::controlSettings() const
 }
 
 /**
+ * @brief 只接受当前准备任务并做纯值拷贝，避免在持久化之后引入新的失败点。
+ */
+bool DeviceController::applyControlSettings(
+    core::model::TaskId taskId, const core::task::RadarControlSettings &settings)
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    if (!taskId.isSet() || taskId != m_preparedTaskId) {
+        return false;
+    }
+    m_controlSettings = settings;
+    return true;
+}
+
+/**
  * @brief 核对会话阵面与准备任务完全一致后，原子发布一台完整雷达的Collecting状态。
  */
 bool DeviceController::beginAcquisition(

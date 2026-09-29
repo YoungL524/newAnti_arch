@@ -1,8 +1,8 @@
 /**
  * @file DcmpProtocolTypes.h
  * @brief 定义统一线协议的公共头、包尾和消息类型，供协议 Adapter 构造及解释报文。
- * @details 依据 doc/protocol/数据协议(新雷达)_第二版20260903(针对Y-2型FP四面阵)_[刘阳返回]
- * [第一版_统一报文封装-202609015].xlsx。阅读从 DcmpFrameHeader 开始：
+ * @details 依据 doc/protocol/★数据协议(四面阵雷达)_应用版（1.0）_20260923.xlsx。
+ * 阅读从 DcmpFrameHeader 开始：
  * 线上顺序为公共头（44 字节）、载荷（N 字节）、包尾（4 字节）。本文件不实现载荷、编解码、
  * 超时判断或业务路由；这些边界临时值对象不得发布到 CoreDataDomain。
  * 对象由调用方持有，无共享可变状态。自然对齐不等于线协议编码，禁止直接发送对象内存。
@@ -21,6 +21,7 @@ namespace core::protocol {
 enum class DcmpMessageType : quint32
 {
     DcmpToDpControl = 0x0001U, ///< DCMP 向 DP 发送控制指令。
+    DcmpToDpWorkMode = 0xFFFFU, ///< DCMP 向 DP 发送独立工作/待机指令；当前仅定义线协议类型。
     DpToFpControl = 0x0102U,   ///< DP 向 FPGA 转发控制指令。
     FpgaToSpData = 0x0203U,    ///< FPGA 向 SP 返回状态及 AD 数据。
     SpToDpPoint = 0x0301U,    ///< SP 向 DP 返回数据；不代表上位机存在点迹 Topic。

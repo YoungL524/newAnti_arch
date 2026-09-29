@@ -150,6 +150,16 @@ struct SystemEvent
 它记录本地任务事实，不表示设备确认。Web Reader 将事件码与参数映射为中文活动日志，
 ArchiveReader 按独立 cursor 将同一事实写入 `system_events`。
 
+2026-09-28 追加登记两条控制参数更新故障码，用于满足接口合同“500 必须形成 SystemEvent”的要求：
+
+| 事件码 | 域 / 级别 | 必填上下文 | 事实含义 |
+| --- | --- | --- | --- |
+| `ControlTaskControlSettingsPersistFailed = 0x04010004` | Control / Error | `TaskId` | 任务控制参数快照未提交 SQLite；本地请求结果仍由 HTTP 返回 |
+| `ControlTaskControlSettingsInvariantFailed = 0x04010005` | Control / Fault | `TaskId` | 任务快照已更新但设备运行副本替换失败；内部不变量被破坏 |
+
+两条事件都由存储线程的事件 Owner 发布，只记录已发生事实，不改变任务或设备状态，也不重试；发布失败不回滚
+已经确认的本地结果。
+
 第一批实现前应建立独立事件码登记表。建议预留但暂不创建空壳枚举项；只登记当前代码能够真实产生、测试和
 处置的事件。
 

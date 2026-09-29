@@ -4,11 +4,32 @@
 #include "core/control/DeviceController.h"
 #include "core/producer/TrackIngressProducer.h"
 
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMetaObject>
 #include <QSet>
 #include <QThread>
 
 namespace core::app {
+
+namespace {
+
+/**
+ * @brief 形成编排层自身的V1失败响应；只用于存储调用失败或不变量故障，业务拒绝仍由存储层给出。
+ * @param code 稳定错误码，本层只产生 `SERVICE_UNAVAILABLE` 与 `INTERNAL_ERROR`。
+ * @param message 供界面展示的说明文本。
+ */
+QByteArray errorResponse(const QString &code, const QString &message)
+{
+    return QJsonDocument(QJsonObject {
+        {QStringLiteral("ok"), false},
+        {QStringLiteral("error"), QJsonObject {
+            {QStringLiteral("code"), code},
+            {QStringLiteral("message"), message}}}})
+        .toJson(QJsonDocument::Compact);
+}
+
+} // namespace
 
 /**
  * @brief 固定ApplicationController到单一设备控制Owner，禁止运行期切换命令执行者。
@@ -216,6 +237,62 @@ bool ApplicationController::clearPreparedTask(core::model::TaskId taskId)
 QString ApplicationController::lastError() const
 {
     return m_lastError;
+}
+
+/**
+ * @brief 先持久化任务快照，再在准备句柄匹配时同步设备运行副本；两步同在主线程同步调用栈内。
+ * @details 存储调用为阻塞 queued 调用，期间不启动嵌套事件循环，所以 50 ms 定时器不会在两步之间发送，
+ * 准备句柄也不会在读取后变化。持久化失败时原样返回存储层写入的稳定错误码。
+ */
+bool ApplicationController::updateTaskControlSettings(
+    StorageRuntime &storageRuntime, const QUuid &expectedTaskUuid,
+    const QByteArray &requestBody, QByteArray &response)
+{
+    response.clear();
+    const core::model::TaskId preparedTaskId = m_deviceController.preparedTaskId();
+    core::model::TaskId appliedTaskId;
+    core::task::TaskDefinition appliedTask;
+    bool updated = false;
+    if (storageRuntime.thread() == QThread::currentThread()) {
+        updated = storageRuntime.updateTaskControlSettings(
+            expectedTaskUuid.toString(QUuid::WithoutBraces), requestBody, preparedTaskId,
+            appliedTaskId, appliedTask, response);
+    } else {
+        const bool invoked = QMetaObject::invokeMethod(&storageRuntime, [&] {
+            updated = storageRuntime.updateTaskControlSettings(
+                expectedTaskUuid.toString(QUuid::WithoutBraces), requestBody, preparedTaskId,
+                appliedTaskId, appliedTask, response);
+        }, Qt::BlockingQueuedConnection);
+        if (!invoked) {
+            m_lastError = QStringLiteral("存储线程调用失败");
+            response = errorResponse(QStringLiteral("SERVICE_UNAVAILABLE"), m_lastError);
+            return false;
+        }
+    }
+    if (!updated) {
+        if (response.isEmpty()) {
+            m_lastError = QStringLiteral("存储线程未返回有效结果");
+            response = errorResponse(QStringLiteral("SERVICE_UNAVAILABLE"), m_lastError);
+            return false;
+        }
+        m_lastError.clear();
+        return false;
+    }
+    if (preparedTaskId.isSet() && preparedTaskId == appliedTaskId
+        && !m_deviceController.applyControlSettings(appliedTaskId, appliedTask.controlSettings)) {
+        m_lastError = QStringLiteral("任务快照已更新，但设备运行副本替换失败");
+        if (storageRuntime.thread() == QThread::currentThread()) {
+            storageRuntime.publishTaskSettingsInvariantFault(appliedTaskId);
+        } else {
+            QMetaObject::invokeMethod(&storageRuntime, [&] {
+                storageRuntime.publishTaskSettingsInvariantFault(appliedTaskId);
+            }, Qt::BlockingQueuedConnection);
+        }
+        response = errorResponse(QStringLiteral("INTERNAL_ERROR"), m_lastError);
+        return false;
+    }
+    m_lastError.clear();
+    return true;
 }
 
 } // namespace core::app

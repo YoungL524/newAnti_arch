@@ -90,6 +90,18 @@ public:
     core::task::RadarControlSettings controlSettings() const;
 
     /**
+     * @brief 仅在准备任务匹配时一次替换运行参数副本，供 50 ms 定时器下一周期读取。
+     * @param taskId 期望同步的任务句柄；零或与当前准备任务不一致时不修改。
+     * @param settings 调用方已通过结构、值域和任务状态校验的完整参数。
+     * @return 当前准备任务恰为 taskId 并完成替换返回 true；否则保持旧值返回 false。
+     * @note 只做纯值拷贝，不编码、不发送、不改 DeviceState、不启停定时器；返回 false 只表示该任务此刻
+     * 没有运行副本，调用方不应把它当作数据损坏。
+     */
+    bool applyControlSettings(
+        core::model::TaskId taskId,
+        const core::task::RadarControlSettings &settings);
+
+    /**
      * @brief 将已创建的逐阵面会话发布为本地采集事实，使PPI进入扫描状态。
      * @note 本地状态切换不依赖心跳或DP执行结果；随后仅在DP、SP均在线时启动50 ms控制发送。
      */

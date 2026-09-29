@@ -18,6 +18,7 @@
 #include <QJsonParseError>
 #include <QThread>
 
+#include <chrono>
 #include <limits>
 #include <utility>
 
@@ -50,9 +51,33 @@ QJsonObject deviceJson(const core::config::DeviceConfiguration &configuration)
 }
 
 /**
- * @brief 将任务稳定身份、Draft状态和设备阵面绑定转换为前端V1 JSON。
+ * @brief 把持久化完成/归档标记与当前 TaskPhase 合成为唯一的 V1 status 文本。
+ * @param task 任务台账快照。
+ * @param phase 该任务在当前进程的运行阶段；非活动任务传 None。
+ * @return `Active`、`Ready`、`Faulted`、`Completed`、`Archived` 或 `Draft` 之一。
+ * @note 运行阶段优先于持久化标记：采集进行中的任务必须显示 Active，不能被降级为 Ready。
  */
-QJsonObject taskJson(const core::task::TaskDefinition &task, bool active = false)
+QString taskStatusText(const core::task::TaskDefinition &task, core::model::TaskPhase phase)
+{
+    switch (phase) {
+    case core::model::TaskPhase::Running: return QStringLiteral("Active");
+    case core::model::TaskPhase::Ready: return QStringLiteral("Ready");
+    case core::model::TaskPhase::Faulted: return QStringLiteral("Faulted");
+    case core::model::TaskPhase::Completed: return QStringLiteral("Completed");
+    case core::model::TaskPhase::None: break;
+    }
+    if (task.archivedUtcMs > 0) return QStringLiteral("Archived");
+    if (task.completedUtcMs > 0) return QStringLiteral("Completed");
+    return QStringLiteral("Draft");
+}
+
+/**
+ * @brief 将任务稳定身份、当前运行阶段和设备阵面绑定转换为前端V1 JSON。
+ * @param task 任务台账快照。
+ * @param phase 该任务在当前进程的 TaskPhase；非活动任务传 None，此时按持久化标记显示。
+ */
+QJsonObject taskJson(const core::task::TaskDefinition &task,
+                     core::model::TaskPhase phase = core::model::TaskPhase::None)
 {
     QJsonArray deviceIds;
     QJsonObject faceMasks;
@@ -66,9 +91,7 @@ QJsonObject taskJson(const core::task::TaskDefinition &task, bool active = false
         {QStringLiteral("name"), task.taskName},
         {QStringLiteral("description"), task.description},
         {QStringLiteral("operatorName"), task.operatorName},
-        {QStringLiteral("status"), active ? QStringLiteral("Ready")
-            : task.archivedUtcMs > 0 ? QStringLiteral("Archived")
-            : task.completedUtcMs > 0 ? QStringLiteral("Completed") : QStringLiteral("Draft")},
+        {QStringLiteral("status"), taskStatusText(task, phase)},
         {QStringLiteral("radarArrayType"),
          task.radarArrayType == core::config::RadarArrayType::FourFace
              ? QStringLiteral("fourFace") : QStringLiteral("singleFace")},
@@ -420,7 +443,9 @@ QByteArray StorageRuntime::listTasks()
     if (!m_taskService->listTasks(tasks)) return ownerErrorJson(m_taskService->lastError());
     QJsonArray array;
     for (const auto &task : tasks) {
-        array.append(taskJson(task, m_taskService->isTaskActive(task.taskUuid)));
+        core::model::TaskId taskId;
+        m_taskService->resolveTask(task.taskUuid, taskId);
+        array.append(taskJson(task, activePhaseOf(taskId)));
     }
     return successJson(QJsonObject {{QStringLiteral("tasks"), array}});
 }
@@ -477,7 +502,8 @@ QByteArray StorageRuntime::activateTask(const QString &taskUuid)
             ? errorJson(QStringLiteral("INVALID_REQUEST"), QStringLiteral("任务UUID无效"))
             : ownerErrorJson(m_taskService->lastError());
     }
-    return successJson(QJsonObject {{QStringLiteral("task"), taskJson(task, true)}});
+    return successJson(QJsonObject {{QStringLiteral("task"),
+                                     taskJson(task, core::model::TaskPhase::Ready)}});
 }
 
 /**
@@ -522,9 +548,11 @@ QByteArray StorageRuntime::activeTask()
     if (!m_taskService->activeTask(task)) {
         return successJson(QJsonObject {{QStringLiteral("activeTaskId"), QJsonValue::Null}});
     }
+    const auto current = m_taskState.latest();
     return successJson(QJsonObject {
         {QStringLiteral("activeTaskId"), task.taskUuid.toString(QUuid::WithoutBraces)},
-        {QStringLiteral("task"), taskJson(task, true)}});
+        {QStringLiteral("task"), taskJson(task, current ? current->sample->value.phase
+                                                       : core::model::TaskPhase::None)}});
 }
 
 /**
@@ -540,6 +568,136 @@ QByteArray StorageRuntime::deleteTask(const QString &taskUuid)
             : ownerErrorJson(m_taskService->lastError());
     }
     return successJson();
+}
+
+/**
+ * @brief 按“结构 → 类型 → 值域 → 任务存在性 → Ready/Running → 持久化”的固定顺序分类失败。
+ * @details 每类失败直接写入稳定 error.code，调用方不得解析中文文本；Running 阶段额外要求当前
+ * DeviceController 准备句柄与目标任务一致，避免落库后没有可同步的运行副本。
+ */
+bool StorageRuntime::updateTaskControlSettings(
+    const QString &taskUuid,
+    const QByteArray &requestBody,
+    core::model::TaskId preparedTaskId,
+    core::model::TaskId &appliedTaskId,
+    core::task::TaskDefinition &appliedTask,
+    QByteArray &response)
+{
+    appliedTaskId = core::model::TaskId();
+    appliedTask = {};
+    if (!m_taskService) {
+        response = errorJson(QStringLiteral("SERVICE_UNAVAILABLE"), QStringLiteral("任务服务尚未初始化"));
+        return false;
+    }
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(requestBody, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        response = errorJson(QStringLiteral("INVALID_REQUEST"), QStringLiteral("请求体必须是JSON object"));
+        return false;
+    }
+    const QJsonValue controlSettingsValue =
+        document.object().value(QStringLiteral("controlSettings"));
+    if (!controlSettingsValue.isObject()) {
+        response = errorJson(QStringLiteral("INVALID_REQUEST"),
+                             QStringLiteral("controlSettings必须是JSON object"));
+        return false;
+    }
+    core::task::RadarControlSettings settings;
+    QString error;
+    if (!core::task::radarControlSettingsStructureFromJson(
+            controlSettingsValue.toObject(), settings, error)) {
+        response = errorJson(QStringLiteral("INVALID_REQUEST"), error);
+        return false;
+    }
+    if (!core::task::validateRadarControlSettings(settings, error)) {
+        response = errorJson(QStringLiteral("BUSINESS_REJECTED"), error);
+        return false;
+    }
+    const QUuid uuid(taskUuid);
+    if (uuid.isNull()) {
+        response = errorJson(QStringLiteral("INVALID_REQUEST"), QStringLiteral("任务UUID无效"));
+        return false;
+    }
+    core::model::TaskId taskId;
+    if (!m_taskService->resolveTask(uuid, taskId)) {
+        response = errorJson(QStringLiteral("RESOURCE_NOT_FOUND"), QStringLiteral("任务不存在或已删除"));
+        return false;
+    }
+    const auto current = m_taskState.latest();
+    if (!current || current->sample->value.taskId != taskId
+        || (current->sample->value.phase != core::model::TaskPhase::Ready
+            && current->sample->value.phase != core::model::TaskPhase::Running)) {
+        response = errorJson(QStringLiteral("TASK_STATE_CONFLICT"),
+                             QStringLiteral("任务当前状态不允许修改控制参数"));
+        return false;
+    }
+    const core::model::TaskPhase phase = current->sample->value.phase;
+    if (phase == core::model::TaskPhase::Running && preparedTaskId != taskId) {
+        response = errorJson(QStringLiteral("TASK_STATE_CONFLICT"),
+                             QStringLiteral("运行中任务的设备控制副本尚未就绪"));
+        return false;
+    }
+    core::task::TaskDefinition task;
+    if (!m_taskService->updateControlSettings(uuid, settings, appliedTaskId, task)) {
+        publishTaskSettingsFault(
+            core::model::EventCode::ControlTaskControlSettingsPersistFailed, taskId);
+        response = errorJson(QStringLiteral("PERSISTENCE_FAILED"),
+                             m_taskService->lastError().isEmpty()
+                                 ? QStringLiteral("任务控制参数持久化失败")
+                                 : m_taskService->lastError());
+        return false;
+    }
+    appliedTask = task;
+    response = successJson(QJsonObject {{QStringLiteral("task"), taskJson(appliedTask, phase)}});
+    return true;
+}
+
+/**
+ * @brief 发布“快照已更新但设备运行副本替换失败”的 Control 域 Fault 事实，供主线程编排者跨线程调用。
+ */
+bool StorageRuntime::publishTaskSettingsInvariantFault(core::model::TaskId taskId)
+{
+    return publishTaskSettingsFault(
+        core::model::EventCode::ControlTaskControlSettingsInvariantFailed, taskId);
+}
+
+/**
+ * @brief 在同一条既定路径上补齐 SampleMeta 与稳定事件码，再交给唯一事件门禁。
+ */
+bool StorageRuntime::publishTaskSettingsFault(
+    core::model::EventCode code, core::model::TaskId taskId)
+{
+    if (!m_eventPublisher || !taskId.isSet()) return false;
+    core::model::Sample<core::model::SystemEvent> sample;
+    sample.meta.receiveTimeUtcMs = QDateTime::currentMSecsSinceEpoch();
+    sample.meta.receiveTimeSteadyNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    sample.meta.traceId = m_nextFaultTraceId++;
+    if (m_nextFaultTraceId == 0) m_nextFaultTraceId = 1;
+    sample.value.domain = core::model::EventDomain::Control;
+    sample.value.severity = code == core::model::EventCode::ControlTaskControlSettingsInvariantFailed
+        ? core::model::EventSeverity::Fault : core::model::EventSeverity::Error;
+    sample.value.eventCode = code;
+    sample.value.taskId = taskId;
+    sample.value.flags = core::model::eventSubjectBit(core::model::EventSubjectFlag::TaskIdValid);
+    try {
+        return m_eventPublisher->publish(std::move(sample)).accepted();
+    } catch (const std::overflow_error &) {
+        return false;
+    }
+}
+
+/**
+ * @brief 只读取唯一 TaskState 中属于该任务的阶段，不查询数据库或推断设备状态。
+ */
+core::model::TaskPhase StorageRuntime::activePhaseOf(core::model::TaskId taskId) const
+{
+    if (!taskId.isSet()) return core::model::TaskPhase::None;
+    const auto current = m_taskState.latest();
+    if (!current || current->sample->value.taskId != taskId) {
+        return core::model::TaskPhase::None;
+    }
+    return current->sample->value.phase;
 }
 
 /**

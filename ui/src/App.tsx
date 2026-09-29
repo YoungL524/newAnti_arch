@@ -16,7 +16,8 @@ import { type AppDevice, type RadarDevice, type SubDevice } from './components/m
 import DeviceEditDialog from './components/dialogs/DeviceEditDialog'
 import { fetchDevices, createDevice, deleteDeviceApi, updateDevice as apiUpdateDevice, radarToApiPayload, subToApiPayload, apiDeviceToRadar, apiDeviceToSub, type DeviceRegistryStatus } from './lib/devicesApi'
 import TaskCreateDialog, { type TaskCreateResult } from './components/dialogs/TaskCreateDialog'
-import type { Task, TaskTemplate } from './lib/taskTypes'
+import RadarControlSettingsDialog from './components/dialogs/RadarControlSettingsDialog'
+import type { RadarControlSettings, Task, TaskTemplate } from './lib/taskTypes'
 import {
   fetchTasksFromBackend,
   createTaskApi,
@@ -27,6 +28,7 @@ import {
   apiTaskToTask,
   taskToApiPayload,
   fetchTaskTemplates,
+  updateTaskControlSettingsApi,
 } from './lib/tasksApi'
 /**
  * @brief 组装雷达上位机单页应用，并协调任务、设备及当前视图选择。
@@ -48,6 +50,8 @@ export default function App() {
   const [tasksBackend, setTasksBackend] = useState(false)
   const [taskTemplates, setTaskTemplates] = useState<TaskTemplate[]>([])
   const [showTaskDialog, setShowTaskDialog] = useState(false)
+  const [showRadarSettings, setShowRadarSettings] = useState(false)
+  const [radarSettingsSaving, setRadarSettingsSaving] = useState(false)
   const [taskActionPendingId, setTaskActionPendingId] = useState<string | null>(null)
   const [taskActionError, setTaskActionError] = useState('')
   const tasksRef = useRef<Task[]>([])
@@ -303,6 +307,35 @@ export default function App() {
     }
   }, [tasksBackend, viewTaskRunId])
 
+  /**
+   * @brief 提交当前活动任务的完整控制参数快照，并用响应替换 tasks 中的对应任务。
+   * @param settings 对话框中的完整本地草稿。
+   * @return ok 表示服务端已持久化并可关闭对话框；失败时保留草稿并回传可展示错误。
+   * @note 成功后只替换该任务快照，activeTask 派生值随之刷新；不整页重载，也不另存第二份已应用参数。
+   */
+  const applyRadarSettings = useCallback(async (settings: RadarControlSettings) => {
+    const id = activeTaskIdRef.current
+    if (!id) return { ok: false, error: '当前没有活动任务' }
+    setRadarSettingsSaving(true)
+    try {
+      const result = await updateTaskControlSettingsApi(id, settings)
+      if (!result.ok || !result.data?.task) {
+        return { ok: false, error: result.error || '参数更新失败' }
+      }
+      const updated = apiTaskToTask(result.data.task)
+      setTasks(prev => prev.map(task => task.id === id ? updated : task))
+      return { ok: true }
+    } catch (e: unknown) {
+      return { ok: false, error: e instanceof Error ? e.message : '参数更新失败' }
+    } finally {
+      setRadarSettingsSaving(false)
+    }
+  }, [])
+
+  const radarSettingsDisabled = !tasksBackend || isHistoryView || !activeTask
+    || (activeTask.status !== 'ready' && activeTask.status !== 'active')
+    || radarSettingsSaving
+
   const addDevice = useCallback(async (d: Omit<RadarDevice, 'id'>) => {
     const r = await createDevice(radarToApiPayload('', d as RadarDevice))
     if (!r.ok) { console.warn('[devices] 添加设备失败:', r.error); return false }
@@ -426,7 +459,13 @@ export default function App() {
           )}
 
           <main className="flex-1 flex flex-col relative overflow-hidden" style={{ background: 'var(--surfaceDim)' }}>
-            <TitleBar activeTask={activeTask} viewTask={viewTask} isHistoryView={isHistoryView} />
+            <TitleBar
+              activeTask={activeTask}
+              viewTask={viewTask}
+              isHistoryView={isHistoryView}
+              onOpenRadarSettings={() => setShowRadarSettings(true)}
+              radarSettingsDisabled={radarSettingsDisabled}
+            />
             <div className="flex-1 relative overflow-hidden">
               <MapRadarView
                 devices={displayRadarDevices}
@@ -477,6 +516,16 @@ export default function App() {
           taskTemplates={taskTemplates}
           onCreate={createTask}
           onCancel={() => setShowTaskDialog(false)}
+        />
+      )}
+
+      {showRadarSettings && activeTask && (
+        <RadarControlSettingsDialog
+          key={activeTask.id}
+          task={activeTask}
+          radarDevices={devices}
+          onApply={applyRadarSettings}
+          onClose={() => setShowRadarSettings(false)}
         />
       )}
     </CoreProvider>

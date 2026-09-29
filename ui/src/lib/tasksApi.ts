@@ -55,6 +55,7 @@ function mapStatus(status: string): TaskStatus {
   switch (status) {
     case 'Ready': return 'ready'
     case 'Active': return 'active'
+    case 'Faulted': return 'faulted'
     case 'Completed': return 'completed'
     case 'Archived': return 'archived'
     case 'Draft': return 'draft'
@@ -163,4 +164,21 @@ export async function stopTaskAcquisitionApi(id: string): Promise<ApiResult<{ ac
 
 export async function deleteTaskApi(id: string): Promise<ApiResult> {
   return apiCall(`${BASE}/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+/**
+ * @brief 提交当前活动任务的完整控制参数快照。
+ * @param id 任务稳定 UUID。
+ * @param settings 界面草稿中的完整参数；结构与值域由后端再次校验。
+ * @return 更新后的权威任务；被拒绝、状态冲突或存储失败时返回可展示错误。
+ * @note 只在用户点击“应用”时调用一次，输入过程不发请求。
+ */
+export async function updateTaskControlSettingsApi(
+  id: string, settings: RadarControlSettings,
+): Promise<ApiResult<TaskResponseData>> {
+  return apiCall(`${BASE}/${encodeURIComponent(id)}/control-settings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ controlSettings: settings }),
+  })
 }

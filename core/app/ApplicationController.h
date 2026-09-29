@@ -11,6 +11,7 @@
 #include "core/config/DeviceConfiguration.h"
 #include "core/task/TaskDefinition.h"
 
+#include <QByteArray>
 #include <QHash>
 #include <QString>
 #include <QUuid>
@@ -84,6 +85,21 @@ public:
 
     /** @brief 停止指定活动任务的本地PPI/航迹入口并收口全部逐阵面会话。 */
     bool stopAcquisition(StorageRuntime &storageRuntime, const QUuid &expectedTaskUuid);
+
+    /**
+     * @brief 主线程编排一次任务控制参数更新：先在存储线程持久化，再同步当前设备运行副本。
+     * @param storageRuntime 已初始化的存储组合根；不在本线程时使用 BlockingQueuedConnection。
+     * @param expectedTaskUuid 请求路径中的稳定任务 UUID。
+     * @param requestBody 完整请求体，顶层必须是含 controlSettings 的 JSON object。
+     * @param response 始终写入 V1 成功或失败 JSON；失败时含稳定 error.code。
+     * @return 持久化成功，且存在运行副本时同步成功返回 true。
+     * @note 两步在主线程同一同步调用栈内完成，期间不启动嵌套事件循环；本操作不是跨线程原子事务。
+     * 存储失败原样返回其错误码；准备句柄匹配却替换失败属于内部不变量故障，返回 INTERNAL_ERROR。
+     */
+    bool updateTaskControlSettings(StorageRuntime &storageRuntime,
+                                   const QUuid &expectedTaskUuid,
+                                   const QByteArray &requestBody,
+                                   QByteArray &response);
 
     /** @brief 返回最近一次编排失败原因。 */
     QString lastError() const;

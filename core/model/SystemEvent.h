@@ -80,7 +80,9 @@ enum class EventCode : quint32
     TrackPublishRejected = 0x02010001U, ///< 航迹 Sample 被发布前门禁拒绝；argument0 保存拒绝原因编号。
     SystemTopicSequenceGap = 0x03010001U, ///< Reader cursor 落后于 Topic 历史窗口；两个参数保存丢失闭区间。
     ControlDatagramSendFailed = 0x04010002U, ///< 控制数据报未能交给本地 UDP Socket；requestId 有效。
-    ControlTaskLifecycleChanged = 0x04010003U ///< 任务本地持久化生命周期变化；argument0 为1创建、2激活、3完成、4归档。
+    ControlTaskLifecycleChanged = 0x04010003U, ///< 任务本地持久化生命周期变化；argument0 为1创建、2激活、3完成、4归档。
+    ControlTaskControlSettingsPersistFailed = 0x04010004U, ///< 任务控制参数快照未能提交 SQLite；taskId 有效，severity=Error。
+    ControlTaskControlSettingsInvariantFailed = 0x04010005U ///< 任务快照已更新但设备运行副本替换失败；taskId 有效，severity=Fault。
 };
 
 /**
