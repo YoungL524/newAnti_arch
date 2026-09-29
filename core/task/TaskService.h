@@ -114,6 +114,9 @@ public:
      */
     bool activateTask(const QUuid &taskUuid, TaskDefinition &task);
 
+    /** @brief 仅供激活后设备快照准备失败时撤销当前 Ready 选择；任务仍保持未完成草稿。 */
+    bool cancelActivation(const QUuid &taskUuid);
+
     /**
      * @brief 读取当前Ready或运行阶段任务对应的台账快照。
      * @param task 存在当前活动任务时写入其稳定台账字段。

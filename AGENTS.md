@@ -21,7 +21,7 @@ flowchart LR
 
     UiApi[UI / API] --> ApplicationController[ApplicationController]
     ApplicationController --> DeviceController[DeviceController<br/>唯一命令 owner]
-    DeviceController --> ProtocolAdapter[DCMP ProtocolAdapter<br/>临时编码 0x0001]
+    DeviceController --> ProtocolAdapter[DCMP ProtocolAdapter<br/>临时编码 0x0001 / 0xFFFF]
     ProtocolAdapter -->|UDP 单向发送| Device[Device]
     DeviceController -->|本地状态变化/已发生事实| Domain
 ```
@@ -67,13 +67,14 @@ flowchart LR
 UI/API
   -> ApplicationController
   -> DeviceController
-  -> DcmpProtocolAdapter（临时编码 0x0001）
+  -> DcmpProtocolAdapter（临时编码 0x0001 / 0xFFFF）
   -> 本地 UDP Socket
   -> Device
 ```
 
 - `DeviceController` 是设备命令的唯一 owner；
-- `DeviceController` 持有最新控制参数；采集且 DP/SP 心跳均在线时，每 50 ms 临时编码并发送完整 `0x0001` 控制报文，不为周期发送创建 FIFO；
+- `DeviceController` 持有最新控制参数；任务激活成功且 DP/SP 心跳均在线时，每 50 ms 向 `127.0.0.1:2345` 临时编码并发送完整 `0x0001` 控制报文，开始/停止采集不启停该周期发送，也不为周期发送创建 FIFO；`0xFFFF` 工作/待机只由采集按钮触发并发送到 `127.0.0.1:1234`；
+- 本地采集开始/停止成功后，`DeviceController` 通过同一 UDP 端点各发送一包 `0xFFFF`，`workStandbyMode` 分别为 1/0；不受心跳门控；
 - UDP 报文提交本地 Socket 后，本次发送即结束；设备没有 ACK，DCMP 不确认对方收到或设备起控，也不创建超时重试队列；
 - HTTP 结果只表达本地请求处理结果，不能把本地发送成功表述为设备确认；本地状态变化和已发生事实分别写入 `LatestState<DeviceState>` 或 `EventTopic<SystemEvent>`；
 - 控制请求和结果不进入普通 Topic，不建立跨类型中央命令总线。

@@ -1,8 +1,8 @@
 /**
  * @file ApplicationController.h
  * @brief 定义任务稳定身份到设备控制运行身份的最小编排边界。
- * @details 上游未来由HTTP采集命令提供TaskService已解析的任务，下游只调用DeviceController准备或清除运行副本。
- * 本阶段不访问SQLite、不创建采集会话、不绑定航迹入口、不发送UDP，也不直接写入任何LatestState。
+ * @details 上游 HTTP 任务激活和采集命令通过 StorageRuntime 提供已解析任务；下游准备 DeviceController 快照、
+ * 编排本地会话和航迹入口。本类不直接写 SQLite、Socket 或 LatestState；新人从 prepareActiveTask() 阅读。
  */
 
 #pragma once
@@ -42,7 +42,7 @@ struct ActiveTaskRuntimeContext
     core::model::DeviceId deviceId; ///< 当前任务唯一完整雷达句柄。
     core::model::EndpointId endpointId; ///< 与设备revision一致的主航迹端点。
     quint32 configurationRevision = 0; ///< DeviceState展示使用的非零配置revision。
-    core::config::DeviceConfiguration configuration; ///< 开始采集时冻结给控制Owner的设备部署参数。
+    core::config::DeviceConfiguration configuration; ///< 激活任务时提供给控制Owner的设备部署参数值副本。
     quint8 faceMask = 0; ///< 当前任务冻结的启用阵面位图。
 };
 
@@ -66,13 +66,22 @@ public:
         const core::task::TaskDefinition &task,
         const QHash<QUuid, core::model::DeviceId> &deviceIdsByUuid);
 
+    /**
+     * @brief 任务激活成功后解析唯一设备，准备发送到固定目标的 0x0001 周期快照。
+     * @return 当前活动任务身份一致且快照有效时返回 true；不创建采集会话或发送 0xFFFF。
+     */
+    bool prepareActiveTask(StorageRuntime &storageRuntime, const QUuid &expectedTaskUuid);
+
+    /** @brief 完成任务后清除当前控制快照及周期发送；没有准备态时视为已清除。 */
+    bool clearActiveTask();
+
     /** @brief 清除匹配任务的设备控制准备态；不会结束会话或发送待机命令。 */
     bool clearPreparedTask(core::model::TaskId taskId);
 
     /**
      * @brief 将TaskService已创建的逐阵面会话绑定到唯一航迹入口。
      * @return 任务、设备、阵面集合与准备态完全一致且Producer接受绑定时返回true。
-     * @note 本重载只绑定本地航迹身份；完整编排重载再由DeviceController启动50 ms控制发送。
+     * @note 本重载只绑定本地航迹身份；50 ms控制发送已由任务激活和双心跳独立门控。
      */
     bool startAcquisition(
         core::model::EndpointId endpointId,

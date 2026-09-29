@@ -194,7 +194,7 @@ bool TaskService::listTasks(QVector<TaskDefinition> &tasks) const
 
 /**
  * @brief 在存储线程内把已持久化任务从Draft选为Ready，成功发布后才向HTTP返回活动结果。
- * @details Ready只表达当前任务上下文已经选定；collection_sessions和0x0001周期发送由正式控制链在开始采集时编排。
+ * @details Ready只表达当前任务上下文已经选定；成功后由编排层准备0x0001快照，采集会话仍由开始采集创建。
  */
 bool TaskService::activateTask(const QUuid &taskUuid, TaskDefinition &task)
 {
@@ -217,6 +217,24 @@ bool TaskService::activateTask(const QUuid &taskUuid, TaskDefinition &task)
     if (!publishTaskState(*id, core::model::TaskPhase::Ready)) return false;
     task = m_tasks.value(id->value());
     publishTaskEvent(*id, 2);
+    m_lastError.clear();
+    return true;
+}
+
+/**
+ * @brief 激活后的设备快照准备失败时撤回 Ready 状态，使草稿可重新激活或修改设备配置。
+ */
+bool TaskService::cancelActivation(const QUuid &taskUuid)
+{
+    const auto id = m_taskIdsByUuid.constFind(taskUuid);
+    const auto current = m_taskState.latest();
+    if (id == m_taskIdsByUuid.cend() || !current
+        || current->sample->value.taskId != *id
+        || current->sample->value.phase != core::model::TaskPhase::Ready) {
+        m_lastError = QStringLiteral("只能撤销当前尚未采集的Ready任务激活");
+        return false;
+    }
+    if (!publishTaskState(core::model::TaskId(), core::model::TaskPhase::None)) return false;
     m_lastError.clear();
     return true;
 }

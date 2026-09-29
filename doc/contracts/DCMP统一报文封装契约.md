@@ -63,7 +63,8 @@ Adapter不持有socket、队列、定时器或State，不打印逐包日志，�
 
 按 2026-09-29 用户要求，`0xFFFF` 已重新定义为 20 字节 `DcmpToDpWorkModePayload`，使用统一公共头尾；
 `workStandbyMode` 的 0 表示待机、1 表示工作，2/3 保留且当前禁止发送。现行运行链路仍由
-`DcmpToDpControlPayload::CommonControl::F_UI_STBY_Ctrl` 表示采集启停，尚未接入 `0xFFFF` 发送。
+`DcmpToDpControlPayload::CommonControl::F_UI_STBY_Ctrl` 在现有周期控制中固定写 1；该字段与采集按钮的联动留待后续合同。
+`0xFFFF` 在本地采集开始/停止成功后分别写 1/0，整包 68 字节、声明长度 56，发送目标固定为 `127.0.0.1:1234`。
 
 控制载荷嵌套 CommonControl、FrameControl、Navigation 及 FaceControl，均对应实际 128 字节信息区。
 四面以 `faces[0..3]` 表达，区内字段去掉工作表 No1～No4 后缀，保持字段次序和类型。

@@ -18,6 +18,7 @@
 #include <QObject>
 #include <QByteArray>
 #include <QString>
+#include <QUuid>
 
 #include <array>
 #include <memory>
@@ -127,6 +128,9 @@ public:
 
     /** @brief 选择一个已持久化任务进入Ready阶段，不发送设备控制命令。 */
     Q_INVOKABLE QByteArray activateTask(const QString &taskUuid);
+
+    /** @brief 设备控制快照准备失败时撤销刚激活的 Ready 任务，不修改草稿或采集会话。 */
+    bool cancelTaskActivation(const QUuid &taskUuid);
 
     /** @brief 完成当前Ready任务并解除后续新建任务门禁。 */
     Q_INVOKABLE QByteArray completeTask(const QString &taskUuid);

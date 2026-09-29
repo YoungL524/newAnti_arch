@@ -223,6 +223,19 @@ QByteArray DeviceRegistryHttpService::dispatch(
             const QString uuid = taskPath.left(taskPath.size() - activateSuffix.size());
             invoked = QMetaObject::invokeMethod(m_storageRuntime, "activateTask",
                 Qt::BlockingQueuedConnection, Q_RETURN_ARG(QByteArray, response), Q_ARG(QString, uuid));
+            if (invoked && QJsonDocument::fromJson(response).object()
+                    .value(QStringLiteral("ok")).toBool()
+                && !m_applicationController->prepareActiveTask(*m_storageRuntime, QUuid(uuid))) {
+                const QString prepareError = m_applicationController->lastError();
+                bool cancelled = false;
+                const bool rollbackInvoked = QMetaObject::invokeMethod(m_storageRuntime, [&] {
+                    cancelled = m_storageRuntime->cancelTaskActivation(QUuid(uuid));
+                }, Qt::BlockingQueuedConnection);
+                response = rollbackInvoked && cancelled
+                    ? errorBody("COMMAND_REJECTED", prepareError)
+                    : errorBody("INTERNAL_ERROR", prepareError
+                        + QStringLiteral("；任务激活撤销失败：") + m_storageRuntime->lastError());
+            }
         } else if (taskPath.endsWith(QStringLiteral("/control-settings"))
                    && method == QByteArrayLiteral("PUT")) {
             const QString suffix = QStringLiteral("/control-settings");
@@ -263,6 +276,11 @@ QByteArray DeviceRegistryHttpService::dispatch(
             const QString uuid = taskPath.left(taskPath.size() - QStringLiteral("/complete").size());
             invoked = QMetaObject::invokeMethod(m_storageRuntime, "completeTask",
                 Qt::BlockingQueuedConnection, Q_RETURN_ARG(QByteArray, response), Q_ARG(QString, uuid));
+            if (invoked && QJsonDocument::fromJson(response).object()
+                    .value(QStringLiteral("ok")).toBool()
+                && !m_applicationController->clearActiveTask()) {
+                response = errorBody("INTERNAL_ERROR", m_applicationController->lastError());
+            }
         } else if (taskPath.endsWith(QStringLiteral("/archive"))
                    && method == QByteArrayLiteral("POST")) {
             const QString uuid = taskPath.left(taskPath.size() - QStringLiteral("/archive").size());

@@ -10,9 +10,9 @@ namespace core::comm {
  * @brief 只建立socket就绪通知，不绑定端口；原始字节使用同步调用，不进入Qt消息队列。
  */
 UdpEndpoint::UdpEndpoint(ReceiveHandler handler, QObject *parent)
-    : QObject(parent), m_socket(this), m_handler(std::move(handler))
+    : QObject(parent), m_sock2DpSp(this), m_handler(std::move(handler))
 {
-    connect(&m_socket, &QUdpSocket::readyRead, this, &UdpEndpoint::drain);
+    connect(&m_sock2DpSp, &QUdpSocket::readyRead, this, &UdpEndpoint::drain);
 }
 
 /**
@@ -27,8 +27,8 @@ bool UdpEndpoint::start(const QHostAddress &localAddress, quint16 localPort)
     if (m_active || m_draining || localAddress.isNull()) {
         return fail(QStringLiteral("UDP重复启动、接收中重启或本地地址无效"));
     }
-    if (!m_socket.bind(localAddress, localPort, QAbstractSocket::DontShareAddress)) {
-        return fail(m_socket.errorString());
+    if (!m_sock2DpSp.bind(localAddress, localPort, QAbstractSocket::DontShareAddress)) {
+        return fail(m_sock2DpSp.errorString());
     }
     ++m_generation;
     m_active = true;
@@ -46,7 +46,7 @@ void UdpEndpoint::stop()
     m_active = false;
     ++m_generation;
     m_continuationPending = false;
-    m_socket.close();
+    m_sock2DpSp.close();
 }
 
 /**
@@ -59,8 +59,8 @@ bool UdpEndpoint::send(const QByteArray &bytes, const QHostAddress &targetAddres
         || bytes.size() > maxSendPayloadBytes) {
         return fail(QStringLiteral("UDP未绑定或发送目标/长度无效"));
     }
-    if (m_socket.writeDatagram(bytes, targetAddress, targetPort) != bytes.size()) {
-        return fail(m_socket.errorString());
+    if (m_sock2DpSp.writeDatagram(bytes, targetAddress, targetPort) != bytes.size()) {
+        return fail(m_sock2DpSp.errorString());
     }
     m_lastError.clear();
     return true;
@@ -72,7 +72,7 @@ bool UdpEndpoint::send(const QByteArray &bytes, const QHostAddress &targetAddres
 quint16 UdpEndpoint::localPort() const
 {
     Q_ASSERT(QThread::currentThread() == thread());
-    return m_active ? m_socket.localPort() : 0;
+    return m_active ? m_sock2DpSp.localPort() : 0;
 }
 
 /**
@@ -104,18 +104,18 @@ void UdpEndpoint::drain()
         return;
     }
     m_draining = true;
-    for (int count = 0; count < 64 && m_active && m_socket.hasPendingDatagrams(); ++count) {
-        const qint64 expected = m_socket.pendingDatagramSize();
+    for (int count = 0; count < 64 && m_active && m_sock2DpSp.hasPendingDatagrams(); ++count) {
+        const qint64 expected = m_sock2DpSp.pendingDatagramSize();
         if (expected > static_cast<qint64>(m_buffer.size())) {
-            m_socket.readDatagram(m_buffer.data(), 0);
+            m_sock2DpSp.readDatagram(m_buffer.data(), 0);
             ++m_oversized;
             continue;
         }
         QHostAddress sender;
         quint16 port = 0;
-        const qint64 size = m_socket.readDatagram(m_buffer.data(), m_buffer.size(), &sender, &port);
+        const qint64 size = m_sock2DpSp.readDatagram(m_buffer.data(), m_buffer.size(), &sender, &port);
         if (size < 0) {
-            fail(m_socket.errorString());
+            fail(m_sock2DpSp.errorString());
             break;
         }
         const qint64 utcMs = QDateTime::currentMSecsSinceEpoch();
@@ -124,7 +124,7 @@ void UdpEndpoint::drain()
         m_handler(m_buffer.data(), size, sender, port, utcMs, steadyNs);
     }
     m_draining = false;
-    if (m_active && m_socket.hasPendingDatagrams()) {
+    if (m_active && m_sock2DpSp.hasPendingDatagrams()) {
         m_continuationPending = true;
         const quint64 generation = m_generation;
         QTimer::singleShot(0, this, [this, generation] {

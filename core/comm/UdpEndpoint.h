@@ -3,7 +3,8 @@
  * @brief 提供协议无关的单个 UDP 端点，连接网络数据报与同线程 ProtocolAdapter。
  * @details 上游为操作系统 UDP socket，下游为组合根指定的唯一同步接收处理函数。
  * 从 start()、send() 阅读；本类不识别心跳或命令，不发布 Topic，不持有消费者队列，不创建线程。
- * sock2Internal 的部署地址由调用方传入127.0.0.1:7788，外部端点同样使用本类而不是另建业务链路。
+ * 当前实例在 127.0.0.1:7788 共用一个 UDP Socket 接收 DP/SP 心跳与 DP 返回值，并向 DP 发命令；
+ * 地址由组合根传入，不按报文类型再分配第二个接收套接字。
  */
 #pragma once
 
@@ -52,7 +53,7 @@ private:
     /** @brief 保存错误并发出诊断信号，返回false以供失败分支直接返回。 */
     bool fail(const QString &description);
 
-    QUdpSocket m_socket; ///< 本端点唯一socket，随QObject父子关系保持线程亲和。
+    QUdpSocket m_sock2DpSp; ///< 当前端点与 DP/SP 共用的唯一 UDP Socket；随QObject父子关系保持线程亲和。
     ReceiveHandler m_handler; ///< 唯一同步ProtocolAdapter入口，不缓存消息。
     std::array<char, 65507> m_buffer {}; ///< IPv4最大UDP载荷缓冲，构造时分配且跨数据报复用。
     QString m_lastError; ///< 最近传输错误，低频诊断文本。

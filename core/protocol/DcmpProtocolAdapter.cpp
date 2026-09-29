@@ -270,6 +270,28 @@ QByteArray DcmpProtocolAdapter::encodeControl(
 }
 
 /**
+ * @brief 用与 0x0001 相同的公共封装逐字段写入 0xFFFF；零初始化保证四个备份字为零。
+ */
+QByteArray DcmpProtocolAdapter::encodeWorkMode(bool work)
+{
+    DcmpToDpWorkModePayload payload;
+    payload.workStandbyMode = work ? 1U : 0U;
+    QByteArray bytes(
+        DcmpFrameHeader::wireSize + DcmpToDpWorkModePayload::wireSize + DcmpFrameTail::wireSize,
+        '\0');
+    writeU32Le(bytes, DcmpFrameHeader::magicOffset, DcmpFrameHeader::expectedMagic);
+    writeU32Le(bytes, DcmpFrameHeader::totalLengthOffset,
+               DcmpFrameHeader::declaredFixedSize + DcmpToDpWorkModePayload::wireSize);
+    writeU32Le(bytes, DcmpFrameHeader::messageTypeOffset,
+               static_cast<quint32>(DcmpToDpWorkModePayload::messageType));
+    writeU32Le(bytes, DcmpFrameHeader::versionOffset, DcmpFrameHeader::expectedVersion);
+    writeU32Le(bytes, DcmpFrameHeader::payloadOffset, payload.workStandbyMode);
+    writeU32Le(bytes, DcmpFrameHeader::payloadOffset + DcmpToDpWorkModePayload::wireSize,
+               DcmpFrameTail::expectedMagic);
+    return bytes;
+}
+
+/**
  * @brief 先做有界公共校验，再按消息类型和固定长度解码，全部成功后才调用一次owner入口。
  * @details 小端读取使用字节地址，兼容非对齐输入；长度以实际size校验，不以声明长度分配内存。
  * 时间/版本原始字段保留，不推断厂家日期编码；0x0100只校验当前显示链真正消费的航迹字段。

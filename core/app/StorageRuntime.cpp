@@ -507,6 +507,20 @@ QByteArray StorageRuntime::activateTask(const QString &taskUuid)
 }
 
 /**
+ * @brief 仅撤销因 DPH 快照准备失败而无法使用的当前 Ready 激活，保留数据库中的原草稿。
+ */
+bool StorageRuntime::cancelTaskActivation(const QUuid &taskUuid)
+{
+    if (!m_taskService || !m_taskService->cancelActivation(taskUuid)) {
+        m_lastError = m_taskService ? m_taskService->lastError()
+                                    : QStringLiteral("任务服务尚未初始化");
+        return false;
+    }
+    m_lastError.clear();
+    return true;
+}
+
+/**
  * @brief 把完成意图交给TaskService收口SQLite任务并清除唯一活动TaskState。
  */
 QByteArray StorageRuntime::completeTask(const QString &taskUuid)

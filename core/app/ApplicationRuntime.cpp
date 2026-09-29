@@ -13,7 +13,7 @@ ApplicationRuntime::ApplicationRuntime(QString databasePath, QString application
       m_applicationVersion(std::move(applicationVersion)),
       m_deviceController(m_domain.deviceState(),
           [this](const QByteArray &bytes, const QHostAddress &address, quint16 port) {
-              return m_internal.send(bytes, address, port);
+              return m_sock2DpSp.send(bytes, address, port);
           }),
       m_trackIngress(m_domain.trackTopic()),
       m_applicationController(m_deviceController, m_trackIngress),
@@ -23,7 +23,7 @@ ApplicationRuntime::ApplicationRuntime(QString databasePath, QString application
           [this](const auto&,quint8 face,quint32 sequence,const auto& track,qint64 u,qint64 s){
               m_trackIngress.accept(face,sequence,track,u,s);
           }),
-      m_internal([this](const char* p,qint64 n,const QHostAddress&,quint16,qint64 u,qint64 s){m_adapter.onDatagram(p,n,u,s);}),
+      m_sock2DpSp([this](const char* p,qint64 n,const QHostAddress&,quint16,qint64 u,qint64 s){m_adapter.onDatagram(p,n,u,s);}),
       m_stateWeb(m_domain.deviceState(),m_lane,m_gateway,m_stableIds),
       m_trackWeb(m_domain.trackTopic(),m_lane,m_gateway,m_stableIds,256,256),
       m_eventWeb(m_domain.eventTopic(),m_lane,m_gateway,m_stableIds)
@@ -41,17 +41,17 @@ bool ApplicationRuntime::start(quint16 internalPort,quint16 webSocketPort,quint1
 {
     if (m_running) { m_error=QStringLiteral("运行时已启动"); return false; }
     if (!startStorage()) return false;
-    if (!m_internal.start(QHostAddress::LocalHost,internalPort)) {
-        m_error=QStringLiteral("内部UDP启动失败：")+m_internal.lastError();
+    if (!m_sock2DpSp.start(QHostAddress::LocalHost,internalPort)) {
+        m_error=QStringLiteral("内部UDP启动失败：")+m_sock2DpSp.lastError();
         stopStorage(); return false;
     }
     if (!m_gateway.start(webSocketPort)) {
         m_error=QStringLiteral("WebSocket Gateway启动失败");
-        m_internal.stop(); stopStorage(); return false;
+        m_sock2DpSp.stop(); stopStorage(); return false;
     }
     if (!m_deviceHttp.start(deviceHttpPort, *m_storageRuntime, m_applicationController)) {
         m_error=QStringLiteral("设备与任务HTTP启动失败：")+m_deviceHttp.lastError();
-        m_gateway.stop(); m_internal.stop(); stopStorage(); return false;
+        m_gateway.stop(); m_sock2DpSp.stop(); stopStorage(); return false;
     }
     m_trackWeb.refresh(); m_eventWeb.refresh(); m_deviceController.start(); m_running=true; m_error.clear(); return true;
 }
@@ -60,7 +60,7 @@ bool ApplicationRuntime::start(quint16 internalPort,quint16 webSocketPort,quint1
  */
 void ApplicationRuntime::stop()
 {
-    m_internal.stop(); m_deviceController.stop(); m_deviceHttp.stop(); m_gateway.stop(); m_running=false; stopStorage();
+    m_sock2DpSp.stop(); m_deviceController.stop(); m_deviceHttp.stop(); m_gateway.stop(); m_running=false; stopStorage();
 }
 
 /**

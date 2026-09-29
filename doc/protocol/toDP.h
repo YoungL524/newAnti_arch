@@ -24,7 +24,7 @@ namespace dcmp {
 enum class DcmpMessageType : std::uint32_t
 {
     DcmpToDpControl = 0x0001U, ///< DCMP 向 DP 发送控制指令。
-    DcmpToDpWorkMode = 0xFFFFU, ///< DCMP 向 DP 发送工作/待机指令；当前仅定义线协议类型。
+    DcmpToDpWorkMode = 0xFFFFU, ///< DCMP 向 DP 发送工作/待机指令。
     DpToDcmpTrack = 0x0100U,  ///< DP 向 DCMP 返回状态及航迹。
     DpHeartbeat = 0x0101U,    ///< DP 向 DCMP 发送心跳。
 };
@@ -75,7 +75,7 @@ static_assert(std::is_standard_layout<DcmpFrameHeader>::value
 
 /**
  * @brief DCMP 发给 DP 的 20 字节工作/待机载荷。
- * @details 使用统一公共头尾，消息类型为 0xFFFF；当前仅定义布局，DCMP 尚未接入发送。
+ * @details 使用统一公共头尾，消息类型为 0xFFFF；本地采集启停成功后由 DCMP 各发送一包。
  */
 struct DcmpToDpWorkModePayload
 {

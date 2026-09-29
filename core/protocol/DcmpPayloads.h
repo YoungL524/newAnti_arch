@@ -14,7 +14,7 @@ namespace core::protocol {
 
 /**
  * @brief DCMP 发给 DP 的 20 字节工作/待机载荷。
- * @details 使用统一公共头尾，消息类型为 0xFFFF；当前只定义线协议布局，不改变现有控制发送路径。
+ * @details 使用统一公共头尾，消息类型为 0xFFFF；本地采集启停成功后由唯一控制 Owner 各发送一包。
  */
 struct DcmpToDpWorkModePayload
 {

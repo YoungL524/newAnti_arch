@@ -2,8 +2,8 @@
  * @file DeviceController.h
  * @brief 定义设备状态与当前任务控制参数的唯一运行时 Owner。
  * @details 上游由协议 Adapter 交付 DP/SP 心跳、ApplicationController 交付已解析任务；下游仅写入
- * LatestState<DeviceState>，并经组合根借入的发送函数提交0x0001周期控制数据报。本类不拥有Socket，
- * 不等待ACK，也不把控制报文写入Topic；新人应先阅读 beginAcquisition() 与 acceptHeartbeat()。
+ * LatestState<DeviceState>，并经组合根借入的发送函数提交 0x0001 周期控制和 0xFFFF 一次性命令。本类不拥有Socket，
+ * 不等待ACK，也不把控制报文写入Topic；新人应先阅读 configureControlSnapshot() 与 acceptHeartbeat()。
  */
 
 #pragma once
@@ -67,14 +67,22 @@ public:
      * @param settings 创建任务时冻结且通过合同校验的独立参数快照。
      * @param deviceFaceMasks 非空设备集合；键为非零 DeviceId，值只允许低四位且不得为零。
      * @return 全部输入合法时替换旧准备态；失败保持原值并记录原因。
-     * @note 准备态不表示采集已经开始，也不会触发 UDP 发送或修改 TaskState。
+     * @note 准备态不表示采集已经开始；同一激活调用随后设置 DPH 目标，双心跳在线才启动周期发送。
      */
     bool prepareTask(
         core::model::TaskId taskId,
         const core::task::RadarControlSettings &settings,
         const QHash<core::model::DeviceId, quint8> &deviceFaceMasks);
 
-    /** @brief 仅在任务句柄匹配时清除准备态；不结束采集会话或发送待机命令。 */
+    /**
+     * @brief 为已准备任务设置唯一雷达的部署快照，随后按双心跳状态刷新周期发送。
+     * @return 设备属于当前任务且完整 0x0001 可编码时返回 true；失败保留原发送快照。
+     */
+    bool configureControlSnapshot(
+        core::model::DeviceId deviceId,
+        const core::config::DeviceConfiguration &configuration);
+
+    /** @brief 仅在任务句柄匹配时清除准备态及周期发送目标；不结束采集会话或发送待机命令。 */
     bool clearPreparedTask(core::model::TaskId taskId);
 
     /** @brief 返回是否持有一项已校验但尚未代表开始采集的任务。 */
@@ -103,7 +111,8 @@ public:
 
     /**
      * @brief 将已创建的逐阵面会话发布为本地采集事实，使PPI进入扫描状态。
-     * @note 本地状态切换不依赖心跳或DP执行结果；随后仅在DP、SP均在线时启动50 ms控制发送。
+     * @note 本地状态切换不依赖心跳或DP执行结果；成功后向固定目标发送一包 0xFFFF 工作命令，
+     * 周期 0x0001 已由任务准备态和双心跳独立控制；UDP提交失败不回滚本地状态。
      */
     bool beginAcquisition(
         core::model::DeviceId deviceId,
@@ -119,7 +128,7 @@ public:
         core::model::TaskId &taskId,
         std::array<core::model::AcquisitionId, 4> &faceAcquisitionIds) const;
 
-    /** @brief 清除当前本地采集事实并回到Idle；不清除任务准备态。 */
+    /** @brief 清除当前本地采集事实并回到Idle，再发送一包 0xFFFF 待机；不清除任务准备态。 */
     bool endAcquisition();
 
     /** @brief 返回最近一次任务准备或清除失败原因。 */
@@ -132,24 +141,25 @@ private:
         qint64 utcMs,
         qint64 steadyNs);
 
-    /** @brief 在当前线程临时编码并提交一包0x0001；心跳门控由调用点决定。 */
-    bool sendControl(bool acquisitionControl);
+    /** @brief 在当前线程从已准备的完整快照临时编码并提交一包0x0001；调用点保证任务和双心跳有效。 */
+    bool sendControl();
 
-    /** @brief 按本地采集与DP/SP在线事实启停50 ms定时器；恢复在线时不补发离线周期。 */
+    /** @brief 向固定 DP 目标 127.0.0.1:1234 提交一次 0xFFFF；失败只留下诊断，不回滚本地采集状态。 */
+    bool sendWorkMode(bool work);
+
+    /** @brief 按任务快照与DP/SP在线事实启停50 ms定时器；恢复在线时不补发离线周期。 */
     void refreshControlTimer();
 
     core::domain::LatestState<core::model::DeviceState> &m_state; ///< 借用的设备完整状态；本类是唯一写入者。
     std::array<qint64, 2> m_lastHeartbeatSteadyNs {}; ///< DP/SP最近有效心跳单调时刻；零表示从未收到。
     QTimer m_heartbeatTimer; ///< 只驱动期限检查，不轮询 Topic 或设备业务数据。
-    QTimer m_controlTimer; ///< 仅在本地采集且DP/SP均在线时运行；每50 ms发送最新控制快照。
-    ControlSender m_controlSender; ///< 借用组合根的唯一sock2Internal发送能力。
+    QTimer m_controlTimer; ///< 已准备任务且DP/SP均在线时运行；每50 ms发送最新控制快照。
+    ControlSender m_controlSender; ///< 借用组合根的同一 DP/SP UDP 端点发送能力；本类不拥有Socket。
     core::model::TaskId m_preparedTaskId; ///< 当前准备任务；零表示尚未准备。
     core::task::RadarControlSettings m_controlSettings; ///< 当前任务独立参数的唯一运行副本。
     QHash<core::model::DeviceId, quint8> m_deviceFaceMasks; ///< 当前任务逐设备启用阵面；不保存历史。
-    core::model::DeviceId m_activeDeviceId; ///< 当前正在采集的完整雷达句柄；Idle时为零。
-    core::config::DeviceConfiguration m_activeConfiguration; ///< 采集开始时冻结的设备部署参数。
-    QHostAddress m_controlTargetAddress; ///< 当前设备protocolConfig中的DPH目标地址。
-    quint16 m_controlTargetPort = 0; ///< 当前设备protocolConfig中的DPH目标端口。
+    core::model::DeviceId m_controlDeviceId; ///< 当前任务绑定的完整雷达句柄；完成任务时清零。
+    core::config::DeviceConfiguration m_controlConfiguration; ///< 当前任务的设备部署参数快照；不受采集按钮影响。
     QString m_lastError; ///< 最近低频控制准备失败说明，不进入状态或事件数据域。
 };
 

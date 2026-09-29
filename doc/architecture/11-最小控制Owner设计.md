@@ -1,6 +1,6 @@
 # 最小控制 Owner 设计
 
-> 状态：最小Owner、采集会话编排和50 ms发送已实施；独立workmode及其FIFO已取消。
+> 状态：最小 Owner、采集会话编排和 50 ms `0x0001` 已实施；2026-09-29 新增独立 `0xFFFF` 工作/待机一次性发送，仍无 FIFO。
 
 ## 1. 固定调用链
 
@@ -9,7 +9,7 @@ HTTP/UI
   -> ApplicationController
   -> DeviceController
      -> DcmpProtocolAdapter
-     -> sock2Internal
+     -> m_sock2DpSp
      -> DP
 ```
 
@@ -20,9 +20,10 @@ Topic；WebSocket 不发送设备命令，周期数据报不经过Command FIFO�
 
 ### 2.1 ApplicationController
 
-唯一职责是编排一次开始或结束采集：
+职责是在任务激活、完成和采集启停时编排唯一设备控制入口：
 
 - 校验当前任务、设备绑定和 `faceMask`；
+- 任务激活时准备控制快照，完成时清除；`0x0001` 固定发送到 `127.0.0.1:2345`；
 - 调用 TaskService 创建/结束本地 collection session；
 - 绑定/解绑唯一 `TrackIngressProducer`；
 - 调用 DeviceController 建立或结束本地采集；
@@ -40,15 +41,15 @@ ApplicationController 不得绕过它直接调用 `LatestState<TaskState>::set()
 - 当前任务的一份最新 `RadarControlSettings` 业务控制快照；其初值来自任务持久化参数快照；
 - 50 ms 参数发送定时器；
 - 借用的 `DcmpProtocolAdapter` 编码入口和 `UdpEndpoint` 发送入口；
-- 当前设备 revision 对应的 DP 目标地址、端口和任务 `faceMask`。
+- 当前设备 revision 的部署快照和任务 `faceMask`；`0x0001` 发送目标固定为 `127.0.0.1:2345`。
 
 它不拥有任务数据库、采集会话、TrackTopic、Web 服务或第二个 Socket。
 
 当前实现由DeviceController接管心跳期限与DeviceState唯一写入，保存当前任务的单份参数运行副本、逐设备
-`faceMask`和活动设备通信目标；50 ms到期时临时编码并提交一包，不保存协议报文或周期队列。
+`faceMask`和任务设备通信目标；50 ms到期时临时编码并提交一包，不保存协议报文或周期队列。
 
 任务模板及任务参数快照由 TaskService/SQLite 持久化，DeviceController 不拥有模板仓库。ApplicationController
-开始任务时把已校验的任务参数快照交给 DeviceController；运行中的“应用参数”先由 TaskService 保存任务快照，
+激活任务时把已校验的任务参数与设备快照交给 DeviceController；运行中的“应用参数”先由 TaskService 保存任务快照，
 成功后再原子替换 Owner 内存值。共享模板只有用户执行“另存为模板/更新模板”时才变化。
 
 ## 3. 唯一周期发送
@@ -56,10 +57,10 @@ ApplicationController 不得绕过它直接调用 `LatestState<TaskState>::set()
 - 50 ms 定时器不向 FIFO 投递项目；每次到期直接读取当前最新控制快照并编码 `0x0001`。
 - Adapter 在本次发送栈内把控制快照、设备部署参数和任务 `faceMask` 映射为临时
   `DcmpToDpControlPayload`；协议载荷不得在 Owner 内长期驻留。
-- 只有“本地采集正在进行、DP 在线、SP 在线”三个条件同时成立时发送。
+- 只有“当前任务已激活且快照准备成功、DP 在线、SP 在线”三个条件同时成立时发送；采集按钮不参与门控。
 - 任一心跳失效立即停止发送；条件恢复后下一次定时触发自动续发，不补发离线期间的周期数。
 - 参数更新原子替换最新快照；旧值不排队，因此高频界面修改不会形成延迟积压。
-- 单次发送失败形成受抑制事件和计数，不停止本地采集，不改变 TaskState，不启动无界重试。
+- 单次发送失败只保留最近错误诊断，不停止本地采集，不改变 TaskState，不启动无界重试；事件和计数尚未实现。
 - 天线模式、波形写入及其他稳态参数属于最新快照，每次50 ms完整发送；DeviceController 不对这些字段制造
   一次性命令语义。
 - RF复位是面向指定阵面的独立动作状态，不能仅凭一次 FP 在线心跳宣告成功；在
@@ -67,7 +68,7 @@ ApplicationController 不得绕过它直接调用 `LatestState<TaskState>::set()
 
 ## 4. 状态与线程
 
-上述对象全部运行在拥有 `sock2Internal` 的 Qt 主线程：HTTP 请求通过 queued invocation 进入该线程，
+上述对象全部运行在拥有 `m_sock2DpSp` 的 Qt 主线程：HTTP 请求通过 queued invocation 进入该线程，
 DeviceController 的两个 QTimer 与 Socket 同线程。SQLite 仍由唯一存储线程拥有；ApplicationController 通过现有
 StorageRuntime 边界提交低频会话事务。不得在 50 ms 回调中阻塞访问 SQLite。
 
@@ -77,18 +78,22 @@ DeviceState 同时表达心跳/连接状态和本地采集状态，两者正交�
 
 ## 5. 开始与结束顺序
 
+### 任务激活
+
+新建任务和沿用旧任务都在激活成功后准备参数、阵面和设备快照；双心跳在线即开始向 `127.0.0.1:2345` 周期发送。准备失败撤销本次激活，保留草稿。
+
 ### 开始
 
 1. ApplicationController 校验 Ready 任务和非零 faceMask。
 2. TaskService 提交各启用阵面的本地 collection session。
 3. 绑定 TrackIngressProducer，TaskState/DeviceState 进入 Running/Collecting，UI PPI 立即开始。
-4. 若 DP/SP 均在线，DeviceController每50 ms发送`F_UI_STBY_Ctrl=1`的完整控制包；否则等待心跳恢复。
+4. DeviceController 向固定 DP 目标提交一次 `0xFFFF` 工作命令；`0x0001` 周期不因开始采集改变。
 
 ### 结束
 
-1. DP/SP均在线时，DeviceController发送一包`F_UI_STBY_Ctrl=0`，随后停止50 ms定时器；离线不阻塞本地停止。
+1. DeviceController 向固定 DP 目标提交一次 `0xFFFF` 待机命令；离线不阻塞本地停止。
 2. ApplicationController 解绑 TrackIngressProducer并闭合本地 session。
-3. TaskState/DeviceState 进入 Completed/Idle，UI PPI 停止，50 ms 参数发送停止。
+3. DeviceState 进入 Idle，UI PPI 停止；任务仍处于 Ready 时 `0x0001` 周期发送继续。完成任务后清除快照并停止发送。
 
 结束时即使控制包本地发送失败，也必须允许本地会话收口，不能锁死任务。
 

@@ -14,7 +14,7 @@ React 参数表单
   -> DeviceController 校验并替换最新 RadarControlSettings
   -> 50 ms 定时读取最新值
   -> DcmpProtocolAdapter 映射并编码临时 DcmpToDpControlPayload
-  -> sock2Internal / DP 明确目标
+  -> m_sock2DpSp / 127.0.0.1:2345
 ```
 
 `RadarControlSettings` 是 DeviceController 内唯一长期运行参数快照；它使用业务语义和值域，不复制包头、备份字或
@@ -33,7 +33,9 @@ DeviceController 和 DcmpProtocolAdapter，生命周期为当前活动任务，�
 | 阵面安装航向、俯仰、横滚           | SQLite 设备 revision 的阵面项             | 随设备配置持久化      | 是               |
 | 本次任务启用阵面               | Task 的 `deviceFaceMasks`            | 当前任务          | 是               |
 | STC、CFAR、波形、增益、频点等运行参数 | 任务参数快照；运行时由 DeviceController 持有唯一副本 | 模板可复用，任务快照可追溯 | 按协议字段决定         |
-| 采集工作控制                | 开始/结束采集动作                           | `0x0001`周期快照字段 | 是，`F_UI_STBY_Ctrl` |
+| 采集工作控制                | 开始/结束采集动作                           | 一次性 `0xFFFF` 命令 | `workStandbyMode` 随按钮取 1/0；`0x0001` 字段联动另议 |
+
+整包发送条件已独立：`0x0001` 在任务激活且 DP/SP 双心跳在线时周期发送，不受开始/停止采集按钮门控；本轮不定义字段间联动。
 
 任务切换不得修改设备台账中的 `faces[].active`。`deviceFaceMasks` 只决定本次任务哪些 `FaceControl` 生效。
 
@@ -93,7 +95,7 @@ HTTP DTO、React 类型、编辑表单、地图姿态计算和协议映射必须
 | STC方案 / STC Profile<br>`stcMode` | `F_UI_STC_Mode` | 下拉：`0x00、0x01、0x10、0x11`对应方案一～四 | `0x00` | 仅STC开启时设备响应。 |
 | 激励信号关闭 / Excitation Disable<br>`excitationDisabled` | `F_UI_Exc_Switch` | 开关：`0x00`激励开、`0x01`激励关 | `0x00` | 使用反向语义文案，避免误操作。 |
 | CFAR方案 / CFAR Profile<br>`cfarMode` | `F_UI_CFAR_Mode_Ctrl` | 下拉：`0x00`方案一、`0x01`方案二 | `0x00` | 使用有符号32位协议字段，但UI只接受两个合同值。 |
-| 采集工作控制 / Acquisition Control<br>`acquisitionControl` | `F_UI_STBY_Ctrl` | 无独立控件，由“开始采集/停止采集”驱动 | `0x00` | 开始及采集期间为`0x01`，停止为`0x00`；禁止独立workmode入口。 |
+| 采集工作控制 / Acquisition Control<br>`acquisitionControl` | `F_UI_STBY_Ctrl` | 暂无独立控件 | `0x00` | 当前周期编码暂固定为`0x01`；与采集按钮的字段联动留待后续合同，按钮只触发一次性 `0xFFFF`。 |
 | CFAR门限1 / CFAR Threshold 1<br>`cfarThreshold1` | `F_UI_CFAR_Ctrl_1` | 十六进制补码控制字，`int32` | `0x00000000` | Excel未规定工程单位，按原始控制字发送。 |
 | CFAR门限2 / CFAR Threshold 2<br>`cfarThreshold2` | `F_UI_CFAR_Ctrl_2` | 十六进制补码控制字，`int32` | `0x00000000` | Excel未规定工程单位，按原始控制字发送。 |
 | 速度门限 / Velocity Threshold<br>`velocityThreshold` | `F_UI_Vel_Ctrl` | 十六进制补码控制字，`int32` | `0x00000000` | Excel未规定工程单位，按原始控制字发送。 |

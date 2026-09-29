@@ -21,7 +21,7 @@ namespace core::protocol {
 enum class DcmpMessageType : quint32
 {
     DcmpToDpControl = 0x0001U, ///< DCMP 向 DP 发送控制指令。
-    DcmpToDpWorkMode = 0xFFFFU, ///< DCMP 向 DP 发送独立工作/待机指令；当前仅定义线协议类型。
+    DcmpToDpWorkMode = 0xFFFFU, ///< DCMP 向 DP 发送独立工作/待机指令。
     DpToFpControl = 0x0102U,   ///< DP 向 FPGA 转发控制指令。
     FpgaToSpData = 0x0203U,    ///< FPGA 向 SP 返回状态及 AD 数据。
     SpToDpPoint = 0x0301U,    ///< SP 向 DP 返回数据；不代表上位机存在点迹 Topic。

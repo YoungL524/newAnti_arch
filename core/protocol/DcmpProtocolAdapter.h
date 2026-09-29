@@ -1,6 +1,6 @@
 /**
  * @file DcmpProtocolAdapter.h
- * @brief 将完整UDP报文校验并解码为DP/SP心跳或DP航迹载荷，供对应owner同步处理。
+ * @brief 解码DP/SP心跳与DP航迹，并为唯一控制Owner编码0x0001及0xFFFF完整UDP报文。
  * @details UdpEndpoint的唯一接收回调调用onDatagram；组合根闭包负责端点及来源绑定。
  * 输出为短期DcmpFrameHeader及强类型协议引用，不发布协议DTO到Topic，不持有socket或计时状态。
  * 新人从onDatagram及Result阅读拒绝规则；所有回调与调用方同线程，生命周期覆盖本Adapter。
@@ -49,6 +49,12 @@ public:
         const core::config::DeviceConfiguration &configuration,
         quint8 faceMask,
         bool acquisitionControl);
+    /**
+     * @brief 编码一次性工作/待机命令，使用统一公共头尾和 20 字节载荷。
+     * @param work true 写入工作值 1，false 写入待机值 0；不提供发送保留值 2/3 的入口。
+     * @return 68 字节完整小端 UDP 报文，声明长度为 56；备份区全零。
+     */
+    static QByteArray encodeWorkMode(bool work);
     /**
      * @brief 校验完整封装并同步解码已支持载荷，失败不触碰业务owner。
      * @param data 调用期有效的原始字节，不要求四字节地址对齐。

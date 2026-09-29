@@ -71,7 +71,7 @@ bool ApplicationController::startAcquisition(
 }
 
 /**
- * @brief 串行完成身份解析、任务准备、会话创建、航迹绑定和DeviceState发布，后半段失败时收口已建会话。
+ * @brief 串行完成身份解析、会话创建、航迹绑定和DeviceState发布，后半段失败时收口已建会话。
  * @details 存储调用仅在跨线程时使用阻塞queued调用；心跳不是开始本地PPI扫描的门禁。
  */
 bool ApplicationController::startAcquisition(
@@ -95,9 +95,11 @@ bool ApplicationController::startAcquisition(
                                : storageRuntime.lastError();
         return false;
     }
-    QHash<QUuid, core::model::DeviceId> devices;
-    devices.insert(context.task.deviceBindings.front().deviceUuid, context.deviceId);
-    if (!prepareTask(context.taskId, context.task, devices)) return false;
+    if (context.taskId != m_deviceController.preparedTaskId()
+        || m_deviceController.faceMask(context.deviceId) != context.faceMask) {
+        m_lastError = QStringLiteral("当前任务尚未准备控制快照");
+        return false;
+    }
 
     bool sessionsStarted = false;
     if (storageRuntime.thread() == QThread::currentThread()) {
@@ -216,6 +218,48 @@ bool ApplicationController::prepareTask(
     }
     m_lastError.clear();
     return true;
+}
+
+/**
+ * @brief 在任务激活的同步调用栈内读取活动任务及设备台账，再准备 0x0001 发送快照。
+ * @details 存储线程解析期间主线程不处理 Qt 定时器；配置成功后由设备 Owner 依心跳启停周期发送。
+ */
+bool ApplicationController::prepareActiveTask(
+    StorageRuntime &storageRuntime, const QUuid &expectedTaskUuid)
+{
+    ActiveTaskRuntimeContext context;
+    bool resolved = false;
+    if (storageRuntime.thread() == QThread::currentThread()) {
+        resolved = storageRuntime.resolveActiveTaskContext(context);
+    } else {
+        QMetaObject::invokeMethod(&storageRuntime, [&] {
+            resolved = storageRuntime.resolveActiveTaskContext(context);
+        }, Qt::BlockingQueuedConnection);
+    }
+    if (!resolved || context.task.taskUuid != expectedTaskUuid) {
+        m_lastError = resolved ? QStringLiteral("请求任务不是当前活动任务")
+                               : storageRuntime.lastError();
+        return false;
+    }
+    QHash<QUuid, core::model::DeviceId> devices;
+    devices.insert(context.task.deviceBindings.front().deviceUuid, context.deviceId);
+    if (!prepareTask(context.taskId, context.task, devices)) return false;
+    if (!m_deviceController.configureControlSnapshot(context.deviceId, context.configuration)) {
+        m_lastError = m_deviceController.lastError();
+        m_deviceController.clearPreparedTask(context.taskId);
+        return false;
+    }
+    m_lastError.clear();
+    return true;
+}
+
+/**
+ * @brief 任务完成后撤销设备 Owner 的当前准备态；不触发待机包或更改采集状态。
+ */
+bool ApplicationController::clearActiveTask()
+{
+    const auto taskId = m_deviceController.preparedTaskId();
+    return !taskId.isSet() || clearPreparedTask(taskId);
 }
 
 /**

@@ -2,7 +2,7 @@
  * @file ApplicationRuntime.h
  * @brief 统一拥有存储、心跳及航迹Web出口依赖，执行启动回滚和逆序关闭。
  * @details 从start阅读；上游提供数据库和部署端口，下游为单写存储线程、Endpoint、Adapter、状态owner、
- * 两个WebReader及唯一Gateway。本类只装配生命周期，不解析协议或执行Command，所有方法在Qt主线程调用。
+ * 三个WebReader及唯一Gateway。本类只装配生命周期，不解析协议或执行Command，所有方法在Qt主线程调用。
  */
 #pragma once
 #include "core/datadomain/CoreDataDomain.h"
@@ -39,7 +39,7 @@ public:
     /** @brief 返回最近启动错误。 */
     QString lastError() const { return m_error; }
     /** @brief 返回UDP实际端口，停止后为零。 */
-    quint16 internalPort() const { return m_internal.localPort(); }
+    quint16 internalPort() const { return m_sock2DpSp.localPort(); }
 private:
     /** @brief 创建唯一存储线程并同步完成数据库、设备和任务身份加载。 */
     bool startStorage();
@@ -57,7 +57,7 @@ private:
     core::producer::TrackIngressProducer m_trackIngress; ///< 0x0100到TrackTopic的唯一Producer；未绑定会话时拒绝发布。
     core::app::ApplicationController m_applicationController; ///< 唯一采集业务编排入口；绑定本地会话但不发送设备命令。
     core::protocol::DcmpProtocolAdapter m_adapter; ///< 同步协议入口。
-    core::comm::UdpEndpoint m_internal; ///< 唯一内部UDP端点。
+    core::comm::UdpEndpoint m_sock2DpSp; ///< 同一绑定端口收 DP/SP 心跳与 DP 航迹，并向 DP 发送控制报文。
     core::web::WebSocketGateway m_gateway; ///< /ws/v1唯一网络连接owner。
     core::web::DeviceRegistryHttpService m_deviceHttp; ///< 设备与任务登记的低频HTTP边界，不进入数据域。
     core::web::StateWebSocketService m_stateWeb; ///< DeviceState只读Reader。
