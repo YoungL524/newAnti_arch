@@ -2,6 +2,7 @@
  * @file toDP.h
  * @brief 交付 DP 的独立 C++14 协议头：公共封装及 0x0001、0xFFFF、0x0100、0x0101 载荷。
  * @details 从 dcmp::DcmpFrameHeader 阅读；线上为 44 字节头 + N 字节载荷 + 4 字节尾。
+ * DP 心跳的 POS2 逐面实时位姿扩展见 doc/contracts/DP心跳实时位姿契约.md。
  * 声明长度为 36+N，实际长度为 48+N。控制 N=896；工作/待机 N=20；心跳 N=84，声明长度120，整包132字节。
  * 0x0100 含384字节状态及224字节航迹点，声明长度644，实际报文656字节。
  * 本文件可单独复制给 DP，无 Qt 或仓库头文件依赖；字段以应用版（1.0）_20260923.xlsx 为准，
@@ -356,14 +357,16 @@ struct DpToDcmpTrackPayload
     DpTrack dpTrack {}; ///< 载荷偏移 384，224 字节，由 DP 提供的单个航迹点。
 };
 
-/** @brief Dp 向 DCMP 发送的 84 字节心跳载荷；在线超时由接收端 owner 判断。 */
+/** @brief DP 向 DCMP 发送的 104 字节心跳载荷；四面分别提供位置和姿态。 */
 struct DpHeartbeatPayload
 {
     static constexpr DcmpMessageType messageType = DcmpMessageType::DpHeartbeat; ///< 对应线消息类型。
-    static constexpr std::uint32_t wireSize = 84U; ///< 两个 uint16 及二十个 uint32 备份字。
+    static constexpr std::uint32_t wireSize = 104U; ///< 两个 uint16、四面各六个 int32 和格式标记。
+    static constexpr std::uint32_t expectedPoseFormatTag = 0x32534F50U; ///< 小端字节为 POS2，区分旧版心跳。
     std::uint16_t dpOnline = 0; ///< 偏移 0：1 在线，0 不在线，其他值非法。
     std::uint16_t fpOnlineMask = 0; ///< 偏移 2：bit0～3 对应阵面 1～4，置位表示DP 能联系到对应 FP；bit4～15 必须为零。
-    std::uint32_t bak[20] {}; ///< 偏移 4：80 字节备份区，默认置零，无业务含义。
+    std::int32_t facePose[4][6] {}; ///< 偏移 4：每面依次为经度 1e-6°、纬度 1e-6°、MSL 海拔 cm、航向/俯仰/横滚 0.01°；仅在线面有效。
+    std::uint32_t poseFormatTag = expectedPoseFormatTag; ///< 偏移 100：POS2 表示本包提供逐面实时位姿。
 };
 
 static_assert(sizeof(DcmpToDpWorkModePayload) == DcmpToDpWorkModePayload::wireSize,
@@ -374,7 +377,7 @@ static_assert(alignof(DcmpToDpWorkModePayload) == 4U
               "DcmpToDpWorkModePayload 必须自然对齐且无动态资源");
 static_assert(sizeof(DcmpToDpControlPayload) == 896U, "DcmpToDpControlPayload 尺寸不符");
 static_assert(sizeof(DpToDcmpTrackPayload) == 608U, "DpToDcmpTrackPayload 尺寸不符");
-static_assert(sizeof(DpHeartbeatPayload) == 84U, "DpHeartbeatPayload 尺寸不符");
+static_assert(sizeof(DpHeartbeatPayload) == 104U, "DpHeartbeatPayload 尺寸不符");
 
 } // namespace dcmp
 #endif

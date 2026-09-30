@@ -91,7 +91,18 @@ export interface WsDeviceStatePayload {
   spHeartbeat: HeartbeatStatus ///< SP心跳状态，由后端超时门禁判定。
   fpOnlineMask: number ///< DP报告的FP在线位图，bit0～bit3对应1～4号阵面。
   fpDataMask: number ///< SP报告的FP数据位图，bit0～bit3对应1～4号阵面。
+  radarPose?: RadarLivePose ///< 当前任务雷达的实时位姿；DP/阵面离线时缺省并回退台账。
   devices: DeviceStatus[] ///< 当前本地采集设备完整快照，稳定UUID与设备台账一致。
+}
+
+/** @brief DP 心跳在线阵面位置的平均值和各面独立姿态，仅用于实时显示。 */
+export interface RadarLivePose {
+  deviceId: string ///< 当前准备任务雷达的稳定 UUID，不凭页面当前选择猜测归属。
+  longitudeDeg: number ///< 在线阵面经度平均值，东经为正，单位 °。
+  latitudeDeg: number ///< 在线阵面纬度平均值，北纬为正，单位 °。
+  altitudeM: number ///< 在线阵面 MSL 海拔平均值，单位 m。
+  validFaceMask: number ///< 低四位有效阵面位；只覆盖对应位的姿态。
+  faces: Array<{ faceIndex: number; headingDeg: number; pitchDeg: number; rollDeg: number }> ///< 当前有效面姿态，单位 °。
 }
 
 /**
@@ -134,6 +145,7 @@ export const DEVICE_TYPE_OPTIONS: { value: string; label: string; deviceType: De
 
 export interface RadarTrack {
   batchId: number          // 批号
+  acquisitionId?: string  ///< 当前采集会话稳定标识；实时尾迹不得跨会话合并。
   deviceId?: string
   trackId?: number
   faceIndex?: number
@@ -150,6 +162,7 @@ export interface RadarTrack {
   sceneNum: number         // 景幅
   timestamp: number
   pointIndex?: number
+  compacted?: boolean     ///< true 表示旧路径形状点，只绘制线路，不绘制近期观测点样式。
   style?: {
     color: string
     size: number
@@ -236,6 +249,7 @@ export interface WsTracksDeltaMessage {
   payload: {
     upserts: WsTrackDisplayPoint[]
     removals: WsTrackDisplayPointKey[]
+    retirements?: WsTrackDisplayPointKey[] ///< packFlag=0 的目标键；清除对应整条旧路径。
   }
 }
 

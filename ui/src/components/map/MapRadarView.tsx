@@ -4,7 +4,7 @@
  * @details 地图实例由本组件创建和销毁；子图层只接收规范化设备与航迹数据，不直接请求核心 API。
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import AMapLoader from '@amap/amap-jsapi-loader'
 import PPIOverlay from './PPIOverlay'
 import TrackLayer from './TrackLayer'
@@ -12,6 +12,7 @@ import HistoryTrackLayer from './HistoryTrackLayer'
 import SelectedTracksPanel from './SelectedTracksPanel'
 import { type RadarDevice, RADAR_CENTER } from './types'
 import { useCore } from '../../hooks/useCoreApi'
+import { applyLiveRadarPose } from '../../lib/liveRadarPose'
 
 const API_KEY = import.meta.env.VITE_GAODE_API_KEY as string
 const SECURITY_CODE = import.meta.env.VITE_GAODE_SECURITY_CODE as string | undefined
@@ -49,8 +50,11 @@ interface Props {
 export default function MapRadarView({ devices, idleActionLabel, idleActionPending = false, idleActionError = '', onIdleAction }: Props) {
   const {
     acquisition, devices: deviceStates, checkedDeviceIds, historyTracks,
-    historyLoading, historyError, isHistoryView, liveTracksNotice, historyViewNotice,
+    historyLoading, historyError, isHistoryView, liveTracksNotice, historyViewNotice, deviceHeartbeat,
   } = useCore()
+  const shownDevices = useMemo(() =>
+    isHistoryView ? devices : devices.map(device => applyLiveRadarPose(device, deviceHeartbeat?.payload.radarPose)),
+  [devices, deviceHeartbeat, isHistoryView])
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const mapInstanceRef = useRef<any>(null)
@@ -65,13 +69,13 @@ export default function MapRadarView({ devices, idleActionLabel, idleActionPendi
     if (!AMap || !map) return
 
     nodeMarkersRef.current.forEach(m => map.remove(m))
-    const newMarkers = devices.map(d => {
+    const newMarkers = shownDevices.map(d => {
       const m = markNode(AMap, d)
       map.add(m)
       return m
     })
     nodeMarkersRef.current = newMarkers
-  }, [devices, ready])
+  }, [shownDevices, ready])
 
   // Init AMap
   useEffect(() => {
@@ -196,7 +200,7 @@ export default function MapRadarView({ devices, idleActionLabel, idleActionPendi
             </div>
           )}
           {/* PPI overlays — 仅勾选的设备扫描 */}
-          {devices.map(d => {
+          {shownDevices.map(d => {
             const checked = checkedDeviceIds.includes(d.id)
             const hasFault = deviceStates.some(ds => ds.state === 'Fault')
             return (
@@ -212,7 +216,7 @@ export default function MapRadarView({ devices, idleActionLabel, idleActionPendi
             )
           })}
           {/* 历史航迹层（淡色，与实时层分离） */}
-          {isHistoryView && devices.filter(d => checkedDeviceIds.includes(d.id)).map(d => (
+          {isHistoryView && shownDevices.filter(d => checkedDeviceIds.includes(d.id)).map(d => (
             <HistoryTrackLayer
               key={`history-${d.id}`}
               device={d}
@@ -222,7 +226,7 @@ export default function MapRadarView({ devices, idleActionLabel, idleActionPendi
             />
           ))}
           {/* 实时航迹层 */}
-          {!isHistoryView && devices.filter(d => checkedDeviceIds.includes(d.id)).map(d => (
+          {!isHistoryView && shownDevices.filter(d => checkedDeviceIds.includes(d.id)).map(d => (
             <TrackLayer
               key={`track-${d.id}`}
               device={d}
@@ -283,4 +287,3 @@ export default function MapRadarView({ devices, idleActionLabel, idleActionPendi
     </div>
   )
 }
-

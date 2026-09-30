@@ -51,13 +51,14 @@ interface SidebarProps {
 type FormKind = 'radar' | 'opto' | 'level' | 'gps'
 
 const RADAR_DEFAULTS: Omit<RadarDevice, 'id'> = {
-  revision: 0, name: '', brand: 'YHF', model: 'YHF-YZ-KU', protocolAdapterKey: 'dcmp.dp.v1',
+  revision: 0, name: '', brand: 'YHF', model: 'YHF-YZ-KU', protocolAdapterKey: '20260915',
   lng: 118.65303, lat: 31.93494, altitude: 63.9288,
   maxRange: 5,
-  faces: [{ label: 'A', heading: 0, pitch: 0, roll: 0, scanAngle: 45, active: true }],
+  faces: [{ label: '1#', heading: 0, pitch: 0, roll: 0, scanAngle: 45, active: true }],
   endpointId: 'radar_cpu',
   endpoint: { id: 'radar_cpu', protocol: 'udp', localAddress: '127.0.0.1', localPort: 7788,
     description: 'DCMP内部DP/SP通信', targets: {} },
+  externalForward: { protocol: 'udp', address: '', port: 0 },
 }
 
 function isRadar(d: AppDevice): d is RadarDevice {

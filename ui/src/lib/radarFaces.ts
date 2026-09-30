@@ -30,7 +30,7 @@ export function createRadarFaces(
 ): RadarFace[] {
   const first = normalizeHeading(firstHeadingDeg)
   return Array.from({ length: count }, (_, index) => ({
-    label: String.fromCharCode(65 + index),
+    label: `${index + 1}#`,
     heading: normalizeHeading(first + index * 90),
     pitch: source[index]?.pitch ?? source[0]?.pitch ?? 0,
     roll: source[index]?.roll ?? source[0]?.roll ?? 0,

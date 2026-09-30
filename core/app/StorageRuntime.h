@@ -97,8 +97,8 @@ public:
     Q_INVOKABLE bool initialize();
 
     /**
-     * @brief 将 application run 标记为正常退出并在所属线程释放全部 SQLite 依赖。
-     * @return 未初始化时幂等成功；数据库正常关闭或已安全回收返回 true。
+     * @brief 在停止新输入后归档当前 Topic 水位，再在所属线程释放全部 SQLite 依赖。
+     * @return 两类历史均已提交且无已知覆盖时标记正常退出；否则释放连接并保留未闭合 run，返回 false。
      */
     Q_INVOKABLE bool shutdown();
 

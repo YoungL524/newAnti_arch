@@ -12,20 +12,21 @@ const STATUS_LABEL: Record<string, string> = {
   completed: '已完成', archived: '已归档',
 }
 
-export default function TitleBar({ activeTask, viewTask, isHistoryView, onOpenRadarSettings, radarSettingsDisabled = false }: {
+/**
+ * @brief 显示任务与采集状态，并保留唯一采集按钮；控制参数从设备编辑入口进入。
+ * @param activeTask 当前活动任务，采集按钮依此启用。
+ * @param viewTask 当前查看的任务，历史视图只显示其摘要。
+ * @param isHistoryView 历史视图下禁止采集操作。
+ */
+export default function TitleBar({ activeTask, viewTask, isHistoryView }: {
   activeTask: Task | null
   viewTask: Task | null
   isHistoryView: boolean
-  /** 打开当前任务的“雷达参数”面板；由 App.tsx 提供。 */
-  onOpenRadarSettings: () => void
-  /** 任务缺失、历史视图、非活动阶段或更新进行中时为 true；后端断开在本组件内一并判定。 */
-  radarSettingsDisabled?: boolean
 }) {
   const { connected, acquisition, state, commandPending, checkedDeviceIds, devices,
     noSelectionHint, commandError, interactionError, toggleAcquisition,
     dismissNoSelectionHint, dismissCommandError, dismissInteractionError } = useCore()
   const backendStatus = connected ? 'online' : 'offline'
-  const settingsDisabled = radarSettingsDisabled || !connected
 
   const isFault = state === 'Fault'
   const checkedCount = checkedDeviceIds.length
@@ -101,16 +102,6 @@ export default function TitleBar({ activeTask, viewTask, isHistoryView, onOpenRa
       </div>
 
       <div className="flex items-center gap-2">
-        <button
-          className="px-3 py-1 rounded-lg text-[11px] font-medium border cursor-pointer transition-colors
-                     disabled:opacity-40 disabled:cursor-not-allowed"
-          style={{ borderColor: 'var(--hairline)', background: '#fff', color: 'var(--onSurfaceVariant)' }}
-          disabled={settingsDisabled}
-          onClick={onOpenRadarSettings}
-          title={settingsDisabled
-            ? '当前任务或连接状态不可编辑雷达参数'
-            : '编辑当前任务的雷达控制参数'}
-        >雷达参数</button>
         <button
           className="px-3.5 py-1 rounded-lg text-white font-semibold text-[11px] border-none cursor-pointer
                      precision-shadow active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"

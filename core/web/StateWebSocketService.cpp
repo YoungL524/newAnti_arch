@@ -6,6 +6,8 @@
 #include <QJsonObject>
 #include <QWebSocket>
 
+#include <cstddef>
+
 namespace {
 
 /**
@@ -73,7 +75,7 @@ void StateWebSocketService::send(QWebSocket *socket)
 }
 
 /**
- * @brief 在Web边界把Core三态数值映射为字符串并嵌套payload，revision保持DeviceState独立作用域。
+ * @brief 在Web边界把心跳、逐阵面实时位姿映射为设备状态快照，revision保持DeviceState独立作用域。
  */
 QJsonObject StateWebSocketService::message() const
 {
@@ -92,10 +94,29 @@ QJsonObject StateWebSocketService::message() const
                                                    : QStringLiteral("Standby")},
             {QStringLiteral("acquisition"), acquisition}});
     }
-    const QJsonObject payload{{"dpHeartbeat", heartbeatStatusName(value.dpHeartbeat)},
+    QJsonObject payload{{"dpHeartbeat", heartbeatStatusName(value.dpHeartbeat)},
         {"spHeartbeat", heartbeatStatusName(value.spHeartbeat)},
         {"fpOnlineMask", value.fpOnlineMask}, {"fpDataMask", value.fpDataMask},
         {"devices", devices}};
+    const auto &pose = value.radarPose;
+    const QUuid poseDeviceId = m_stableIds.resolveDevice(pose.deviceId);
+    if (value.dpHeartbeat == 1U && pose.validFaceMask != 0U && !poseDeviceId.isNull()) {
+        QJsonArray faces;
+        for (int index = 0; index < 4; ++index) {
+            if ((pose.validFaceMask & (1U << index)) == 0U) continue;
+            const auto &attitude = pose.faceAttitudeCdeg[std::size_t(index)];
+            faces.append(QJsonObject{{"faceIndex", index},
+                {"headingDeg", attitude[0] / 100.0},
+                {"pitchDeg", attitude[1] / 100.0},
+                {"rollDeg", attitude[2] / 100.0}});
+        }
+        payload.insert(QStringLiteral("radarPose"), QJsonObject{
+            {"deviceId", poseDeviceId.toString(QUuid::WithoutBraces)},
+            {"longitudeDeg", pose.longitudeE6 / 1'000'000.0},
+            {"latitudeDeg", pose.latitudeE6 / 1'000'000.0},
+            {"altitudeM", pose.altitudeCm / 100.0},
+            {"validFaceMask", pose.validFaceMask}, {"faces", faces}});
+    }
     return QJsonObject{{"type", "deviceState"},
         {"sentUtcMs", QDateTime::currentMSecsSinceEpoch()},
         {"revision", QString::number(record->revision)}, {"payload", payload}};

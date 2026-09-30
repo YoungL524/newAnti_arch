@@ -11,30 +11,32 @@
 namespace core::web {
 
 /**
- * @brief 验证资源上限、预分配 ScratchBuffer，并接通 Topic Doorbell、ExecutionLane 和新连接信号。
+ * @brief 验证批次上限、预分配 ScratchBuffer，并接通航迹与采集状态 Doorbell。
  */
 TrackWebSocketService::TrackWebSocketService(
     const core::domain::HistoryTopic<core::model::TrackPacket> &trackTopic,
+    const core::domain::LatestState<core::model::DeviceState> &deviceState,
     core::execution::ExecutionLane &executionLane,
     WebSocketGateway &gateway,
     const core::model::StableIdRegistry &stableIds,
     qsizetype maxRecordsPerTurn,
-    qsizetype maxTargets,
     QObject *parent)
     : QObject(parent)
     , m_trackTopic(trackTopic)
+    , m_deviceState(deviceState)
     , m_executionLane(executionLane)
     , m_gateway(gateway)
     , m_stableIds(stableIds)
     , m_scratch(maxRecordsPerTurn)
     , m_executionSlot(executionLane.acquireSlot())
-    , m_maxTargets(maxTargets)
 {
-    if (maxRecordsPerTurn <= 0 || maxTargets <= 0) {
+    if (maxRecordsPerTurn <= 0) {
         m_executionLane.releaseSlot(m_executionSlot);
-        throw std::invalid_argument("TrackWebSocketService limits must be greater than zero");
+        throw std::invalid_argument("TrackWebSocketService batch limit must be greater than zero");
     }
     QObject::connect(trackTopic.doorbell(), &core::domain::TopicDoorbell::advanced,
+                     this, &TrackWebSocketService::onTrackTopicAdvanced, Qt::DirectConnection);
+    QObject::connect(deviceState.doorbell(), &core::domain::TopicDoorbell::advanced,
                      this, &TrackWebSocketService::onTrackTopicAdvanced, Qt::DirectConnection);
     QObject::connect(&executionLane, &core::execution::ExecutionLane::executeRequested,
                      this, &TrackWebSocketService::onExecutionRequested);
@@ -64,7 +66,7 @@ core::domain::TopicSequence TrackWebSocketService::cursor() const noexcept
 
 
 /**
- * @brief 在Doorbell线程仅向线程安全Lane置位，不访问Web状态，避免跨线程通知堆积。
+ * @brief 航迹或设备状态 Doorbell 只向线程安全 Lane 置位，不在通知线程访问 Web 状态。
  */
 void TrackWebSocketService::onTrackTopicAdvanced(quint64 newestSequence)
 {
@@ -94,14 +96,43 @@ void TrackWebSocketService::onExecutionRequested(quint64 pendingMask)
 }
 
 /**
- * @brief 读取 cursor 后的固定批次，并把 gap 处理为一次完整 Web 状态重建。
+ * @brief 先核对当前采集身份，再读取固定批次；会话变化和 gap 均重建 Web 显示态。
  * @details Gap/Ahead 时旧最终状态无法证明连续，故清空后从当前驻留窗口重读并以 snapshot 通知客户端；正常
  * 批次只发送 upsert/removal delta。锁已在 HistoryTopic 返回前释放，JSON 和 socket 工作均不占 Topic 锁。
  */
 bool TrackWebSocketService::consumeOneBatch()
 {
+    const auto deviceRecord = m_deviceState.latest();
+    core::model::DeviceId currentDeviceId;
+    std::array<core::model::AcquisitionId, 4> currentAcquisitionIds {};
+    if (deviceRecord) {
+        for (const auto &device : deviceRecord->sample->value.devices) {
+            if (device.operatingState == core::model::DeviceOperatingState::Collecting) {
+                currentDeviceId = device.deviceId;
+                currentAcquisitionIds = device.faceAcquisitionIds;
+                break;
+            }
+        }
+    }
+    bool rebuild = currentDeviceId != m_currentDeviceId
+        || currentAcquisitionIds != m_currentAcquisitionIds;
+    if (rebuild) {
+        m_currentDeviceId = currentDeviceId;
+        m_currentAcquisitionIds = currentAcquisitionIds;
+        m_trails.clear();
+    }
+    if (!currentDeviceId.isSet()) {
+        m_cursor = m_trackTopic.range().newest;
+        if (rebuild) {
+            ++m_revision;
+            m_gateway.broadcast(QJsonObject{{"type", "trackSnapshot"},
+                {"sentUtcMs", QDateTime::currentMSecsSinceEpoch()},
+                {"revision", QString::number(m_revision)},
+                {"payload", QJsonObject{{"tracks", QJsonArray{}}}}});
+        }
+        return false;
+    }
     auto result = m_trackTopic.readAfter(m_cursor, m_scratch);
-    bool rebuild = false;
     if (result.relation == core::domain::CursorRelation::Ahead) {
         m_cursor = 0;
         m_trails.clear();
@@ -114,9 +145,10 @@ bool TrackWebSocketService::consumeOneBatch()
 
     QJsonArray upserts;
     QJsonArray removals;
+    QJsonArray retirements;
     for (qsizetype index = 0; index < result.count; ++index) {
         const auto &record = m_scratch[index];
-        applyRecord(record, upserts, removals);
+        applyRecord(record, upserts, removals, retirements);
         m_cursor = record.sequence;
     }
 
@@ -134,29 +166,34 @@ bool TrackWebSocketService::consumeOneBatch()
         m_gateway.broadcast(QJsonObject{{"type", "trackSnapshot"},
             {"sentUtcMs", QDateTime::currentMSecsSinceEpoch()},
             {"revision", QString::number(m_revision)}, {"payload", payload}});
-    } else if (!upserts.isEmpty() || !removals.isEmpty()) {
-        broadcastDelta(upserts, removals);
+    } else if (!upserts.isEmpty() || !removals.isEmpty() || !retirements.isEmpty()) {
+        broadcastDelta(upserts, removals, retirements);
     }
     return result.hasMore;
 }
 
 /**
- * @brief 将存在Sample转为显示点，或依据消亡Sample删除该TrackKey的完整尾迹。
- * @details 新TrackKey达到目标容量时先淘汰最久未更新项；点序号接近quint32上限时清空本航迹，防止浏览器
- * 数值回绕破坏排序。packFlag为0时只产生removal，不建立不存在目标的空派生状态。
+ * @brief 将当前会话的存在 Sample 转为显示点，或依据消亡 Sample 删除该 TrackKey 的近期尾迹。
+ * @details 点序号接近 quint32 上限时清空本航迹，防止浏览器
+ * 数值回绕破坏排序。packFlag 为 0 时明确输出消亡键，不建立不存在目标的空派生状态。
  */
 void TrackWebSocketService::applyRecord(
     const core::domain::TopicRecord<core::model::TrackPacket> &record,
     QJsonArray &upserts,
-    QJsonArray &removals)
+    QJsonArray &removals,
+    QJsonArray &retirements)
 {
     const auto &sample = record.sample;
+    if (sample.value.deviceId != m_currentDeviceId
+        || sample.value.faceIndex >= m_currentAcquisitionIds.size()
+        || sample.value.acquisitionId != m_currentAcquisitionIds[sample.value.faceIndex]) return;
     if (!hasStableIdentity(sample.value)) return;
     const core::model::TrackKey key = core::model::makeTrackKey(sample.value);
     auto iterator = m_trails.find(key);
     if (sample.value.packFlag == 0U) {
         if (iterator != m_trails.end()) {
             const TrackTrail &trail = iterator.value();
+            retirements.append(pointKeyJson(trail.points[0]));
             for (qsizetype index = 0; index < trail.size; ++index) {
                 removals.append(pointKeyJson(trail.points[static_cast<std::size_t>(index)]));
             }
@@ -164,12 +201,7 @@ void TrackWebSocketService::applyRecord(
         }
         return;
     }
-    if (iterator == m_trails.end()) {
-        if (m_trails.size() >= m_maxTargets) {
-            evictOldestTrack(removals);
-        }
-        iterator = m_trails.insert(key, TrackTrail{});
-    }
+    if (iterator == m_trails.end()) iterator = m_trails.insert(key, TrackTrail{});
 
     TrackTrail &trail = iterator.value();
     if (trail.nextPointIndex == std::numeric_limits<quint32>::max()) {
@@ -197,29 +229,7 @@ void TrackWebSocketService::applyRecord(
     trail.points[static_cast<std::size_t>(trail.nextSlot)] = point;
     trail.nextSlot = (trail.nextSlot + 1) % static_cast<qsizetype>(trail.points.size());
     trail.size = qMin(trail.size + 1, static_cast<qsizetype>(trail.points.size()));
-    trail.lastSequence = record.sequence;
     upserts.append(pointJson(point));
-}
-
-/**
- * @brief 线性查找最近最少更新航迹并移除；仅在新增目标越过固定容量时执行。
- */
-void TrackWebSocketService::evictOldestTrack(QJsonArray &removals)
-{
-    auto oldest = m_trails.end();
-    for (auto iterator = m_trails.begin(); iterator != m_trails.end(); ++iterator) {
-        if (oldest == m_trails.end() || iterator.value().lastSequence < oldest.value().lastSequence) {
-            oldest = iterator;
-        }
-    }
-    if (oldest == m_trails.end()) {
-        return;
-    }
-    const TrackTrail &trail = oldest.value();
-    for (qsizetype index = 0; index < trail.size; ++index) {
-        removals.append(pointKeyJson(trail.points[static_cast<std::size_t>(index)]));
-    }
-    m_trails.erase(oldest);
 }
 
 /**
@@ -263,15 +273,27 @@ bool TrackWebSocketService::hasStableIdentity(const core::model::TrackPacket &tr
 }
 
 /**
- * @brief 从有界最终状态生成一个完整 snapshot；只在新连接或 gap 重建时执行。
+ * @brief 新连接仅接收仍匹配当前 DeviceState 会话的近期点，避免 Lane 尚未清理时泄露旧会话。
  */
 void TrackWebSocketService::sendSnapshot(QWebSocket &client) const
 {
     QJsonArray tracks;
-    for (auto iterator = m_trails.constBegin(); iterator != m_trails.constEnd(); ++iterator) {
-        const TrackTrail &trail = iterator.value();
-        for (qsizetype index = 0; index < trail.size; ++index) {
-            tracks.append(pointJson(trail.points[static_cast<std::size_t>(index)]));
+    bool matchesCurrentSession = false;
+    const auto state = m_deviceState.latest();
+    if (state) {
+        for (const auto &device : state->sample->value.devices) {
+            if (device.operatingState != core::model::DeviceOperatingState::Collecting) continue;
+            matchesCurrentSession = device.deviceId == m_currentDeviceId
+                && device.faceAcquisitionIds == m_currentAcquisitionIds;
+            break;
+        }
+    }
+    if (matchesCurrentSession) {
+        for (auto iterator = m_trails.constBegin(); iterator != m_trails.constEnd(); ++iterator) {
+            const TrackTrail &trail = iterator.value();
+            for (qsizetype index = 0; index < trail.size; ++index) {
+                tracks.append(pointJson(trail.points[static_cast<std::size_t>(index)]));
+            }
         }
     }
     QJsonObject payload;
@@ -282,14 +304,16 @@ void TrackWebSocketService::sendSnapshot(QWebSocket &client) const
 }
 
 /**
- * @brief 为本批变化推进一次 revision，并复用同一个紧凑 JSON 文本发送给所有客户端。
+ * @brief 为本批变化推进一次 revision；目标消亡键与近期点覆盖键分开传输。
  */
-void TrackWebSocketService::broadcastDelta(const QJsonArray &upserts, const QJsonArray &removals)
+void TrackWebSocketService::broadcastDelta(const QJsonArray &upserts, const QJsonArray &removals,
+                                           const QJsonArray &retirements)
 {
     ++m_revision;
     QJsonObject payload;
     payload.insert(QStringLiteral("upserts"), upserts);
     payload.insert(QStringLiteral("removals"), removals);
+    payload.insert(QStringLiteral("retirements"), retirements);
     m_gateway.broadcast(QJsonObject{{"type", "trackDelta"},
         {"sentUtcMs", QDateTime::currentMSecsSinceEpoch()},
         {"revision", QString::number(m_revision)}, {"payload", payload}});

@@ -6,7 +6,7 @@
 
 export type DeviceRegistryStatus = 'loading' | 'available' | 'unavailable'
 
-import type { RadarDevice, SubDevice, RadarBrand } from '../components/map/types'
+import type { RadarDevice, RadarExternalForward, SubDevice, RadarBrand } from '../components/map/types'
 
 const BASE = '/api/v1/devices'
 
@@ -25,10 +25,16 @@ export interface ApiDevice {
   protocolConfig: Record<string, unknown>
 }
 
-/** @brief 表示dcmp.dp.v1协议配置中两个具名UDP发送目标。 */
+/** @brief 表示当前雷达协议配置中两个具名 UDP 发送目标。 */
 interface DcmpCommunicationConfig {
   description?: string
   targets?: Record<string, { address: string; port: number }>
+}
+
+/** @brief 设备协议配置中尚未启用的外部航迹转发断点。 */
+interface DcmpProtocolConfig {
+  communication?: DcmpCommunicationConfig
+  externalForward?: RadarExternalForward
 }
 
 const DEFAULT_DCMP_TARGETS = {
@@ -37,13 +43,13 @@ const DEFAULT_DCMP_TARGETS = {
 }
 
 /**
- * @brief 从设备协议配置恢复具名发送目标，并为旧revision补上当前协议默认端口。
+ * @brief 从设备revision读取内部发送目标与外部转发断点；缺失时由调用方补默认值。
  * @param item 后端返回的完整设备revision。
- * @return 独立复制的dph/workmode目标，表单修改不会污染API对象。
+ * @return 设备协议配置对象；调用方按需复制表单字段。
  */
-function communicationConfig(item: ApiDevice): DcmpCommunicationConfig {
-  const value = item.protocolConfig?.communication
-  return value && typeof value === 'object' ? value as DcmpCommunicationConfig : {}
+function communicationConfig(item: ApiDevice): DcmpProtocolConfig {
+  return item.protocolConfig && typeof item.protocolConfig === 'object'
+    ? item.protocolConfig as DcmpProtocolConfig : {}
 }
 
 export interface CreateDeviceResponse {
@@ -89,7 +95,8 @@ async function apiCall(url: string, options?: RequestInit): Promise<ApiResult<an
 
 export function apiDeviceToRadar(item: ApiDevice): RadarDevice | null {
   const endpoint = item.endpoints?.[0]
-  const communication = communicationConfig(item)
+  const protocolConfig = communicationConfig(item)
+  const communication = protocolConfig.communication ?? {}
   const configuredTargets = communication.targets ?? {}
   const targets = Object.fromEntries(Object.entries(DEFAULT_DCMP_TARGETS).map(([key, fallback]) => {
     const configured = configuredTargets[key]
@@ -101,12 +108,12 @@ export function apiDeviceToRadar(item: ApiDevice): RadarDevice | null {
     name: item.displayName,
     brand: normalizeBrand(item.manufacturer || 'YHF'),
     model: item.model,
-    protocolAdapterKey: item.protocolAdapterKey,
+    protocolAdapterKey: item.protocolAdapterKey === 'dcmp.dp.v1' ? '20260915' : item.protocolAdapterKey,
     lng: item.longitudeDeg,
     lat: item.latitudeDeg,
     altitude: item.altitudeM,
     maxRange: item.maxRangeM / 1000,
-    faces: item.faces.map(face => ({ label: String.fromCharCode(65 + face.faceIndex),
+    faces: item.faces.map(face => ({ label: `${face.faceIndex + 1}#`,
       heading: face.headingDeg, pitch: face.pitchDeg, roll: face.rollDeg,
       scanAngle: face.scanHalfAngleDeg, active: face.enabled })),
     endpointId: endpoint?.endpointKey,
@@ -115,6 +122,7 @@ export function apiDeviceToRadar(item: ApiDevice): RadarDevice | null {
       localAddress: endpoint?.localAddress ?? '127.0.0.1', localPort: endpoint?.localPort ?? 7788,
       description: communication.description ?? 'DCMP内部DP/SP通信', targets,
     },
+    externalForward: protocolConfig.externalForward ?? { protocol: 'udp', address: '', port: 0 },
     backendManaged: true,
   }
 }
@@ -157,7 +165,7 @@ export function radarToApiPayload(id: string, d: RadarDevice): any {
     protocolConfig: { communication: {
       description: d.endpoint.description,
       targets: d.endpoint.targets,
-    } },
+    }, externalForward: d.externalForward ?? { protocol: 'udp', address: '', port: 0 } },
     changedBy: 'UI', changeReason: id ? 'UI修改设备' : 'UI创建设备',
   }
 }

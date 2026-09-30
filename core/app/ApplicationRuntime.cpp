@@ -18,14 +18,14 @@ ApplicationRuntime::ApplicationRuntime(QString databasePath, QString application
       m_trackIngress(m_domain.trackTopic()),
       m_applicationController(m_deviceController, m_trackIngress),
       m_adapter(
-          [this](const auto&,const auto& p,qint64 u,qint64 s){m_deviceController.acceptHeartbeat(false,p.dpOnline,p.fpOnlineMask,u,s);},
+          [this](const auto&,const auto& p,qint64 u,qint64 s){m_deviceController.acceptHeartbeat(false,p.dpOnline,p.fpOnlineMask,u,s,&p);},
           [this](const auto&,const auto& p,qint64 u,qint64 s){m_deviceController.acceptHeartbeat(true,p.spOnline,p.fpDataMask,u,s);},
           [this](const auto&,quint8 face,quint32 sequence,const auto& track,qint64 u,qint64 s){
               m_trackIngress.accept(face,sequence,track,u,s);
           }),
       m_sock2DpSp([this](const char* p,qint64 n,const QHostAddress&,quint16,qint64 u,qint64 s){m_adapter.onDatagram(p,n,u,s);}),
       m_stateWeb(m_domain.deviceState(),m_lane,m_gateway,m_stableIds),
-      m_trackWeb(m_domain.trackTopic(),m_lane,m_gateway,m_stableIds,256,256),
+      m_trackWeb(m_domain.trackTopic(),m_domain.deviceState(),m_lane,m_gateway,m_stableIds,256),
       m_eventWeb(m_domain.eventTopic(),m_lane,m_gateway,m_stableIds)
 {
     m_deviceController.stop();

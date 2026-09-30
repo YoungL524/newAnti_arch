@@ -1,7 +1,8 @@
 /**
  * @file DcmpPayloads.h
  * @brief 定义 DCMP 控制、DP 状态航迹及 DP/SP 心跳的线协议载荷。
- * @details 字段以 doc/protocol/★数据协议(四面阵雷达)_应用版（1.0）_20260923.xlsx 为准；
+ * @details 基础字段以 doc/protocol/★数据协议(四面阵雷达)_应用版（1.0）_20260923.xlsx 为准；
+ * DP 心跳备份区的实时位姿扩展以 doc/contracts/DP心跳实时位姿契约.md 为准；
  * 上游为控制 owner 提供的字段或设备报文字节，下游为边界 Adapter；从四个顶层载荷阅读。
  * 子结构对应工作表真实信息区，仅在调用方拥有的短期报文对象中嵌套，不进入 Topic，不产生新数据链。
  * 本文件不实现编解码、设备状态机或航迹映射；所有数值保持线协议原始单位，自然对齐不能替代逐字段编码。
@@ -299,19 +300,21 @@ struct DpToDcmpTrackPayload
     DpTrack dpTrack {}; ///< 载荷偏移 384，224 字节，由 DP 提供的单个航迹点。
 };
 
-/** @brief Dp 向 DCMP 发送的 84 字节心跳载荷；在线超时由接收端 owner 判断。 */
+/** @brief DP 向 DCMP 发送的 104 字节心跳载荷；各在线阵面分别提供位置与姿态。 */
 struct DpHeartbeatPayload
 {
     static constexpr DcmpMessageType messageType = DcmpMessageType::DpHeartbeat; ///< 对应线消息类型。
-    static constexpr quint32 wireSize = 84U; ///< 两个 uint16 及二十个 uint32 备份字。
+    static constexpr quint32 wireSize = 104U; ///< 两个 uint16、四面各六个 int32 及格式标记。
+    static constexpr quint32 expectedPoseFormatTag = 0x32534F50U; ///< 小端字节为 POS2；旧版心跳仅用于在线状态。
     static constexpr quint32 frameWireSize = DcmpFrameHeader::wireSize + wireSize + DcmpFrameTail::wireSize; ///< 完整心跳报文线上字节数。
     static constexpr quint32 onlineOffset = 0U; ///< 在线值相对载荷起点的偏移。
     static constexpr quint32 faceMaskOffset = 2U; ///< 阵面位图相对载荷起点的偏移。
-    static constexpr quint32 reservedOffset = 4U; ///< 二十个备份字相对载荷起点的偏移。
-    static constexpr quint32 reservedWordCount = 20U; ///< 备份字数量；接收时原样保留。
+    static constexpr quint32 facePoseOffset = 4U; ///< 1# 位姿相对载荷起点的偏移，后续各面间隔 24 字节。
+    static constexpr quint32 poseFormatTagOffset = 100U; ///< 位姿格式标记相对载荷起点的偏移。
     quint16 dpOnline = 0; ///< 偏移 0：1 在线，0 不在线，其他值非法。
     quint16 fpOnlineMask = 0; ///< 偏移 2：bit0～3 对应阵面 1～4，置位表示DP 能联系到对应 FP；bit4～15 必须为零。
-    quint32 bak[20] {}; ///< 偏移 4：80 字节备份区，默认置零，无业务含义。
+    qint32 facePose[4][6] {}; ///< 偏移 4：每面依次为经度 1e-6°、纬度 1e-6°、MSL 海拔 cm、航向/俯仰/横滚 0.01°；仅在线面有效。
+    quint32 poseFormatTag = 0; ///< 偏移 100：POS2 时各面位姿有效；其他值只更新在线事实。
 };
 
 /** @brief Sp 向 DCMP 发送的 84 字节心跳载荷；在线超时由接收端 owner 判断。 */
@@ -341,18 +344,15 @@ static_assert(alignof(DcmpToDpControlPayload) == 4U && std::is_trivially_copyabl
 static_assert(sizeof(DpToDcmpTrackPayload) == 608U, "DpToDcmpTrackPayload 尺寸不符");
 static_assert(alignof(DpToDcmpTrackPayload) == 4U && std::is_trivially_copyable<DpToDcmpTrackPayload>::value
               && std::is_standard_layout<DpToDcmpTrackPayload>::value, "DpToDcmpTrackPayload 必须自然对齐且无动态资源");
-static_assert(sizeof(DpHeartbeatPayload) == 84U, "DpHeartbeatPayload 尺寸不符");
-static_assert(DpHeartbeatPayload::frameWireSize == 132U, "DP心跳完整报文必须保持132字节");
+static_assert(sizeof(DpHeartbeatPayload) == 104U, "DpHeartbeatPayload 尺寸不符");
+static_assert(DpHeartbeatPayload::frameWireSize == 152U, "DP心跳完整报文必须为152字节");
 static_assert(alignof(DpHeartbeatPayload) == 4U && std::is_trivially_copyable<DpHeartbeatPayload>::value
               && std::is_standard_layout<DpHeartbeatPayload>::value, "DpHeartbeatPayload 必须自然对齐且无动态资源");
 static_assert(sizeof(SpHeartbeatPayload) == 84U, "SpHeartbeatPayload 尺寸不符");
-static_assert(SpHeartbeatPayload::frameWireSize == DpHeartbeatPayload::frameWireSize,
-              "DP和SP心跳必须共用相同线布局，公共解析才可复用");
+static_assert(SpHeartbeatPayload::frameWireSize == 132U, "SP心跳完整报文必须保持132字节");
 static_assert(SpHeartbeatPayload::onlineOffset == DpHeartbeatPayload::onlineOffset
-              && SpHeartbeatPayload::faceMaskOffset == DpHeartbeatPayload::faceMaskOffset
-              && SpHeartbeatPayload::reservedOffset == DpHeartbeatPayload::reservedOffset
-              && SpHeartbeatPayload::reservedWordCount == DpHeartbeatPayload::reservedWordCount,
-              "DP和SP心跳公共字段偏移必须保持一致");
+              && SpHeartbeatPayload::faceMaskOffset == DpHeartbeatPayload::faceMaskOffset,
+              "DP和SP心跳在线字段偏移必须保持一致");
 static_assert(alignof(SpHeartbeatPayload) == 4U && std::is_trivially_copyable<SpHeartbeatPayload>::value
               && std::is_standard_layout<SpHeartbeatPayload>::value, "SpHeartbeatPayload 必须自然对齐且无动态资源");
 

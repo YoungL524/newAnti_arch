@@ -12,6 +12,7 @@
 #include "core/config/DeviceConfiguration.h"
 #include "core/model/RuntimeState.h"
 #include "core/task/RadarControlSettings.h"
+#include "core/protocol/DcmpPayloads.h"
 
 #include <QHash>
 #include <QByteArray>
@@ -55,8 +56,10 @@ public:
      * @param mask DP的FP在线位或SP的数据位，只允许低四位。
      * @param utcMs Socket接收完整报文时的Unix epoch UTC毫秒。
      * @param steadyNs 同一接收点的进程内单调纳秒。
+     * @param dpPayload 同步借用的 DP 心跳位姿；SP 或旧调用方传空，不跨调用保存协议 DTO。
      */
-    void acceptHeartbeat(bool sp, quint16 online, quint16 mask, qint64 utcMs, qint64 steadyNs);
+    void acceptHeartbeat(bool sp, quint16 online, quint16 mask, qint64 utcMs, qint64 steadyNs,
+                         const core::protocol::DpHeartbeatPayload *dpPayload = nullptr);
 
     /** @brief 按显式单调时刻执行2秒迟到、5秒超时判定，供定时器和确定性测试共用。 */
     void checkHeartbeatDeadlines(qint64 utcMs, qint64 steadyNs);

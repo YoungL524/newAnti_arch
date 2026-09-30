@@ -16,7 +16,6 @@ import { type AppDevice, type RadarDevice, type SubDevice } from './components/m
 import DeviceEditDialog from './components/dialogs/DeviceEditDialog'
 import { fetchDevices, createDevice, deleteDeviceApi, updateDevice as apiUpdateDevice, radarToApiPayload, subToApiPayload, apiDeviceToRadar, apiDeviceToSub, type DeviceRegistryStatus } from './lib/devicesApi'
 import TaskCreateDialog, { type TaskCreateResult } from './components/dialogs/TaskCreateDialog'
-import RadarControlSettingsDialog from './components/dialogs/RadarControlSettingsDialog'
 import type { RadarControlSettings, Task, TaskTemplate } from './lib/taskTypes'
 import {
   fetchTasksFromBackend,
@@ -50,7 +49,6 @@ export default function App() {
   const [tasksBackend, setTasksBackend] = useState(false)
   const [taskTemplates, setTaskTemplates] = useState<TaskTemplate[]>([])
   const [showTaskDialog, setShowTaskDialog] = useState(false)
-  const [showRadarSettings, setShowRadarSettings] = useState(false)
   const [radarSettingsSaving, setRadarSettingsSaving] = useState(false)
   const [taskActionPendingId, setTaskActionPendingId] = useState<string | null>(null)
   const [taskActionError, setTaskActionError] = useState('')
@@ -463,8 +461,6 @@ export default function App() {
               activeTask={activeTask}
               viewTask={viewTask}
               isHistoryView={isHistoryView}
-              onOpenRadarSettings={() => setShowRadarSettings(true)}
-              radarSettingsDisabled={radarSettingsDisabled}
             />
             <div className="flex-1 relative overflow-hidden">
               <MapRadarView
@@ -507,6 +503,9 @@ export default function App() {
           onUpdateDevice={updateDevice}
           onUpdateSubDevice={updateSubDevice}
           onClose={() => setEditingDevice(null)}
+          controlTask={activeTask}
+          onApplyControlSettings={applyRadarSettings}
+          controlSettingsDisabled={radarSettingsDisabled || deviceRegistryStatus !== 'available'}
         />
       )}
 
@@ -519,15 +518,6 @@ export default function App() {
         />
       )}
 
-      {showRadarSettings && activeTask && (
-        <RadarControlSettingsDialog
-          key={activeTask.id}
-          task={activeTask}
-          radarDevices={devices}
-          onApply={applyRadarSettings}
-          onClose={() => setShowRadarSettings(false)}
-        />
-      )}
     </CoreProvider>
   )
 }

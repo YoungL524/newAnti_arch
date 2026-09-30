@@ -9,6 +9,7 @@
 #include <QThread>
 
 #include <chrono>
+#include <cmath>
 #include <utility>
 
 namespace core::control {
@@ -56,6 +57,7 @@ void DeviceController::start()
     sample.value.spHeartbeat = 0;
     sample.value.fpOnlineMask = 0;
     sample.value.fpDataMask = 0;
+    sample.value.radarPose.validFaceMask = 0;
     const auto steadyNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
     publishDeviceState(std::move(sample), QDateTime::currentMSecsSinceEpoch(), steadyNs);
@@ -73,10 +75,11 @@ void DeviceController::stop()
 }
 
 /**
- * @brief 先验证来源字段和单调顺序，再更新对应心跳；只在状态变化时记录一次接收诊断。
+ * @brief 先验证来源字段和单调顺序，再按在线阵面平均位置并保留逐面姿态；数值不变时只续期。
  */
 void DeviceController::acceptHeartbeat(
-    bool sp, quint16 online, quint16 mask, qint64 utcMs, qint64 steadyNs)
+    bool sp, quint16 online, quint16 mask, qint64 utcMs, qint64 steadyNs,
+    const core::protocol::DpHeartbeatPayload *dpPayload)
 {
     Q_ASSERT(QThread::currentThread() == thread());
     const std::size_t index = sp ? 1U : 0U;
@@ -89,7 +92,52 @@ void DeviceController::acceptHeartbeat(
     quint8 &heartbeat = sp ? sample.value.spHeartbeat : sample.value.dpHeartbeat;
     quint16 &bits = sp ? sample.value.fpDataMask : sample.value.fpOnlineMask;
     const quint8 nextHeartbeat = online != 0U ? 1U : 2U;
-    if (heartbeat == nextHeartbeat && bits == mask) {
+    const bool statusChanged = heartbeat != nextHeartbeat || bits != mask;
+    bool poseChanged = false;
+    if (!sp) {
+        auto &pose = sample.value.radarPose;
+        const quint8 validMask = online == 1U && dpPayload
+            && dpPayload->poseFormatTag == core::protocol::DpHeartbeatPayload::expectedPoseFormatTag
+            ? static_cast<quint8>(mask) : 0U;
+        const quint8 nextMask = online == 1U ? validMask : 0U;
+        poseChanged = pose.validFaceMask != nextMask;
+        pose.validFaceMask = nextMask;
+        if (dpPayload && nextMask != 0U) {
+            qint64 longitudeSum = 0;
+            qint64 latitudeSum = 0;
+            qint64 altitudeSum = 0;
+            qint32 faceCount = 0;
+            for (std::size_t face = 0; face < pose.faceAttitudeCdeg.size(); ++face) {
+                if ((nextMask & (1U << face)) == 0U) continue;
+                longitudeSum += dpPayload->facePose[face][0];
+                latitudeSum += dpPayload->facePose[face][1];
+                altitudeSum += dpPayload->facePose[face][2];
+                ++faceCount;
+            }
+            const qint32 longitudeE6 = static_cast<qint32>(std::llround(
+                static_cast<double>(longitudeSum) / faceCount));
+            const qint32 latitudeE6 = static_cast<qint32>(std::llround(
+                static_cast<double>(latitudeSum) / faceCount));
+            const qint32 altitudeCm = static_cast<qint32>(std::llround(
+                static_cast<double>(altitudeSum) / faceCount));
+            poseChanged = poseChanged
+                || pose.longitudeE6 != longitudeE6
+                || pose.latitudeE6 != latitudeE6
+                || pose.altitudeCm != altitudeCm;
+            pose.longitudeE6 = longitudeE6;
+            pose.latitudeE6 = latitudeE6;
+            pose.altitudeCm = altitudeCm;
+            for (std::size_t face = 0; face < pose.faceAttitudeCdeg.size(); ++face) {
+                if ((nextMask & (1U << face)) == 0U) continue;
+                for (std::size_t axis = 0; axis < 3U; ++axis) {
+                    const qint32 next = dpPayload->facePose[face][axis + 3U];
+                    poseChanged = poseChanged || pose.faceAttitudeCdeg[face][axis] != next;
+                    pose.faceAttitudeCdeg[face][axis] = next;
+                }
+            }
+        }
+    }
+    if (!statusChanged && !poseChanged) {
         return;
     }
     heartbeat = nextHeartbeat;
@@ -98,8 +146,10 @@ void DeviceController::acceptHeartbeat(
         qWarning().noquote() << (sp ? "SP" : "DP") << "心跳状态被运行时门禁拒绝";
         return;
     }
-    qInfo().noquote() << (sp ? "SP" : "DP") << "心跳状态" << nextHeartbeat
-                      << "阵面位图" << mask;
+    if (statusChanged) {
+        qInfo().noquote() << (sp ? "SP" : "DP") << "心跳状态" << nextHeartbeat
+                          << "阵面位图" << mask;
+    }
     refreshControlTimer();
 }
 
@@ -129,6 +179,9 @@ void DeviceController::checkHeartbeatDeadlines(qint64 utcMs, qint64 steadyNs)
         heartbeat = nextHeartbeat;
         if (nextHeartbeat == 0U) {
             bits = 0;
+        }
+        if (index == 0U && nextHeartbeat != 1U) {
+            sample.value.radarPose.validFaceMask = 0;
         }
         changed = true;
     }
@@ -168,6 +221,12 @@ bool DeviceController::prepareTask(
     m_deviceFaceMasks = deviceFaceMasks;
     m_controlDeviceId = {};
     m_controlConfiguration = {};
+    auto sample = *m_state.latest()->sample;
+    sample.value.radarPose.deviceId = {};
+    sample.value.radarPose.validFaceMask = 0;
+    const auto steadyNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    publishDeviceState(std::move(sample), QDateTime::currentMSecsSinceEpoch(), steadyNs);
     refreshControlTimer();
     m_lastError.clear();
     return true;
@@ -191,6 +250,11 @@ bool DeviceController::configureControlSnapshot(
     }
     m_controlDeviceId = deviceId;
     m_controlConfiguration = configuration;
+    auto sample = *m_state.latest()->sample;
+    sample.value.radarPose.deviceId = deviceId;
+    const auto steadyNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    publishDeviceState(std::move(sample), QDateTime::currentMSecsSinceEpoch(), steadyNs);
     refreshControlTimer();
     m_lastError.clear();
     return true;
@@ -211,6 +275,12 @@ bool DeviceController::clearPreparedTask(core::model::TaskId taskId)
     m_deviceFaceMasks.clear();
     m_controlDeviceId = {};
     m_controlConfiguration = {};
+    auto sample = *m_state.latest()->sample;
+    sample.value.radarPose.deviceId = {};
+    sample.value.radarPose.validFaceMask = 0;
+    const auto steadyNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    publishDeviceState(std::move(sample), QDateTime::currentMSecsSinceEpoch(), steadyNs);
     refreshControlTimer();
     m_lastError.clear();
     return true;

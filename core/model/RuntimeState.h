@@ -89,6 +89,21 @@ struct DeviceRuntimeState
 };
 
 /**
+ * @brief 保存在线阵面位置平均值及各阵面独立安装姿态，供单雷达实时显示。
+ * @details 原始逐面坐标只在协议解码期间借用，不长期保存；设备 ID 为零表示尚未绑定当前任务设备。
+ * 不属于持久化设备台账，超时后有效位清零。
+ */
+struct RadarPoseState
+{
+    DeviceId deviceId; ///< 当前准备任务绑定的雷达；未准备任务时为零，界面不得猜测归属。
+    qint32 longitudeE6 = 0; ///< 在线阵面东经的平均值，角度乘 1000000。
+    qint32 latitudeE6 = 0; ///< 在线阵面北纬的平均值，角度乘 1000000。
+    qint32 altitudeCm = 0; ///< 在线阵面 MSL 海拔的平均值，单位 cm。
+    std::array<std::array<qint32, 3>, 4> faceAttitudeCdeg {}; ///< 每面依次为航向、俯仰、横滚，单位 0.01°。
+    quint8 validFaceMask = 0; ///< DP 在线且对应 FP 在线的面有效；零表示界面回退台账部署值。
+};
+
+/**
  * @brief 保存当前进程全部已激活设备的完整运行时快照。
  * @details devices 必须按 DeviceId 升序且不重复；容量由组合根的 maxRuntimeDevices 限制。低频完整替换允许
  * 使用 QVector，但禁止把它当作设备事件队列或持续追加历史。
@@ -99,6 +114,7 @@ struct DeviceState
     quint8 spHeartbeat = 0; ///< SP心跳状态，与DP独立计时；不表示采集工作状态。
     quint16 fpOnlineMask = 0; ///< DP报告的四阵面在线位；灰色时清零。
     quint16 fpDataMask = 0; ///< SP报告的四阵面数据位；灰色时清零。
+    RadarPoseState radarPose; ///< 最近有效 DP 心跳的实时位姿；不写入设备台账。
     QVector<DeviceRuntimeState> devices; ///< 当前全部已激活设备；空数组表示配置域尚无激活设备。
 };
 

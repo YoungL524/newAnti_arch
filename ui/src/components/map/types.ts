@@ -5,7 +5,7 @@
  */
 
 export interface RadarFace {
-  /** 阵面显示标识，依次为A、B、C、D。 */
+  /** 阵面显示标识，依次为1#、2#、3#、4#。 */
   label: string
   /** 该阵面实测绝对航向，单位度；正北为0且顺时针为正。 */
   heading: number
@@ -22,10 +22,21 @@ export interface RadarFace {
 /** @brief 表示设备revision内嵌的一个UDP目标地址。 */
 export interface RadarEndpointTarget { address: string; port: number }
 
+/** @brief 预留的航迹外部转发目标；只保存配置，不启动转发。 */
+export interface RadarExternalForward {
+  /** 未来转发传输协议；当前仅用于保存配置。 */
+  protocol: 'udp' | 'tcp' | 'http'
+  /** 外部上位机IP地址；空字符串表示尚未配置。 */
+  address: string
+  /** 目标端口；未配置时为0，已配置时必须在1～65535。 */
+  port: number
+}
+
 /** @brief 表示随设备台账原子保存的主链通信端点。 */
 export interface RadarEndpoint {
   id: string
-  protocol: 'udp' | 'tcp'
+  /** 当前内部通信只支持UDP。 */
+  protocol: 'udp'
   localAddress: string
   localPort: number
   description: string
@@ -60,6 +71,8 @@ export interface RadarDevice {
   endpointId?: string
   /** 与本设备revision原子保存的内部UDP端点。 */
   endpoint: RadarEndpoint
+  /** 与设备revision一起保存的外部航迹转发断点；当前不发送数据。 */
+  externalForward?: RadarExternalForward
   /** 表示该对象是否来自后端权威设备台账。 */
   backendManaged?: boolean
 }
@@ -83,13 +96,13 @@ export const DEFAULT_DEVICE: Omit<RadarDevice, 'id'> = {
   name: 'NODE_ALPHA_01',
   brand: 'YHF',
   model: 'YHF-YZ-KU',
-  protocolAdapterKey: 'dcmp.dp.v1',
+  protocolAdapterKey: '20260915',
   lng: 118.65303,
   lat: 31.93494,
   altitude: 63.9288,
   maxRange: 5,
   faces: [
-    { label: 'A', heading: 0, pitch: 0, roll: 0, scanAngle: 45, active: true },
+    { label: '1#', heading: 0, pitch: 0, roll: 0, scanAngle: 45, active: true },
   ],
   endpointId: 'radar_cpu',
   endpoint: {
@@ -99,4 +112,5 @@ export const DEFAULT_DEVICE: Omit<RadarDevice, 'id'> = {
       workmode: { address: '127.0.0.1', port: 1234 },
     },
   },
+  externalForward: { protocol: 'udp', address: '', port: 0 },
 }

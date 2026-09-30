@@ -96,9 +96,9 @@ HTTP DTO、React 类型、编辑表单、地图姿态计算和协议映射必须
 | 激励信号关闭 / Excitation Disable<br>`excitationDisabled` | `F_UI_Exc_Switch` | 开关：`0x00`激励开、`0x01`激励关 | `0x00` | 使用反向语义文案，避免误操作。 |
 | CFAR方案 / CFAR Profile<br>`cfarMode` | `F_UI_CFAR_Mode_Ctrl` | 下拉：`0x00`方案一、`0x01`方案二 | `0x00` | 使用有符号32位协议字段，但UI只接受两个合同值。 |
 | 采集工作控制 / Acquisition Control<br>`acquisitionControl` | `F_UI_STBY_Ctrl` | 暂无独立控件 | `0x00` | 当前周期编码暂固定为`0x01`；与采集按钮的字段联动留待后续合同，按钮只触发一次性 `0xFFFF`。 |
-| CFAR门限1 / CFAR Threshold 1<br>`cfarThreshold1` | `F_UI_CFAR_Ctrl_1` | 十六进制补码控制字，`int32` | `0x00000000` | Excel未规定工程单位，按原始控制字发送。 |
-| CFAR门限2 / CFAR Threshold 2<br>`cfarThreshold2` | `F_UI_CFAR_Ctrl_2` | 十六进制补码控制字，`int32` | `0x00000000` | Excel未规定工程单位，按原始控制字发送。 |
-| 速度门限 / Velocity Threshold<br>`velocityThreshold` | `F_UI_Vel_Ctrl` | 十六进制补码控制字，`int32` | `0x00000000` | Excel未规定工程单位，按原始控制字发送。 |
+| CFAR门限1 / CFAR Threshold 1<br>`cfarThreshold1` | `F_UI_CFAR_Ctrl_1` | 十进制整数，`int32` | `0` | 界面单位 dB；按整数原样发送，未引入缩放。 |
+| CFAR门限2 / CFAR Threshold 2<br>`cfarThreshold2` | `F_UI_CFAR_Ctrl_2` | 十进制整数，`int32` | `0` | 界面单位 dB；按整数原样发送，未引入缩放。 |
+| 速度门限 / Velocity Threshold<br>`velocityThreshold` | `F_UI_Vel_Ctrl` | 十进制整数，`int32` | `0` | 界面单位 m/s；按整数原样发送，未引入缩放。 |
 | AD记录 / AD Recording<br>`adRecordEnabled` | `F_UI_AD_Rec_Switch` | 开关：`0x00`关、`0x01`开 | `0x00` | 稳态参数。 |
 | 点迹记录 / Plot Recording<br>`pointRecordEnabled` | `F_UI_Dot_Rec_Switch` | 开关：`0x00`关、`0x01`开 | `0x00` | “点迹”只是DP内部记录名称，不新增PointTopic。 |
 | 起批点数 / Initiation Count<br>`trackInitiationPointCount` | `F_UI_TracDot_Ctrl` | 十进制计数，`uint32` | `0` | 带计数语义，按十进制输入。 |
@@ -167,7 +167,7 @@ HTTP DTO、React 类型、编辑表单、地图姿态计算和协议映射必须
 
 ## 9. 参数面板与提交合同
 
-运行控制不塞进“编辑雷达设备”页面。创建任务时先选择模板；任务建立后使用独立“雷达参数”面板：
+创建任务时先选择模板；任务建立后，关联雷达的“雷达配置”界面通过左侧导航切换设备配置与运行参数。设备配置由“保存修改”提交到设备台账；通用、帧、阵面运行参数由“应用参数”提交到当前任务快照和 DeviceController 运行副本，不写入设备台账：
 
 1. 通用参数；
 2. 帧参数，根据`frameWorkMode`渐进展示；

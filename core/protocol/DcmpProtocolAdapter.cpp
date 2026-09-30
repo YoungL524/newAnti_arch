@@ -133,7 +133,7 @@ core::protocol::DpToDcmpTrackPayload::DpTrack readTrack(const char *data)
 }
 
 /**
- * @brief 读取DP/SP心跳共有的在线值、阵面位图和备份区，避免两类载荷各自维护一套偏移循环。
+ * @brief 读取SP心跳的在线值、阵面数据位及原有备份区；DP位姿使用独立布局。
  * @param payloadData 已通过完整心跳长度校验的载荷起始地址。
  * @param online 接收在线值的字段。
  * @param faceMask 接收低四位阵面状态的字段。
@@ -141,9 +141,9 @@ core::protocol::DpToDcmpTrackPayload::DpTrack readTrack(const char *data)
  */
 void readHeartbeatFields(
     const char *payloadData, quint16 &online, quint16 &faceMask,
-    quint32 (&reserved)[core::protocol::DpHeartbeatPayload::reservedWordCount])
+    quint32 (&reserved)[core::protocol::SpHeartbeatPayload::reservedWordCount])
 {
-    using Payload = core::protocol::DpHeartbeatPayload;
+    using Payload = core::protocol::SpHeartbeatPayload;
     online = readU16Le(payloadData + Payload::onlineOffset);
     faceMask = readU16Le(payloadData + Payload::faceMaskOffset);
     for (quint32 i = 0; i < Payload::reservedWordCount; ++i) {
@@ -321,9 +321,11 @@ DcmpProtocolAdapter::Result DcmpProtocolAdapter::onDatagram(
         && type != DcmpMessageType::DpToDcmpTrack) {
         return Result::UnsupportedMessage;
     }
-    if (type != DcmpMessageType::DpToDcmpTrack
-        && (size != DpHeartbeatPayload::frameWireSize
-        || DpHeartbeatPayload::frameWireSize != SpHeartbeatPayload::frameWireSize)) {
+    if ((type == DcmpMessageType::DpHeartbeat
+         && size != DpHeartbeatPayload::frameWireSize
+         && size != SpHeartbeatPayload::frameWireSize)
+        || (type == DcmpMessageType::SpHeartbeat
+            && size != SpHeartbeatPayload::frameWireSize)) {
         return Result::InvalidLength;
     }
     const char *const payloadData = data + DcmpFrameHeader::payloadOffset;
@@ -366,7 +368,32 @@ DcmpProtocolAdapter::Result DcmpProtocolAdapter::onDatagram(
             return Result::NoHandler;
         }
         DpHeartbeatPayload payload;
-        readHeartbeatFields(payloadData, payload.dpOnline, payload.fpOnlineMask, payload.bak);
+        payload.dpOnline = online;
+        payload.fpOnlineMask = mask;
+        if (size == DpHeartbeatPayload::frameWireSize) {
+            for (quint32 face = 0; face < 4U; ++face) {
+                for (quint32 field = 0; field < 6U; ++field) {
+                    payload.facePose[face][field] = readI32Le(
+                        payloadData + DpHeartbeatPayload::facePoseOffset + face * 24U + field * 4U);
+                }
+            }
+            payload.poseFormatTag = readU32Le(payloadData + DpHeartbeatPayload::poseFormatTagOffset);
+        }
+        if (online == 1U && mask != 0U
+            && payload.poseFormatTag == DpHeartbeatPayload::expectedPoseFormatTag) {
+            for (quint32 face = 0; face < 4U; ++face) {
+                if ((mask & (1U << face)) == 0U) continue;
+                const auto &pose = payload.facePose[face];
+                if (pose[0] < -180'000'000 || pose[0] > 180'000'000
+                    || pose[1] < -90'000'000 || pose[1] > 90'000'000
+                    || pose[2] < -100'000 || pose[2] > 1'000'000
+                    || pose[3] < -18'000 || pose[3] > 18'000
+                    || pose[4] < -9'000 || pose[4] > 9'000
+                    || pose[5] < -9'000 || pose[5] > 9'000) {
+                    return Result::InvalidHeartbeat;
+                }
+            }
+        }
         m_dpHandler(header, payload, receiveUtcMs, receiveSteadyNs);
     } else {
         if (!m_spHandler) {

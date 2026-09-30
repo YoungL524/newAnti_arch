@@ -111,7 +111,8 @@ namespace core::producer {
 
 /**
  * @brief 先校验公共元数据和容量，再按 DeviceId 顺序验证每个设备。
- * @details 严格升序同时保证唯一性和确定性输出；函数只遍历调用方已有 QVector，不复制或排序快照。
+ * @details 实时位姿有效位必须属于当前 DP 在线阵面，工程范围按心跳合同检查；
+ * 设备数组严格升序保证唯一性，函数只遍历调用方已有快照，不复制或排序。
  */
 RuntimeStateRejection RuntimeStateGate::validateDeviceState(
     const core::model::Sample<core::model::DeviceState> &sample,
@@ -128,8 +129,28 @@ RuntimeStateRejection RuntimeStateGate::validateDeviceState(
     if (sample.value.dpHeartbeat > 2 || sample.value.spHeartbeat > 2
         || (sample.value.fpOnlineMask & 0xFFF0U) || (sample.value.fpDataMask & 0xFFF0U)
         || (sample.value.dpHeartbeat == 0 && sample.value.fpOnlineMask != 0)
-        || (sample.value.spHeartbeat == 0 && sample.value.fpDataMask != 0)) {
+        || (sample.value.spHeartbeat == 0 && sample.value.fpDataMask != 0)
+        || (sample.value.radarPose.validFaceMask & 0xF0U)
+        || (sample.value.radarPose.validFaceMask & ~sample.value.fpOnlineMask)
+        || (sample.value.dpHeartbeat != 1U && sample.value.radarPose.validFaceMask != 0U)) {
         return RuntimeStateRejection::InvalidDeviceStateCombination;
+    }
+    const auto &pose = sample.value.radarPose;
+    if (pose.validFaceMask != 0U) {
+        if (pose.longitudeE6 < -180'000'000 || pose.longitudeE6 > 180'000'000
+            || pose.latitudeE6 < -90'000'000 || pose.latitudeE6 > 90'000'000
+            || pose.altitudeCm < -100'000 || pose.altitudeCm > 1'000'000) {
+            return RuntimeStateRejection::InvalidDeviceStateCombination;
+        }
+        for (std::size_t face = 0; face < pose.faceAttitudeCdeg.size(); ++face) {
+            if ((pose.validFaceMask & (1U << face)) == 0U) continue;
+            const auto &attitude = pose.faceAttitudeCdeg[face];
+            if (attitude[0] < -18'000 || attitude[0] > 18'000
+                || attitude[1] < -9'000 || attitude[1] > 9'000
+                || attitude[2] < -9'000 || attitude[2] > 9'000) {
+                return RuntimeStateRejection::InvalidDeviceStateCombination;
+            }
+        }
     }
     for (const auto &device : sample.value.devices) {
         const RuntimeStateRejection entryResult = validateDeviceEntry(device);

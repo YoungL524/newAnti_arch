@@ -16,6 +16,15 @@ export function trackPointKey(point: WsTrackDisplayPoint | WsTrackDisplayPointKe
 }
 
 /**
+ * @brief 生成一条航迹在当前采集会话内的完整身份，避免厂家航迹号跨会话或阵面复用时串线。
+ * @param point WebSocket 当前点或删除键。
+ * @return 不包含点序号的航迹身份键。
+ */
+export function trackTrailKey(point: WsTrackDisplayPoint | WsTrackDisplayPointKey): string {
+  return `${point.acquisitionId}:${point.deviceId}:${point.faceIndex}:${point.trackId}`
+}
+
+/**
  * @brief 将一条有序快照或增量消息归并到浏览器当前显示态。
  * @param points 当前 WebSocket 会话内唯一的显示点索引。
  * @param currentRevision 已成功应用的服务端修订号；尚未收到快照时为null。
@@ -35,7 +44,7 @@ export function applyTrackStreamMessage(
 
   if (currentRevision == null || !/^\d+$/.test(currentRevision) || !/^\d+$/.test(message.revision)) return null
   if (BigInt(message.revision) !== BigInt(currentRevision) + 1n) return null
-  for (const key of message.payload.removals) points.delete(trackPointKey(key))
   for (const point of message.payload.upserts) points.set(trackPointKey(point), point)
+  for (const key of message.payload.removals) points.delete(trackPointKey(key))
   return message.revision
 }

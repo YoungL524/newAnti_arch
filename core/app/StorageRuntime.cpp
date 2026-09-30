@@ -299,13 +299,38 @@ bool StorageRuntime::initialize()
 }
 
 /**
- * @brief 先停止归档 Consumer 与 Lane，再销毁借用连接的服务并正常闭合 application run。
+ * @brief 停止新输入后追平两类 Topic 的当前水位；提交失败或已有覆盖时不把 run 标记为正常退出。
+ * @details 排空只复用 ArchiveReader 的固定批次与两个 committed cursor；每轮必须推进至少一个 cursor，
+ * 避免数据库故障时在存储线程自旋。Repository 析构会关闭连接并保留未闭合 run 供下次启动识别。
  */
 bool StorageRuntime::shutdown()
 {
     if (QThread::currentThread() != thread()) {
         m_lastError = QStringLiteral("StorageRuntime 必须在所属存储线程关闭");
         return false;
+    }
+    bool archiveComplete = true;
+    if (m_archiveReader) {
+        const auto trackNewest = m_trackTopic.range().newest;
+        const auto eventNewest = m_eventTopic.range().newest;
+        while (m_archiveReader->trackCommittedCursor() < trackNewest
+               || m_archiveReader->eventCommittedCursor() < eventNewest) {
+            const auto trackBefore = m_archiveReader->trackCommittedCursor();
+            const auto eventBefore = m_archiveReader->eventCommittedCursor();
+            m_archiveReader->consumeOneTurn();
+            if (m_archiveReader->trackCommittedCursor() == trackBefore
+                && m_archiveReader->eventCommittedCursor() == eventBefore) {
+                archiveComplete = false;
+                break;
+            }
+        }
+        if (m_archiveReader->trackGapCount() != 0U
+            || m_archiveReader->eventGapCount() != 0U) {
+            archiveComplete = false;
+        }
+        if (!archiveComplete) {
+            m_lastError = QStringLiteral("归档未完整提交：航迹或事件批次失败、记录已覆盖，运行实例保留为未正常退出");
+        }
     }
     m_archiveReader.reset();
     m_archiveLane.reset();
@@ -317,8 +342,9 @@ bool StorageRuntime::shutdown()
         m_lastError.clear();
         return true;
     }
-    const bool closed = m_archiveRepository->closeCleanly(QDateTime::currentMSecsSinceEpoch());
-    if (!closed) m_lastError = m_archiveRepository->lastError();
+    const bool closed = archiveComplete
+        && m_archiveRepository->closeCleanly(QDateTime::currentMSecsSinceEpoch());
+    if (archiveComplete && !closed) m_lastError = m_archiveRepository->lastError();
     m_archiveRepository.reset();
     return closed;
 }

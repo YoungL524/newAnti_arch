@@ -58,7 +58,7 @@ Adapter不持有socket、队列、定时器或State，不打印逐包日志，�
 | --- | --- | --- | --- |
 | 0x0001 | DcmpToDpControlPayload | 896 | 控制 owner 字段 → Adapter → DP |
 | 0x0100 | DpToDcmpTrackPayload | 608（状态384 + 航迹点224） | DP → Adapter |
-| 0x0101 | DpHeartbeatPayload | 84 | DP → Adapter → 后续设备状态 owner |
+| 0x0101 | DpHeartbeatPayload | 104 | DP → Adapter → 设备状态 owner；逐面实时位姿扩展见 [DP心跳实时位姿契约](DP心跳实时位姿契约.md) |
 | 0x0303 | SpHeartbeatPayload | 84 | SP → Adapter → 后续设备状态 owner |
 
 按 2026-09-29 用户要求，`0xFFFF` 已重新定义为 20 字节 `DcmpToDpWorkModePayload`，使用统一公共头尾；

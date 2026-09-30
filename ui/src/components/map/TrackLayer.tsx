@@ -1,7 +1,7 @@
 /**
  * @file TrackLayer.tsx
- * @brief 把当前实时航迹集合映射为可选择的地图点、标签和短尾迹。
- * @details 图层按稳定航迹键增删改地图要素；输入是 WebSocket 归并后的有界当前态，不在组件内累计全量历史。
+ * @brief 把当前采集会话的旧路径形状和近期原始航迹点绘制到地图画布。
+ * @details 上游 CoreProvider 已区分旧路径与近期点；本层按完整会话键投影并绘制，不再持有第二份历史。
  */
 
 import { useEffect, useRef, useMemo, useState, useCallback } from 'react'
@@ -16,6 +16,7 @@ type TrackInteraction = NonNullable<RadarTrack['interaction']>
 interface TrailPoint {
   lng: number
   lat: number
+  compacted: boolean ///< 旧路径只参与线形绘制，最近原始点继续显示渐变点与箭头。
   deviceId: string
   trackId: number
   slantRange: number
@@ -138,13 +139,34 @@ function fillDot(ctx: CanvasRenderingContext2D, x: number, y: number, r: number,
   ctx.restore()
 }
 
+/**
+ * @brief 绘制当前会话的旧路径轮廓和近期原始点；旧路径不叠加渐变圆点。
+ * @param ctx 地图覆盖层本帧画布。
+ * @param sp 已投影到当前地图像素坐标且按点序号排序的同一航迹。
+ * @param selected 当前目标是否被选择。
+ */
 function drawTrack(ctx: CanvasRenderingContext2D, sp: { p: ScreenPoint; pt: TrailPoint }[], selected: boolean) {
   if (sp.length === 0) return
   const accent = activeColor(sp[sp.length - 1].pt.interaction)
   const headR = selected ? HEAD_R + 0.4 : HEAD_R
 
-  const grayPart = sp.filter(s => s.pt.pointIndex < GRAY_HEAD_COUNT)
-  const greenPart = sp.filter(s => s.pt.pointIndex >= GRAY_HEAD_COUNT)
+  const older = sp.filter(s => s.pt.compacted)
+  const recent = sp.filter(s => !s.pt.compacted)
+  const olderPixels: ScreenPoint[] = []
+  for (const point of older) {
+    const previous = olderPixels[olderPixels.length - 1]
+    if (!previous || (point.p.x - previous.x) ** 2 + (point.p.y - previous.y) ** 2 >= 1) {
+      olderPixels.push(point.p)
+    }
+  }
+  if (older.length > 0 && olderPixels[olderPixels.length - 1] !== older[older.length - 1].p) {
+    olderPixels.push(older[older.length - 1].p)
+  }
+  if (recent.length > 0 && olderPixels.length > 0) olderPixels.push(recent[0].p)
+  strokePolyline(ctx, olderPixels, accent, LINE_W, 0.65)
+
+  const grayPart = recent.filter(s => s.pt.pointIndex < GRAY_HEAD_COUNT)
+  const greenPart = recent.filter(s => s.pt.pointIndex >= GRAY_HEAD_COUNT)
 
   if (grayPart.length >= 2) {
     strokePolyline(ctx, grayPart.map(s => s.p), GRAY_LINE, LINE_W, 0.7)
@@ -190,7 +212,7 @@ export default function TrackLayer({ device, mapInstance, mapClass }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rafRef = useRef(0)
   const [repaintTick, setRepaintTick] = useState(0)
-  const { tracks, acquisition, setTrackInteraction } = useCore()
+  const { tracks, mapOldTracks, acquisition, setTrackInteraction } = useCore()
 
   const scheduleRepaint = useCallback(() => {
     if (rafRef.current) return
@@ -201,18 +223,19 @@ export default function TrackLayer({ device, mapInstance, mapClass }: Props) {
   }, [])
 
   const trailMap = useMemo(() => {
-    const m = new Map<number, TrailPoint[]>()
+    const m = new Map<string, TrailPoint[]>()
     if (!acquisition) return m
-    for (const t of tracks) {
+    for (const t of [...mapOldTracks, ...tracks]) {
       const deviceId = t.deviceId || device.id
       if (deviceId !== device.id) continue
 
       const trackId = t.trackId ?? t.batchId ?? 0
-      if (!m.has(trackId)) m.set(trackId, [])
+      const key = `${t.acquisitionId ?? ''}:${deviceId}:${t.faceIndex ?? -1}:${trackId}`
+      if (!m.has(key)) m.set(key, [])
       const projected = projectRadarTrack(device, t.faceIndex ?? -1, t.azimuth, t.elevation, t.slantRange)
       if (!projected) continue
-      m.get(trackId)!.push({
-        lng: projected.lng, lat: projected.lat, deviceId, trackId,
+      m.get(key)!.push({
+        lng: projected.lng, lat: projected.lat, compacted: t.compacted ?? false, deviceId, trackId,
         slantRange: t.slantRange,
         azimuth: projected.bearingDeg,
         elevation: t.elevation,
@@ -227,7 +250,7 @@ export default function TrackLayer({ device, mapInstance, mapClass }: Props) {
       arr.sort((a, b) => a.pointIndex - b.pointIndex)
     }
     return m
-  }, [tracks, acquisition, device])
+  }, [tracks, mapOldTracks, acquisition, device])
 
   useEffect(() => {
     const map = mapInstance

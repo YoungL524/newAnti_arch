@@ -24,9 +24,9 @@ struct RadarCommonSettings
     quint32 stcMode = 0x00U; ///< STC方案：0x00、0x01、0x10或0x11。
     bool excitationDisabled = false; ///< true表示关闭激励信号。
     qint32 cfarMode = 0x00; ///< CFAR方案：0x00或0x01。
-    qint32 cfarThreshold1 = 0; ///< CFAR门限1原始有符号控制字。
-    qint32 cfarThreshold2 = 0; ///< CFAR门限2原始有符号控制字。
-    qint32 velocityThreshold = 0; ///< 速度门限原始有符号控制字。
+    qint32 cfarThreshold1 = 0; ///< CFAR门限1，界面按 dB 整数录入，协议原样发送。
+    qint32 cfarThreshold2 = 0; ///< CFAR门限2，界面按 dB 整数录入，协议原样发送。
+    qint32 velocityThreshold = 0; ///< 速度门限，界面按 m/s 整数录入，协议原样发送。
     bool adRecordEnabled = false; ///< 是否记录AD数据。
     bool pointRecordEnabled = false; ///< 是否记录DP内部点迹数据；不代表PointTopic。
     quint32 trackInitiationPointCount = 0U; ///< 起批点数。

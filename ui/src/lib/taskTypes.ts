@@ -19,9 +19,9 @@ export interface RadarCommonSettings {
   /** STC 模式十六进制控制字。 */ stcMode: number
   /** 激励是否关闭。 */ excitationDisabled: boolean
   /** CFAR 模式十六进制控制字。 */ cfarMode: number
-  /** CFAR 一级门限原始控制字。 */ cfarThreshold1: number
-  /** CFAR 二级门限原始控制字。 */ cfarThreshold2: number
-  /** 速度门限原始控制字。 */ velocityThreshold: number
+  /** CFAR 一级门限，界面以 dB 整数录入，协议直接发送该 int32 值。 */ cfarThreshold1: number
+  /** CFAR 二级门限，界面以 dB 整数录入，协议直接发送该 int32 值。 */ cfarThreshold2: number
+  /** 速度门限，界面以 m/s 整数录入，协议直接发送该 int32 值。 */ velocityThreshold: number
   /** AD 数据记录开关。 */ adRecordEnabled: boolean
   /** 点数据记录开关。 */ pointRecordEnabled: boolean
   /** 航迹起始点数。 */ trackInitiationPointCount: number
