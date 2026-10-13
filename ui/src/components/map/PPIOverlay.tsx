@@ -6,6 +6,7 @@
  */
 
 import { useEffect, useRef } from 'react'
+import type { MapViewport } from './mapViewport'
 import type { RadarDevice } from './types'
 import { absoluteFaceHeading } from '../../lib/radarPose'
 
@@ -13,10 +14,8 @@ import { absoluteFaceHeading } from '../../lib/radarPose'
 interface PPIOverlayProps {
   /** 当前雷达整机及阵面安装参数。 */
   device: RadarDevice
-  /** 高德地图实例，由 MapRadarView 持有。 */
-  mapInstance: any
-  /** 高德地图构造入口，仅用于坐标投影。 */
-  mapClass: any
+  /** 当前地图的借用投影接口；原生实例由 MapRadarView 持有，覆盖层不拥有其生命周期。 */
+  mapInstance: MapViewport | null
   /** 仅影响配色的通信状态，不决定动画是否运行。 */
   connected: boolean
   /** 本地采集/PPI 扫描状态，是动画唯一启停条件。 */
@@ -29,7 +28,7 @@ interface PPIOverlayProps {
  * @brief 在地图 Canvas 上持续绘制静态 P 显和周期性的径向震荡波。
  * @note 动画只表达本地采集显示，不代表 DP、SP 或 FP 已执行控制命令。
  */
-export default function PPIOverlay({ device, mapInstance, mapClass, connected, acquiring, hasFault }: PPIOverlayProps) {
+export default function PPIOverlay({ device, mapInstance, connected, acquiring, hasFault }: PPIOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animRef = useRef<number>(0)
   const waveStartedAtRef = useRef<number>(0)
@@ -43,9 +42,8 @@ export default function PPIOverlay({ device, mapInstance, mapClass, connected, a
 
     const drawPPI = () => {
       const canvas = canvasRef.current
-      const AMap = mapClass
       const m = mapInstance
-      if (!canvas || !m || !AMap) {
+      if (!canvas || !m) {
         animRef.current = requestAnimationFrame(drawPPI)
         return
       }
@@ -61,14 +59,13 @@ export default function PPIOverlay({ device, mapInstance, mapClass, connected, a
         canvas.height = ch
       }
 
-      const LngLat = AMap.LngLat
-      const center = m.lngLatToContainer(new LngLat(device.lng, device.lat))
+      const center = m.project(device.lng, device.lat)
       const cx = center.x
       const cy = center.y
 
       const latRad = (device.lat * Math.PI) / 180
       const metersPerDegLng = 111320 * Math.cos(latRad)
-      const refPt = m.lngLatToContainer(new LngLat(device.lng + 0.01, device.lat))
+      const refPt = m.project(device.lng + 0.01, device.lat)
       const pxPerKm = Math.abs(refPt.x - cx) / ((0.01 * metersPerDegLng) / 1000)
       const maxR = device.maxRange * pxPerKm
 
@@ -233,7 +230,7 @@ export default function PPIOverlay({ device, mapInstance, mapClass, connected, a
 
     animRef.current = requestAnimationFrame(drawPPI)
     return () => cancelAnimationFrame(animRef.current)
-  }, [device, mapInstance, mapClass, connected, acquiring])
+  }, [device, mapInstance, connected, acquiring])
 
   return <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-10" />
 }

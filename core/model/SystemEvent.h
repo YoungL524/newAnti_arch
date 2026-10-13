@@ -82,8 +82,36 @@ enum class EventCode : quint32
     ControlDatagramSendFailed = 0x04010002U, ///< 控制数据报未能交给本地 UDP Socket；requestId 有效。
     ControlTaskLifecycleChanged = 0x04010003U, ///< 任务本地持久化生命周期变化；argument0 为1创建、2激活、3完成、4归档。
     ControlTaskControlSettingsPersistFailed = 0x04010004U, ///< 任务控制参数快照未能提交 SQLite；taskId 有效，severity=Error。
-    ControlTaskControlSettingsInvariantFailed = 0x04010005U ///< 任务快照已更新但设备运行副本替换失败；taskId 有效，severity=Fault。
+    ControlTaskControlSettingsInvariantFailed = 0x04010005U, ///< 任务快照已更新但设备运行副本替换失败；taskId 有效，severity=Fault。
+    DeviceHeartbeatChanged = 0x01010002U, ///< DP/SP 在线、迟到、超时或阵面位变化；argument0 为来源，argument1 为状态及位图。
+    ControlAcquisitionChanged = 0x04010006U, ///< 本地采集状态变化；argument0 为 1 开始、0 停止，不代表设备起控。
+    ControlUdpSubmissionFailed = 0x04010007U, ///< 控制报文未提交本地 UDP；argument0 为消息类型，argument1 为工作位。
+    ControlUdpSubmissionRecovered = 0x04010008U ///< 0x0001 周期报文本地提交从失败恢复；不代表设备收到。
 };
+
+/**
+ * @brief 判断稳定事件码是否已登记为可发布、可归档的业务事实。
+ * @param code 待核对的事件码。
+ * @return 发布门禁和 SQLite 归档共用同一名单；未知码返回 false。
+ */
+constexpr bool isRegisteredEventCode(EventCode code) noexcept
+{
+    switch (code) {
+    case EventCode::DeviceMalformedFrame:
+    case EventCode::DeviceHeartbeatChanged:
+    case EventCode::TrackPublishRejected:
+    case EventCode::SystemTopicSequenceGap:
+    case EventCode::ControlDatagramSendFailed:
+    case EventCode::ControlTaskLifecycleChanged:
+    case EventCode::ControlTaskControlSettingsPersistFailed:
+    case EventCode::ControlTaskControlSettingsInvariantFailed:
+    case EventCode::ControlAcquisitionChanged:
+    case EventCode::ControlUdpSubmissionFailed:
+    case EventCode::ControlUdpSubmissionRecovered:
+        return true;
+    }
+    return false;
+}
 
 /**
  * @brief 保存一条可显示、可归档且无动态成员的已发生事件事实。

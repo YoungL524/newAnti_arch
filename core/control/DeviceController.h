@@ -2,8 +2,9 @@
  * @file DeviceController.h
  * @brief 定义设备状态与当前任务控制参数的唯一运行时 Owner。
  * @details 上游由协议 Adapter 交付 DP/SP 心跳、ApplicationController 交付已解析任务；下游仅写入
- * LatestState<DeviceState>，并经组合根借入的发送函数提交 0x0001 周期控制和 0xFFFF 一次性命令。本类不拥有Socket，
- * 不等待ACK，也不把控制报文写入Topic；新人应先阅读 configureControlSnapshot() 与 acceptHeartbeat()。
+ * LatestState<DeviceState> 及 EventTopic<SystemEvent>，并经组合根借入的发送函数提交 0x0001 周期控制和
+ * 0xFFFF 一次性命令。本类不拥有 Socket、不等待 ACK，也不把控制报文写入 Topic；新人应先阅读
+ * configureControlSnapshot() 与 acceptHeartbeat()。
  */
 
 #pragma once
@@ -13,6 +14,7 @@
 #include "core/model/RuntimeState.h"
 #include "core/task/RadarControlSettings.h"
 #include "core/protocol/DcmpPayloads.h"
+#include "core/model/SystemEvent.h"
 
 #include <QHash>
 #include <QByteArray>
@@ -23,6 +25,10 @@
 
 #include <array>
 #include <functional>
+
+namespace core::producer {
+class SystemEventPublisher;
+}
 
 namespace core::control {
 
@@ -37,10 +43,17 @@ public:
     using ControlSender = std::function<bool(
         const QByteArray &, const QHostAddress &, quint16)>;
 
-    /** @brief 初始化灰色完整设备状态，但不启动心跳期限定时器。 */
+    /**
+     * @brief 初始化灰色完整设备状态，但不启动心跳期限定时器。
+     * @param state 唯一设备状态，生命周期必须覆盖本 owner。
+     * @param controlSender 同线程 UDP 提交能力；为空时控制发送失败。
+     * @param eventPublisher 可空借用的统一事件门禁；为空时不发布活动日志事实。
+     * @param parent Qt 生命周期父对象。
+     */
     explicit DeviceController(
         core::domain::LatestState<core::model::DeviceState> &state,
         ControlSender controlSender = {},
+        core::producer::SystemEventPublisher *eventPublisher = nullptr,
         QObject *parent = nullptr);
 
     /** @brief 清除旧心跳期限和在线位图，并启动100 ms期限检查。 */
@@ -153,11 +166,18 @@ private:
     /** @brief 按任务快照与DP/SP在线事实启停50 ms定时器；恢复在线时不补发离线周期。 */
     void refreshControlTimer();
 
+    /** @brief 将本地已发生事实写入共享 EventTopic；发布失败不改变设备状态或命令结果。 */
+    void publishEvent(core::model::EventCode code, core::model::EventSeverity severity,
+                      qint64 argument0, qint64 argument1);
+
     core::domain::LatestState<core::model::DeviceState> &m_state; ///< 借用的设备完整状态；本类是唯一写入者。
     std::array<qint64, 2> m_lastHeartbeatSteadyNs {}; ///< DP/SP最近有效心跳单调时刻；零表示从未收到。
     QTimer m_heartbeatTimer; ///< 只驱动期限检查，不轮询 Topic 或设备业务数据。
     QTimer m_controlTimer; ///< 已准备任务且DP/SP均在线时运行；每50 ms发送最新控制快照。
     ControlSender m_controlSender; ///< 借用组合根的同一 DP/SP UDP 端点发送能力；本类不拥有Socket。
+    core::producer::SystemEventPublisher *m_eventPublisher = nullptr; ///< 可空借用；仅发布低频业务事实，归档/Web 自行读取。
+    quint64 m_nextEventTraceId = 1; ///< 本 owner 的事件关联号；零不用，发布时单调推进。
+    bool m_controlSendFailed = false; ///< 仅抑制连续失败的 50 ms 报文日志；成功后允许下次失败重新报告。
     core::model::TaskId m_preparedTaskId; ///< 当前准备任务；零表示尚未准备。
     core::task::RadarControlSettings m_controlSettings; ///< 当前任务独立参数的唯一运行副本。
     QHash<core::model::DeviceId, quint8> m_deviceFaceMasks; ///< 当前任务逐设备启用阵面；不保存历史。

@@ -2,6 +2,7 @@
 
 #include "core/producer/RuntimeStateGate.h"
 #include "core/protocol/DcmpProtocolAdapter.h"
+#include "core/producer/SystemEventPublisher.h"
 #include "core/task/RadarControlSettingsJson.h"
 
 #include <QDateTime>
@@ -10,6 +11,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <stdexcept>
 #include <utility>
 
 namespace core::control {
@@ -20,12 +22,14 @@ namespace core::control {
 DeviceController::DeviceController(
     core::domain::LatestState<core::model::DeviceState> &state,
     ControlSender controlSender,
+    core::producer::SystemEventPublisher *eventPublisher,
     QObject *parent)
     : QObject(parent)
     , m_state(state)
     , m_heartbeatTimer(this)
     , m_controlTimer(this)
     , m_controlSender(std::move(controlSender))
+    , m_eventPublisher(eventPublisher)
 {
     const auto steadyNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -149,6 +153,10 @@ void DeviceController::acceptHeartbeat(
     if (statusChanged) {
         qInfo().noquote() << (sp ? "SP" : "DP") << "心跳状态" << nextHeartbeat
                           << "阵面位图" << mask;
+        publishEvent(core::model::EventCode::DeviceHeartbeatChanged,
+                     nextHeartbeat == 1U ? core::model::EventSeverity::Info
+                                         : core::model::EventSeverity::Warning,
+                     sp ? 2 : 1, static_cast<qint64>(nextHeartbeat) * 16 + mask);
     }
     refreshControlTimer();
 }
@@ -161,6 +169,9 @@ void DeviceController::checkHeartbeatDeadlines(qint64 utcMs, qint64 steadyNs)
     Q_ASSERT(QThread::currentThread() == thread());
     auto sample = *m_state.latest()->sample;
     bool changed = false;
+    std::array<quint8, 2> changedStatuses {};
+    std::array<quint16, 2> changedMasks {};
+    std::array<bool, 2> changedSources {};
     for (std::size_t index = 0; index < m_lastHeartbeatSteadyNs.size(); ++index) {
         const qint64 last = m_lastHeartbeatSteadyNs[index];
         if (last == 0 || steadyNs < last) {
@@ -183,10 +194,21 @@ void DeviceController::checkHeartbeatDeadlines(qint64 utcMs, qint64 steadyNs)
         if (index == 0U && nextHeartbeat != 1U) {
             sample.value.radarPose.validFaceMask = 0;
         }
+        changedSources[index] = true;
+        changedStatuses[index] = nextHeartbeat;
+        changedMasks[index] = bits;
         changed = true;
     }
     if (changed) {
-        publishDeviceState(std::move(sample), utcMs, steadyNs);
+        if (publishDeviceState(std::move(sample), utcMs, steadyNs)) {
+            for (std::size_t index = 0; index < changedSources.size(); ++index) {
+                if (!changedSources[index]) continue;
+                publishEvent(core::model::EventCode::DeviceHeartbeatChanged,
+                             core::model::EventSeverity::Warning,
+                             index == 0U ? 1 : 2,
+                             static_cast<qint64>(changedStatuses[index]) * 16 + changedMasks[index]);
+            }
+        }
         refreshControlTimer();
     }
 }
@@ -221,6 +243,7 @@ bool DeviceController::prepareTask(
     m_deviceFaceMasks = deviceFaceMasks;
     m_controlDeviceId = {};
     m_controlConfiguration = {};
+    m_controlSendFailed = false;
     auto sample = *m_state.latest()->sample;
     sample.value.radarPose.deviceId = {};
     sample.value.radarPose.validFaceMask = 0;
@@ -275,6 +298,7 @@ bool DeviceController::clearPreparedTask(core::model::TaskId taskId)
     m_deviceFaceMasks.clear();
     m_controlDeviceId = {};
     m_controlConfiguration = {};
+    m_controlSendFailed = false;
     auto sample = *m_state.latest()->sample;
     sample.value.radarPose.deviceId = {};
     sample.value.radarPose.validFaceMask = 0;
@@ -383,6 +407,8 @@ bool DeviceController::beginAcquisition(
         return false;
     }
     m_lastError.clear();
+    publishEvent(core::model::EventCode::ControlAcquisitionChanged,
+                 core::model::EventSeverity::Info, 1, 0);
     if (!sendWorkMode(true)) qWarning().noquote() << m_lastError;
     return true;
 }
@@ -440,6 +466,8 @@ bool DeviceController::endAcquisition()
         return false;
     }
     m_lastError.clear();
+    publishEvent(core::model::EventCode::ControlAcquisitionChanged,
+                 core::model::EventSeverity::Info, 0, 0);
     if (!sendWorkMode(false)) qWarning().noquote() << m_lastError;
     return true;
 }
@@ -459,7 +487,17 @@ bool DeviceController::sendControl()
     if (datagram.isEmpty()
         || !m_controlSender(datagram, QHostAddress(QHostAddress::LocalHost), 2345U)) {
         m_lastError = QStringLiteral("0x0001控制数据报本地提交失败");
+        if (!m_controlSendFailed) {
+            publishEvent(core::model::EventCode::ControlUdpSubmissionFailed,
+                         core::model::EventSeverity::Error, 1, 0);
+            m_controlSendFailed = true;
+        }
         return false;
+    }
+    if (m_controlSendFailed) {
+        publishEvent(core::model::EventCode::ControlUdpSubmissionRecovered,
+                     core::model::EventSeverity::Info, 1, 0);
+        m_controlSendFailed = false;
     }
     return true;
 }
@@ -474,6 +512,8 @@ bool DeviceController::sendWorkMode(bool work)
     if (!m_controlSender
         || !m_controlSender(core::protocol::DcmpProtocolAdapter::encodeWorkMode(work), target, 1234U)) {
         m_lastError = QStringLiteral("0xFFFF工作/待机报文提交到127.0.0.1:1234失败");
+        publishEvent(core::model::EventCode::ControlUdpSubmissionFailed,
+                     core::model::EventSeverity::Error, 0xFFFF, work ? 1 : 0);
         return false;
     }
     return true;
@@ -492,6 +532,43 @@ void DeviceController::refreshControlTimer()
         m_controlTimer.start(50);
     } else if (!shouldRun) {
         m_controlTimer.stop();
+    }
+}
+
+/**
+ * @brief 只为已发生的低频状态变化或发送失败补齐统一元数据，发布拒绝不影响主链。
+ * @details 事件编码与展示由 SystemEvent 门禁和 WebReader 负责；本 owner 不保留日志文本或第二份历史。
+ */
+void DeviceController::publishEvent(core::model::EventCode code,
+                                    core::model::EventSeverity severity,
+                                    qint64 argument0, qint64 argument1)
+{
+    if (!m_eventPublisher) return;
+    core::model::Sample<core::model::SystemEvent> sample;
+    sample.meta.receiveTimeUtcMs = QDateTime::currentMSecsSinceEpoch();
+    sample.meta.receiveTimeSteadyNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    sample.meta.traceId = m_nextEventTraceId++;
+    if (m_nextEventTraceId == 0) m_nextEventTraceId = 1;
+    sample.value.eventCode = code;
+    sample.value.domain = core::model::eventDomainOf(code);
+    sample.value.severity = severity;
+    sample.value.argument0 = argument0;
+    sample.value.argument1 = argument1;
+    sample.value.flags = core::model::eventSubjectBit(core::model::EventSubjectFlag::Argument0Valid)
+        | core::model::eventSubjectBit(core::model::EventSubjectFlag::Argument1Valid);
+    if (m_preparedTaskId.isSet()) {
+        sample.value.taskId = m_preparedTaskId;
+        sample.value.flags |= core::model::eventSubjectBit(core::model::EventSubjectFlag::TaskIdValid);
+    }
+    if (m_controlDeviceId.isSet()) {
+        sample.value.deviceId = m_controlDeviceId;
+        sample.value.flags |= core::model::eventSubjectBit(core::model::EventSubjectFlag::DeviceIdValid);
+    }
+    try {
+        m_eventPublisher->publish(std::move(sample));
+    } catch (const std::overflow_error &) {
+        qWarning() << "系统事件序号耗尽，活动日志无法继续记录";
     }
 }
 

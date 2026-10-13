@@ -1,11 +1,15 @@
 /**
  * @file MapRadarView.tsx
  * @brief 在地图上组合雷达阵面、实时航迹、历史轨迹和交互覆盖层。
- * @details 地图实例由本组件创建和销毁；子图层只接收规范化设备与航迹数据，不直接请求核心 API。
+ * @details 本组件只拥有当前激活的地图：在线使用原 AMap 远山黛，离线使用 Leaflet 本地瓦片。
+ * 子图层只接收规范化设备与航迹数据，不直接请求核心 API，不新增航迹缓存或接收链。
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import * as L from 'leaflet'
 import AMapLoader from '@amap/amap-jsapi-loader'
+import { amapViewport, leafletViewport, type MapViewport } from './mapViewport'
+import 'leaflet/dist/leaflet.css'
 import PPIOverlay from './PPIOverlay'
 import TrackLayer from './TrackLayer'
 import HistoryTrackLayer from './HistoryTrackLayer'
@@ -14,39 +18,27 @@ import { type RadarDevice, RADAR_CENTER } from './types'
 import { useCore } from '../../hooks/useCoreApi'
 import { applyLiveRadarPose } from '../../lib/liveRadarPose'
 
-const API_KEY = import.meta.env.VITE_GAODE_API_KEY as string
-const SECURITY_CODE = import.meta.env.VITE_GAODE_SECURITY_CODE as string | undefined
-
-// AMap security config must be set before any load() call
-;(window as any)._AMapSecurityConfig = {
-  securityJsCode: SECURITY_CODE || '',
+/** @brief 设备名称仅作为文本节点加入标记，避免台账内容被解释为 HTML。 */
+function markerContent(device: RadarDevice) {
+  const content = document.createElement('div')
+  content.className = 'rounded-lg bg-white/90 px-2 py-1 text-[10px] shadow-md whitespace-nowrap'
+  const icon = document.createElement('span')
+  icon.className = 'material-symbols-outlined !text-[18px]'
+  icon.textContent = 'sensors'
+  content.append(icon, document.createTextNode(` ${device.name}`))
+  return content
 }
 
-function markNode(AMap: any, device: RadarDevice) {
-  return new AMap.Marker({
-    position: [device.lng, device.lat],
-    content: '<div style="position:relative;cursor:pointer;">' +
-      '<div style="position:absolute;top:4px;left:4px;width:24px;height:24px;border-radius:6px;background:rgba(6,78,59,0.25);animation:marker-ping 1.5s ease-in-out infinite;"></div>' +
-      '<div style="width:32px;height:32px;background:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.08);border:1px solid rgba(229,231,226,0.6);position:relative;">' +
-      '<span class="material-symbols-outlined" style="font-size:18px;color:#064e3b;font-variation-settings:\'FILL\' 0,\'wght\' 300,\'GRAD\' 0,\'opsz\' 20;">sensors</span>' +
-      '</div>' +
-      '<div style="position:absolute;top:40px;left:50%;transform:translateX(-50%);padding:2px 10px;border-radius:6px;border:1px solid rgba(229,231,226,0.6);background:rgba(255,255,255,0.92);white-space:nowrap;box-shadow:0 2px 4px rgba(0,0,0,0.04);">' +
-      `<span style="font-size:10px;font-weight:700;color:#064e3b;font-family:Inter,sans-serif;letter-spacing:-0.01em;">${device.name}</span>` +
-      '</div>' +
-      '</div>',
-    offset: new AMap.Pixel(-16, -40),
-    zIndex: 60,
-  })
-}
-
+/** @brief 地图只接收最终设备视图和原有采集动作，不拥有航迹历史或 Command。 */
 interface Props {
-  devices: RadarDevice[]
-  idleActionLabel?: string
-  idleActionPending?: boolean
-  idleActionError?: string
-  onIdleAction?: () => void
+  devices: RadarDevice[] ///< 台账设备与安装参数，上层拥有。
+  idleActionLabel?: string ///< 空闲时显示的采集动作名称。
+  idleActionPending?: boolean ///< 上层控制请求是否仍在处理。
+  idleActionError?: string ///< 原控制链返回的本地失败信息。
+  onIdleAction?: () => void ///< 上层唯一采集动作入口，可不提供。
 }
 
+/** @brief 在线恢复 AMap 远山黛，离线保留本地瓦片；切换地图实例时保留视图位置，不重建业务状态。 */
 export default function MapRadarView({ devices, idleActionLabel, idleActionPending = false, idleActionError = '', onIdleAction }: Props) {
   const {
     acquisition, devices: deviceStates, checkedDeviceIds, historyTracks,
@@ -56,106 +48,190 @@ export default function MapRadarView({ devices, idleActionLabel, idleActionPendi
     isHistoryView ? devices : devices.map(device => applyLiveRadarPose(device, deviceHeartbeat?.payload.radarPose)),
   [devices, deviceHeartbeat, isHistoryView])
   const containerRef = useRef<HTMLDivElement>(null)
-  const mapRef = useRef<any>(null)
-  const mapInstanceRef = useRef<any>(null)
-  const nodeMarkersRef = useRef<any[]>([])
+  const leafletRef = useRef<L.Map | null>(null)
+  const onlineRef = useRef<{ map: any; AMap: any } | null>(null)
+  /** @brief 标记移除由地图 owner 在销毁实例前执行，避免旧 SDK 标记残留。 */
+  const clearMarkersRef = useRef<(() => void) | null>(null)
+  /** @brief 仅保存中心经纬度（度）与缩放级别；不保存任何航迹或业务状态。 */
+  const savedView = useRef<{ lng: number; lat: number; zoom: number }>({ lng: RADAR_CENTER[0], lat: RADAR_CENTER[1], zoom: 14 })
+  const initialFitAllowed = useRef(true)
+  const [mode, setMode] = useState<'offline' | 'online'>('offline')
+  /** @brief 离线来源只决定本地底图，不影响在线 SDK 或采集状态。 */
+  const [offlineSource, setOfflineSource] = useState<'mbtiles' | 'xyz'>('mbtiles')
+  const [offlineInfo, setOfflineInfo] = useState<{
+    name: string; bounds: [number, number, number, number]; minzoom: number; maxzoom: number
+  } | null>(null)
+  const [viewport, setViewport] = useState<MapViewport | null>(null)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [mbtilesError, setMbtilesError] = useState<string | null>(null)
 
-  // Sync map markers with devices
+  /** @brief 元数据只属于离线来源；迟到的请求结果不能移动在线地图或覆盖其错误状态。 */
   useEffect(() => {
-    const AMap = mapRef.current
-    const map = mapInstanceRef.current
-    if (!AMap || !map) return
-
-    nodeMarkersRef.current.forEach(m => map.remove(m))
-    const newMarkers = shownDevices.map(d => {
-      const m = markNode(AMap, d)
-      map.add(m)
-      return m
-    })
-    nodeMarkersRef.current = newMarkers
-  }, [shownDevices, ready])
-
-  // Init AMap
-  useEffect(() => {
-    if (!API_KEY) {
-      setError('需要在 .env 中配置 VITE_GAODE_API_KEY')
-      return
-    }
-
-    AMapLoader.load({
-      key: API_KEY,
-      version: '2.0',
-      plugins: ['AMap.Scale', 'AMap.ToolBar'],
-    })
-      .then((AMap: any) => {
-        mapRef.current = AMap
-
-        try {
-          const map = new AMap.Map(containerRef.current, {
-            zoom: 14,
-            center: RADAR_CENTER,
-            mapStyle: 'amap://styles/whitesmoke',
-            features: ['bg', 'road', 'building', 'point'],
-            showIndoorMap: false,
-            showLogo: false,
-          })
-          mapInstanceRef.current = map
-          setReady(true)
-        } catch (e: any) {
-          console.error('[Amap] 地图实例化失败:', e)
-          setError(`高德地图实例化失败\n${e?.message || String(e)}\n\n请检查：\n1. 安全密钥与 Key 是否绑定（高德开放平台 → 应用管理）\n2. 域名白名单是否包含 localhost\n3. 可尝试删除安全密钥，改用「域名白名单」方式`)
-        }
+    const controller = new AbortController()
+    void fetch('/map/metadata', { signal: controller.signal })
+      .then(async response => {
+        if (!response.ok) throw new Error(await response.text())
+        return response.json()
       })
-      .catch((err: any) => {
-        const msg = err?.message || String(err)
-        console.error('[Amap] 加载失败:', err)
-        setError(`高德地图加载失败\n${msg || JSON.stringify(err)}\n\n请检查：\n1. Key「${API_KEY.slice(0, 8)}…」服务平台为「Web端(JS API)」\n2. 安全密钥与 Key 绑定且域名白名单包含 localhost\n3. 网络可访问 amap.com`)
-      })
-
-    return () => {
-      mapInstanceRef.current?.destroy()
-      mapInstanceRef.current = null
-    }
+      .then(info => { if (!controller.signal.aborted) setOfflineInfo(info) })
+      .catch(reason => { if (!controller.signal.aborted) setMbtilesError(`MBTiles 未加载：${String(reason)}`) })
+    return () => controller.abort()
   }, [])
 
+  /** @brief 一次只运行当前地图引擎；原生 AMap 保留远山黛，离线不加载 SDK；异步加载取消后不创建地图。 */
+  useEffect(() => {
+    if (!containerRef.current) return
+    setReady(false)
+    setViewport(null)
+    setError(null)
+    const { lng, lat, zoom } = savedView.current
+    if (mode === 'offline') {
+      const map = L.map(containerRef.current, { zoomControl: false, zoomAnimation: false,
+        fadeAnimation: false, minZoom: 0, maxZoom: 20 }).setView([lat, lng], zoom)
+      leafletRef.current = map
+      map.on('movestart', () => { initialFitAllowed.current = false })
+      L.control.scale({ imperial: false }).addTo(map)
+      const resize = new ResizeObserver(() => map.invalidateSize())
+      resize.observe(containerRef.current)
+      setViewport(leafletViewport(map))
+      setReady(true)
+      return () => {
+        const center = map.getCenter()
+        savedView.current = { lng: center.lng, lat: center.lat, zoom: map.getZoom() }
+        clearMarkersRef.current?.()
+        clearMarkersRef.current = null
+        resize.disconnect()
+        map.remove()
+        leafletRef.current = null
+      }
+    }
+    const key = import.meta.env.VITE_GAODE_API_KEY as string | undefined
+    if (!key) { setError('在线地图缺少高德 Key，请配置后重新构建 UI；离线地图仍可使用'); return }
+    ;(window as any)._AMapSecurityConfig = {
+      securityJsCode: import.meta.env.VITE_GAODE_SECURITY_CODE || '',
+    }
+    let cancelled = false
+    let map: any = null
+    const timeout = window.setTimeout(() => {
+      cancelled = true
+      setError('在线地图加载超时，请检查网络，或切换离线地图')
+    }, 15000)
+    void AMapLoader.load({ key, version: '2.0', plugins: ['AMap.Scale', 'AMap.ToolBar'] })
+      .then(AMap => {
+        if (cancelled || !containerRef.current) return
+        map = new AMap.Map(containerRef.current, {
+          zoom: Math.max(3, Math.min(20, zoom)), center: [lng, lat], viewMode: '2D',
+          mapStyle: 'amap://styles/whitesmoke', features: ['bg', 'road', 'building', 'point'],
+          showIndoorMap: false, showLogo: false, resizeEnable: true,
+        })
+        onlineRef.current = { map, AMap }
+        window.clearTimeout(timeout)
+        setViewport(amapViewport(map, AMap))
+        setReady(true)
+      })
+      .catch(() => {
+        window.clearTimeout(timeout)
+        if (!cancelled) setError('高德在线地图加载失败，请检查网络和 Key 配置，或切换离线地图')
+      })
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeout)
+      if (map) {
+        const center = map.getCenter()
+        savedView.current = { lng: center.getLng(), lat: center.getLat(), zoom: map.getZoom() }
+        clearMarkersRef.current?.()
+        clearMarkersRef.current = null
+        map.destroy()
+      }
+      onlineRef.current = null
+    }
+  }, [mode])
+
+  /** @brief 标记只随当前实例和最终设备视图更新；名称使用 DOM 文本，SDK 之间不传递原生标记。 */
+  useEffect(() => {
+    clearMarkersRef.current?.()
+    clearMarkersRef.current = null
+    if (!ready || !viewport) return
+    const leaflet = leafletRef.current
+    const online = onlineRef.current
+    if (mode === 'offline' && leaflet) {
+      const markers = shownDevices.map(device => L.marker([device.lat, device.lng], { interactive: false,
+        icon: L.divIcon({ html: markerContent(device), className: 'radar-map-marker', iconSize: [32, 32], iconAnchor: [16, 16] }),
+      }).addTo(leaflet))
+      clearMarkersRef.current = () => { markers.forEach(marker => marker.remove()) }
+    } else if (mode === 'online' && online) {
+      const markers = shownDevices.map(device => new online.AMap.Marker({ position: [device.lng, device.lat],
+        content: markerContent(device), offset: new online.AMap.Pixel(-16, -16), zIndex: 60 }))
+      online.map.add(markers)
+      clearMarkersRef.current = () => { online.map.remove(markers) }
+    }
+  }, [shownDevices, ready, viewport, mode])
+
+  /** @brief 仅离线替换本地栅格图层；在线样式完全交给原 AMap SDK，不使用普通 XYZ 瓦片或颜色滤镜。 */
+  useEffect(() => {
+    const map = leafletRef.current
+    const mbtiles = offlineSource === 'mbtiles'
+    if (mode !== 'offline' || !map || !ready || !viewport) return
+    if (mbtiles && !offlineInfo) { setError(null); return }
+    const options: L.TileLayerOptions = { maxZoom: 20, noWrap: true, attribution: 'QGIS 离线地图' }
+    map.setMaxZoom(20)
+    map.setMinZoom(mbtiles ? offlineInfo!.minzoom : 0)
+    if (mbtiles) {
+      const [west, south, east, north] = offlineInfo!.bounds
+      options.bounds = [[south, west], [north, east]]
+      options.minNativeZoom = offlineInfo!.minzoom
+      options.maxNativeZoom = offlineInfo!.maxzoom
+      if (initialFitAllowed.current) {
+        map.fitBounds([[south, west], [north, east]], { padding: [30, 30], maxZoom: offlineInfo!.maxzoom })
+        initialFitAllowed.current = false
+      }
+    }
+    const layer = L.tileLayer(mbtiles ? '/map/tiles/{z}/{x}/{y}' : '/map/xyz/{z}/{x}/{y}', options).addTo(map)
+    /** @brief 缺本地瓦片只提示，不自动联网或阻断航迹画布。 */
+    const failed = () => setError(mbtiles ? '地图包内缺少当前瓦片；航迹显示继续工作' : '当前区域没有可用的 z/x/y 瓦片；航迹显示继续工作')
+    layer.on('tileerror', failed)
+    setError(null)
+    return () => { layer.off('tileerror', failed); layer.remove() }
+  }, [mode, offlineSource, offlineInfo, ready, viewport])
+
   return (
-    <div className="absolute inset-0">
-      <div ref={containerRef} className="absolute inset-0" />
+    <div className="absolute inset-0 isolate">
+      <div key={mode} ref={containerRef} className="absolute inset-0 z-0" />
 
-      {!ready && !error && (
-        <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'var(--canvas)' }}>
-          <div className="text-center">
-            <p className="text-[14px] mb-3" style={{ color: 'var(--secondary)' }}>加载高德地图...</p>
-            <div className="w-6 h-6 border-2 rounded-full animate-spin" style={{
-              borderColor: 'var(--hairlineStrong)', borderTopColor: 'var(--primaryBright)', margin: '0 auto',
-            }} />
-          </div>
+      {!ready && <div className="absolute inset-0 flex items-center justify-center">{mode === 'online' ? '正在加载在线地图...' : '正在打开本地地图...'}</div>}
+      <div className="absolute left-4 top-4 z-30 rounded-lg bg-white/90 px-3 py-2 text-[11px] shadow">
+        <div className="flex items-center gap-2 flex-wrap" role="group" aria-label="地图来源">
+          <span style={{ color: 'var(--secondary)' }}>地图</span>
+          <button type="button" aria-pressed={mode === 'online'} onClick={() => { initialFitAllowed.current = false; setMode('online') }}
+            className="px-3 py-1 rounded border-none cursor-pointer"
+            style={{ background: mode === 'online' ? 'var(--primaryContainer)' : 'var(--surfaceLow)', color: mode === 'online' ? '#fff' : 'var(--ink)' }}>
+            在线地图
+          </button>
+          <button type="button" aria-pressed={mode === 'offline'} onClick={() => { initialFitAllowed.current = false; setMode('offline') }}
+            className="px-3 py-1 rounded border-none cursor-pointer"
+            style={{ background: mode === 'offline' ? 'var(--primaryContainer)' : 'var(--surfaceLow)', color: mode === 'offline' ? '#fff' : 'var(--ink)' }}>
+            离线地图
+          </button>
+          {mode === 'offline' && <label className="flex items-center gap-1">
+            <span>格式</span>
+            <select value={offlineSource} className="rounded px-2 py-1 border cursor-pointer" aria-label="离线地图格式"
+              style={{ background: 'var(--surfaceCard)', color: 'var(--ink)', borderColor: 'var(--hairline)' }}
+              onChange={event => { initialFitAllowed.current = false; setOfflineSource(event.target.value as 'mbtiles' | 'xyz') }}>
+              <option value="mbtiles">MBTiles</option>
+              <option value="xyz">z/x/y 瓦片</option>
+            </select>
+          </label>}
         </div>
-      )}
+        {mode === 'offline' && <div className="mt-1" style={{ color: 'var(--secondary)' }}>
+          {offlineSource === 'mbtiles' ? `${offlineInfo?.name || 'MBTiles 未加载'}（范围外无底图）` : 'z/x/y 本地瓦片'}
+        </div>}
+        {mode === 'offline' && offlineSource === 'mbtiles' && !offlineInfo
+          ? <div style={{ color: mbtilesError ? 'var(--error)' : 'var(--secondary)' }}>{mbtilesError || '正在读取地图信息...'}</div>
+          : error && <div style={{ color: 'var(--error)' }}>{error}</div>}
+      </div>
 
-      {error && (
-        <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'var(--canvas)' }}>
-          <div className="text-center max-w-lg">
-            <div className="text-[36px] mb-3">🗺️</div>
-            <p className="text-[14px] mb-2 font-medium" style={{ color: 'var(--ink)' }}>地图加载失败</p>
-            <pre className="text-[11px] mb-3 p-3 rounded text-left whitespace-pre-wrap max-h-48 overflow-auto"
-              style={{ color: 'var(--error)', background: 'var(--surfaceLow)', border: '1px solid var(--hairline)' }}
-            >{error}</pre>
-            <button
-              className="px-3 py-1 rounded-lg text-white text-[11px] font-medium border-none cursor-pointer"
-              style={{ background: 'var(--primaryContainer)' }}
-              onClick={() => window.location.reload()}
-            >
-              重试
-            </button>
-            <p className="text-[11px] mt-2" style={{ color: 'var(--secondary)' }}>检查 .env 配置后点击重试</p>
-          </div>
-        </div>
-      )}
-
-      {ready && (
+      {ready && viewport && (
         <>
           {!isHistoryView && devices.length > 0 && checkedDeviceIds.length === 0 && (
             <div
@@ -207,8 +283,7 @@ export default function MapRadarView({ devices, idleActionLabel, idleActionPendi
               <PPIOverlay
                 key={d.id}
                 device={d}
-                mapInstance={mapInstanceRef.current}
-                mapClass={mapRef.current}
+                mapInstance={viewport}
                 connected={true}
                 acquiring={checked && acquisition && !isHistoryView}
                 hasFault={hasFault}
@@ -221,8 +296,7 @@ export default function MapRadarView({ devices, idleActionLabel, idleActionPendi
               key={`history-${d.id}`}
               device={d}
               points={historyTracks}
-              mapInstance={mapInstanceRef.current}
-              mapClass={mapRef.current}
+              mapInstance={viewport}
             />
           ))}
           {/* 实时航迹层 */}
@@ -230,8 +304,7 @@ export default function MapRadarView({ devices, idleActionLabel, idleActionPendi
             <TrackLayer
               key={`track-${d.id}`}
               device={d}
-              mapInstance={mapInstanceRef.current}
-              mapClass={mapRef.current}
+              mapInstance={viewport}
             />
           ))}
           {!isHistoryView && <SelectedTracksPanel />}
@@ -243,7 +316,7 @@ export default function MapRadarView({ devices, idleActionLabel, idleActionPendi
               <button
                 className="p-2 border-none bg-transparent cursor-pointer transition-colors hover:bg-white/80"
                 style={{ color: 'var(--onSurfaceVariant)', borderBottom: '1px solid rgba(229,231,226,0.3)' }}
-                onClick={() => { const map = mapInstanceRef.current; if (map) map.zoomIn(); }}
+                onClick={() => { if (mode === 'offline') leafletRef.current?.zoomIn(); else onlineRef.current?.map.zoomIn(); }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
                   <path d="M12 5v14M5 12h14" strokeLinecap="round" />
@@ -252,7 +325,7 @@ export default function MapRadarView({ devices, idleActionLabel, idleActionPendi
               <button
                 className="p-2 border-none bg-transparent cursor-pointer transition-colors hover:bg-white/80"
                 style={{ color: 'var(--onSurfaceVariant)' }}
-                onClick={() => { const map = mapInstanceRef.current; if (map) map.zoomOut(); }}
+                onClick={() => { if (mode === 'offline') leafletRef.current?.zoomOut(); else onlineRef.current?.map.zoomOut(); }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
                   <path d="M5 12h14" strokeLinecap="round" />
@@ -263,22 +336,23 @@ export default function MapRadarView({ devices, idleActionLabel, idleActionPendi
               className="glass-panel p-2 rounded-lg shadow-lg flex items-center justify-center border-none cursor-pointer transition-colors hover:bg-white/80"
               style={{ color: 'var(--onSurfaceVariant)', borderColor: 'rgba(255,255,255,0.4)' }}
               onClick={() => {
-                const map = mapInstanceRef.current
-                const AMap = mapRef.current
-                if (map && AMap) map.setCenter(new AMap.LngLat(RADAR_CENTER[0], RADAR_CENTER[1]))
+                const device = shownDevices.find(item => checkedDeviceIds.includes(item.id))
+                if (mode === 'online') {
+                  onlineRef.current?.map.setCenter(device ? [device.lng, device.lat] : RADAR_CENTER)
+                } else {
+                  const map = leafletRef.current
+                  if (!map) return
+                  if (device) map.panTo([device.lat, device.lng])
+                  else if (offlineInfo) {
+                    const [west, south, east, north] = offlineInfo.bounds
+                    map.fitBounds([[south, west], [north, east]])
+                  }
+                }
               }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
                 <circle cx="12" cy="12" r="4" />
                 <path d="M12 2v4M12 18v4M2 12h4M18 12h4" strokeLinecap="round" />
-              </svg>
-            </button>
-            <button
-              className="glass-panel p-2 rounded-lg shadow-lg flex items-center justify-center border-none cursor-pointer transition-colors hover:bg-white/80"
-              style={{ color: 'var(--onSurfaceVariant)', borderColor: 'rgba(255,255,255,0.4)' }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
           </div>

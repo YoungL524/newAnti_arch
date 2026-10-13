@@ -7,6 +7,7 @@
 import { useEffect, useRef, useMemo, useState, useCallback } from 'react'
 import { useCore } from '../../hooks/useCoreApi'
 import type { RadarTrack } from '../../lib/protocol'
+import type { MapViewport } from './mapViewport'
 import type { RadarDevice } from './types'
 import { projectRadarTrack } from '../../lib/radarPose'
 
@@ -45,7 +46,11 @@ const GRADIENT_SPAN = 10               // 仅最近 N 个绿点参与尺寸渐�
 const GRADIENT_POWER = 2.6             // >1 使尾部更快缩小，接近 Qt 比例
 const ARROW_LEN = 5
 
-interface Props { device: RadarDevice; mapInstance: any; mapClass: any }
+/** @brief 复用当前地图投影绘制单设备航迹；地图与业务状态均由上层拥有。 */
+interface Props {
+  device: RadarDevice ///< 当前设备安装参数，供原有姿态转换使用。
+  mapInstance: MapViewport | null ///< 借用地图；为空时不绘制，不创建独立实例。
+}
 
 function isSelected(interaction?: TrackInteraction): boolean {
   return !!(interaction?.selected || interaction?.trackingEnabled)
@@ -208,7 +213,8 @@ function drawTrack(ctx: CanvasRenderingContext2D, sp: { p: ScreenPoint; pt: Trai
   }
 }
 
-export default function TrackLayer({ device, mapInstance, mapClass }: Props) {
+/** @brief 从既有 CoreProvider 派生航迹绘制点，并在当前地图容器中处理选择，不复制完整历史。 */
+export default function TrackLayer({ device, mapInstance }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rafRef = useRef(0)
   const [repaintTick, setRepaintTick] = useState(0)
@@ -255,34 +261,31 @@ export default function TrackLayer({ device, mapInstance, mapClass }: Props) {
   useEffect(() => {
     const map = mapInstance
     if (!map) return
-    map.on('mapmove', scheduleRepaint)
-    map.on('zoomchange', scheduleRepaint)
-    map.on('resize', scheduleRepaint)
+    const unsubscribe = map.watchView(scheduleRepaint)
     return () => {
-      map.off('mapmove', scheduleRepaint)
-      map.off('zoomchange', scheduleRepaint)
-      map.off('resize', scheduleRepaint)
+      unsubscribe()
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
     }
   }, [mapInstance, scheduleRepaint])
 
   useEffect(() => {
-    const AMap = mapClass; const map = mapInstance
-    if (!AMap || !map || !acquisition || trailMap.size === 0) return
+    const map = mapInstance
+    if (!map || !acquisition || trailMap.size === 0) return
 
     const threshold2 = 12 * 12
 
-    const onClick = (e: any) => {
-      if (e && e.__trackInteractionHandled) return
-      const x = e?.pixel?.x
-      const y = e?.pixel?.y
+    /** @brief 使用地图容器像素命中航迹头；多个设备共享同次点击处理标记，不改采集状态。 */
+    const onClick: Parameters<MapViewport['watchClick']>[0] = e => {
+      if (e && e.handled) return
+      const x = e.x
+      const y = e.y
       if (typeof x !== 'number' || typeof y !== 'number') return
 
       let best: { deviceId: string; trackId: number; interaction?: TrackInteraction; d2: number } | null = null
 
       for (const [, pts] of trailMap) {
         const headPt = pts[pts.length - 1]
-        const p = map.lngLatToContainer(new AMap.LngLat(headPt.lng, headPt.lat))
+        const p = map.project(headPt.lng, headPt.lat)
         if (!p) continue
         const dx = p.x - x
         const dy = p.y - y
@@ -293,20 +296,19 @@ export default function TrackLayer({ device, mapInstance, mapClass }: Props) {
       }
 
       if (!best) return
-      if (e) e.__trackInteractionHandled = true
+      if (e) e.handled = true
       const selected = !(best.interaction?.selected ?? false)
       const trackingEnabled = best.interaction?.trackingEnabled ?? false
       setTrackInteraction(best.deviceId, best.trackId, selected, trackingEnabled)
     }
 
-    map.on('click', onClick)
-    return () => { map.off('click', onClick) }
-  }, [mapInstance, mapClass, acquisition, trailMap, setTrackInteraction])
+    return map.watchClick(onClick)
+  }, [mapInstance, acquisition, trailMap, setTrackInteraction])
 
   useEffect(() => {
     const canvas = canvasRef.current
-    const AMap = mapClass; const map = mapInstance
-    if (!canvas || !AMap || !map) return
+    const map = mapInstance
+    if (!canvas || !map) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     const { clientWidth: cw, clientHeight: ch } = map.getContainer()
@@ -321,7 +323,7 @@ export default function TrackLayer({ device, mapInstance, mapClass }: Props) {
 
       const sp = pts
         .map((pt) => {
-          const p = map.lngLatToContainer(new AMap.LngLat(pt.lng, pt.lat))
+          const p = map.project(pt.lng, pt.lat)
           return p ? { p: { x: p.x, y: p.y }, pt } : null
         })
         .filter((v): v is { p: ScreenPoint; pt: TrailPoint } => {
@@ -331,7 +333,7 @@ export default function TrackLayer({ device, mapInstance, mapClass }: Props) {
 
       drawTrack(ctx, sp, selected)
     }
-  }, [trailMap, acquisition, device, mapInstance, mapClass, repaintTick])
+  }, [trailMap, acquisition, device, mapInstance, repaintTick])
 
   return <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-20" />
 }

@@ -11,6 +11,7 @@
 #include "core/protocol/DcmpProtocolAdapter.h"
 #include "core/control/DeviceController.h"
 #include "core/producer/TrackIngressProducer.h"
+#include "core/producer/SystemEventPublisher.h"
 #include "core/web/StateWebSocketService.h"
 #include "core/web/EventWebSocketService.h"
 #include "core/web/TrackWebSocketService.h"
@@ -31,7 +32,11 @@ public:
     ApplicationRuntime(QString databasePath, QString applicationVersion);
     /** @brief 停止接收及期限检查，关闭Web后释放依赖。 */
     ~ApplicationRuntime();
-    /** @brief 启动回环UDP与V1 WebSocket端口；零允许测试分配，失败回滚已启动资源。 */
+    /** @brief 启动 127.0.0.1 上的 UDP 与回环 Web 服务；失败回滚已启动资源。
+     * @param internalPort 航迹与心跳共用的 UDP 端口，默认 7788；零允许操作系统分配。
+     * @param webSocketPort 回环 WebSocket 端口，默认 8089。
+     * @param deviceHttpPort 回环设备与任务 HTTP 端口，默认 8088。
+     */
     bool start(quint16 internalPort = 7788, quint16 webSocketPort = 8089,
                quint16 deviceHttpPort = 8088);
     /** @brief 幂等停止全部运行资源，必须在主线程调用。 */
@@ -53,6 +58,7 @@ private:
     QThread m_storageThread; ///< 最多一个 SQLite 单写线程；不承载实时 Topic 数据。
     StorageRuntime *m_storageRuntime = nullptr; ///< 仅由存储线程执行并随线程结束 deleteLater 的组合根。
     core::execution::ExecutionLane m_lane; ///< 共享主线程调度。
+    core::producer::SystemEventPublisher m_deviceEventPublisher; ///< 设备与控制 owner 的事件门禁；写入唯一 EventTopic。
     core::control::DeviceController m_deviceController; ///< 唯一设备状态与后续命令owner。
     core::producer::TrackIngressProducer m_trackIngress; ///< 0x0100到TrackTopic的唯一Producer；未绑定会话时拒绝发布。
     core::app::ApplicationController m_applicationController; ///< 唯一采集业务编排入口；绑定本地会话但不发送设备命令。

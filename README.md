@@ -1,115 +1,79 @@
-# NewAntiDrone 新架构基座
+# NewAntiDrone
 
-本仓库正在重建反无人机雷达上位机后端。目标架构是“共享强类型数据域 + Consumer 游标读取 + 独立 Command 控制平面”，权威约束见 [共享强类型数据域与游标读取模型](doc/architecture/09-共享强类型数据域与游标读取模型.md)。
+Qt/C++ Core + React Web 雷达上位机，采用共享强类型数据域、Consumer 游标读取和独立 Command 控制平面。
+开始工作先读 [AGENTS.md](AGENTS.md)、[PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) 和 [当前任务](doc/workflow/CURRENT_TASK.md)。
 
-## 当前完成度
+## 当前功能
 
-当前已经建立：
+- Core：航迹/心跳 UDP 入口、设备/任务 API、WebSocket 显示、SQLite 归档及设备活动日志。
+- Web：设备任务界面、实时航迹、原 AMap 在线远山黛、本地 MBTiles/XYZ 地图、字体图标与交互终端。
+- Windows 启动器：隐藏 Core/Web 控制台、托盘与单实例、进程树管理、Core 正常停机；DP/SP 默认禁用，暂由现场手动启动。
 
-- Qt 5.14.2、C++17、CMake 与 QtTest 骨架；
-- `Sample<T>` 的最小不可变事实包装；
-- `HistoryTopic<T>` 共享有界 RingBuffer；
-- `latest()`、`readAfter(cursor, maxItems)`、Gap/Ahead 与覆盖统计；
-- `LatestState<T>` 的 KeepLast(1)、原子完整替换和 revision；
-- 不暴露 `latest()` 的 `EventTopic<T>` 有界事件日志；
-- 不携带业务数据、支持跨线程合并水位的 `TopicDoorbell`；
-- 紧凑 `SampleMeta/TrackPacket/TrackKey/SystemEvent` 及其发布前门禁；
-- `DeviceState/TaskState/SystemState` 完整状态类型、统一门禁与布局基准；
-- Web 侧 `TrackWebSocketService` 与共享 `ExecutionLane` 合并调度；
-- 存储侧 `ArchiveReader` 的双 Topic 独立 cursor、固定 ScratchBuffer 和提交后推进语义；
-- `SqliteArchiveRepository` 的六表初始化、WAL、运行实例诊断和强类型批量事务；
-- `DeviceConfigService` 的 SQLite 配置真源、不可变 revision、端点校验和运行时句柄激活；
-- `TaskService` 的任务持久化、多次采集会话、启停状态及 AcquisitionId 归档绑定；
-- 旧 React UI 的视觉与交互基线，以及新 WebReader/控制面待接接口清单；
-- 协议无关的 `TrackPublisher -> TrackTopic <- TrackWebSocketService -> QWebSocket` 自动化回归；
-- 容量覆盖、分页、多 Reader、并发 Producer、慢 Consumer、gap、唤醒合并和 SQLite 文件级测试。
+UDP 接收为 `127.0.0.1:7788`；Core HTTP 为 `127.0.0.1:8088`，WebSocket 为 `127.0.0.1:8089/ws/v1`；
+生产浏览器统一访问 `http://127.0.0.1:8080`。显示航迹需激活任务并开始本地采集；这仍可能发送现有设备控制报文。
+用户已反馈开发终端及部署字体图标可用；其他运行验收边界见 PROJECT_CONTEXT，历史回放接口尚未接通。
 
-当前数据域至 SQLite 的归档闭环、设备配置 owner、任务 owner，以及
-`TrackTopic -> TrackWebSocketService -> React` 的协议无关显示出口已经完成验证。正式 `0x0100` Adapter 已接入
-UDP 入口，但生产运行时尚未在控制 ACK 后建立采集会话并调用 `TrackIngressProducer::bind()`；因此实机航迹主链
-仍处于“结构已验证、运行装配未闭环”状态，不能宣称已完成端到端联调。
+## 本地准备
 
-## 构建与测试
+- Windows x64，Qt 5.14.2 / MinGW 7.3 对应工具链，CMake。
+- Node 24+（本地地图使用内置 SQLite）；开发安装依赖，生产包自带 Node。
+- 本地高德 Key/安全码放 `ui/.env`，参考 `ui/.env.example`，不提交实际值。
+- 离线地图放 `ui/maps/basemap.mbtiles`，可选 XYZ 放 `ui/maps/xyz/z/x/y.png`（亦支持 jpg/jpeg/webp）。
+  地图大文件不进 Git，新克隆需要自行复制；无地图时其他本地业务仍能工作。
 
-已验证工具链：Qt 5.14.2、MinGW-w64 GCC 7.3.0、CMake 4.3.4。
-
-在 PowerShell 中执行一键基线：
+开发 UI：
 
 ```powershell
-./scripts/test_baseline.ps1
+Push-Location ui
+npm ci --ignore-scripts
+npm run dev
+Pop-Location
 ```
 
-指定独立构建目录：
+Core 需用户自行构建并启动。字体随仓库与构建产物提供；离线不会访问 Google Fonts，在线地图才加载 AMap SDK。
+更换地图文件后重启 Web 服务，避免只读连接仍指向旧文件。
+
+## 用户构建与部署
+
+在对应 Qt/MinGW 工具环境中，由用户执行：
 
 ```powershell
-./scripts/test_baseline.ps1 -BuildDir build-debug
-```
-
-脚本会依次运行中文 Doxygen 审计、CMake 配置、编译和 CTest。`build*` 是本地产物，已由 `.gitignore` 排除。
-
-## 阅读入口
-
-1. `AGENTS.md`：不可违反的架构和注释规则；
-2. `PROJECT_CONTEXT.md`：旧系统基线、迁移顺序和已知问题；
-3. `doc/architecture/00-架构索引.md`：现行文档、优先级和待补合同；
-4. `doc/contracts/统一单位坐标时间契约.md`：SI、RFU/ENU/WGS-84、6DOF 和 UTC/steady；
-5. `doc/contracts/TrackPacket契约.md`：SampleMeta、标准航迹、TrackKey 和发布门禁；
-6. `doc/contracts/运行状态模型契约.md`：三类完整 State、唯一 Owner 和状态转换；
-7. `core/model/Sample.h`：Topic 共享事实的当前最小实现；
-8. `core/datadomain/TopicTypes.h`：cursor、gap、记录和统计合同；
-9. `core/datadomain/HistoryTopic.h`：RingBuffer 写入与主动读取；
-10. `core/datadomain/TopicDoorbell.h`：只通知水位的 Qt Doorbell；
-11. `core/archive/ArchiveReader.h`：双 Topic cursor 与提交后推进边界；
-12. `core/archive/SqliteArchiveRepository.h`：真实 QSQLITE 单写者归档实现。
-13. `core/config/DeviceConfigService.h`：设备 revision 与运行时句柄 owner；
-14. `core/task/TaskService.h`：任务和多次采集会话 owner。
-15. `core/web/TrackWebSocketService.h`：协议无关的 TrackTopic Web Consumer；
-16. `doc/migration/旧UI迁移与新后端对接清单.md`：React UI 的复用边界与待接 API。
-
-UI 独立验收：
-
-```powershell
-cd ui
-npm ci
-npm test
+cmake -S . -B build-release -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="C:/Qt/Qt5.14.2/5.14.2/mingw73_64"
+cmake --build build-release --target NewAntiDrone NewAntiDroneLauncher
+Push-Location ui
 npm run build
+Pop-Location
+./scripts/package_single_machine.ps1 -BuildDirectory ./build-release -QtBinDirectory "C:/Qt/Qt5.14.2/5.14.2/mingw73_64/bin"
 ```
 
-高德地图配置从 `ui/.env.example` 创建本机 `ui/.env`，真实密钥不得提交。
+打包输出默认 `release`，必须是全新或空目录；不会构建或覆盖既有部署和数据库。
+可用 `-MapFile`、`-XyzTileDirectory` 指定地图输入；`-MapFile ''` 配合 XYZ 输入可只收集目录地图。
+收集结果包含程序/网页/地图 SHA256 清单；时间戳检查仅防明显旧产物，不替代运行验收。
+部署复制完整 dcmp 目录，用户入口为 `dcmp/NewAntiDrone.exe`；现场电脑不需要 Qt、Node 或 QGIS。
 
-## 已完成的端到端验证
-
-2026-09-03 曾以旧设备协议和 CSV 模拟器作为一次性输入夹具，验证
-`UDP -> ProtocolAdapter -> TrackPublisher -> TrackTopic <- TrackWebSocketService -> React` 全链路，浏览器地图已正常显示真实报文映射出的航迹。旧协议结构、模拟器、硬编码 HTTP 视图及其测试随后全部清退；该结果只作为架构验收证据，不再作为可运行入口。
-其后新增的 WebSocket 测试直接构造标准 TrackPacket，持续保护初始 snapshot、增量 upsert/removal、独立 cursor 和有界 Web 派生状态，不再依赖任何厂家协议夹具。
-# 心跳链联试
-
-运行 `scripts/test_baseline.ps1 -BuildDir build-baseline` 后，分别启动核心服务和心跳模拟器：
+更新当前本地 release-fixed 的 UI（先从托盘退出）：
 
 ```powershell
-build-baseline\core\NewAntiDrone.exe
-build-baseline\tools\DcmpHeartbeatSimulator.exe
+Push-Location ui
+npm run build
+Pop-Location
+Copy-Item ./ui/dist/* ./release-fixed/dcmp/runtime/web/dist/ -Recurse -Force
+Copy-Item ./ui/server/production.mjs ./release-fixed/dcmp/runtime/web/server/production.mjs -Force
+Copy-Item ./ui/server/offline-map.mjs ./release-fixed/dcmp/runtime/web/server/offline-map.mjs -Force
+New-Item -ItemType Directory ./release-fixed/dcmp/runtime/web/maps -Force
+Copy-Item ./ui/maps/basemap.mbtiles ./release-fixed/dcmp/runtime/web/maps/basemap.mbtiles -Force
 ```
 
-模拟器默认每秒向 `127.0.0.1:7788` 发送一次 DP `0x0101` 和 SP `0x0303` 心跳，二者均在线，
-四阵面 FP 在线和数据位图均为 `0x0F`。React 页面通过 `ws://127.0.0.1:8089/ws/v1` 读取后端状态，
-模拟器不连接 WebSocket、不访问数据域，也不生成航迹。
+重新打开并 Ctrl+F5。如果只改 Core，用户重新编译后替换 `runtime/core/NewAntiDroneCore.exe`；
+只复制 Core 不会更新 UI。完整交付优先重新收集到空目录，不沿用被手动修改后的旧 SHA256 清单。
 
-常用故障联试命令：
+## 合同与验证
 
-```powershell
-# DP主动报告离线，SP保持在线
-build-baseline\tools\DcmpHeartbeatSimulator.exe --dp-online 0
+- [架构规范](doc/architecture/09-共享强类型数据域与游标读取模型.md)
+- [单机部署](doc/contracts/单机部署契约.md)
+- [离线地图与在线恢复](doc/contracts/Web离线地图契约.md)
+- [Web 本机终端](doc/contracts/Web本机终端契约.md)
+- [活动日志](doc/contracts/SystemEvent错误模型契约.md)
 
-# 只有1号和3号阵面FP在线，只有1号和2号阵面有数据
-build-baseline\tools\DcmpHeartbeatSimulator.exe --fp-online-mask 0x05 --fp-data-mask 0x03
-
-# 只发送SP心跳，让DP在5秒后超时
-build-baseline\tools\DcmpHeartbeatSimulator.exe --no-dp
-
-# 只发送一轮后退出
-build-baseline\tools\DcmpHeartbeatSimulator.exe --once
-```
-
-运行 `build-baseline\tools\DcmpHeartbeatSimulator.exe --help` 可查看目标IP、端口和发送周期等参数。
-停止模拟器即可验证5秒无合法心跳转灰；DP、SP及四阵面状态互相独立。
+代理遵守仓库规则：不编译、不运行测试；可做类型、语法、中文 Doxygen 和差异静态检查。
+用户负责构建、设备联试与部署验收，不将静态通过表述为现场已验收。

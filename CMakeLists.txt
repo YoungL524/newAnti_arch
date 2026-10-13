@@ -21,3 +21,8 @@ set(NEWANTI_QT_SEARCH_HINTS ${CMAKE_PREFIX_PATH})
 find_package(Qt5 5.14 REQUIRED COMPONENTS Core Network Sql WebSockets HINTS ${NEWANTI_QT_SEARCH_HINTS})
 
 add_subdirectory(core)
+
+# 单机启动器是独立部署进程，只管理本次启动的进程树，不链接数据域或设备控制实现。
+if(WIN32)
+    add_subdirectory(deployment)
+endif()

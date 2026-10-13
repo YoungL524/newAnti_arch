@@ -1,10 +1,11 @@
 /**
  * @file BottomPanel.tsx
- * @brief 呈现可折叠的底部数据面板，并在日志与设备数据视图之间切换。
- * @details 面板只持有选中页签和布局状态；业务数据由上层传入，筛选与表格渲染交给子组件。
+ * @brief 呈现可折叠的日志、设备数据和本机终端面板。
+ * @details 面板只持有页签和布局状态；日志来自 Core Hook，终端会话由 TerminalPanel 独占。
+ * 终端首次选择才加载，切换或折叠只隐藏，避免意外结束正在运行的交互命令。
  */
 
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { lazy, Suspense, useState, useEffect, useRef, useMemo } from 'react'
 import DataTable from './DataTable'
 import DeviceTypeSelector from './DeviceTypeSelector'
 import type { SelectorOption } from './DeviceTypeSelector'
@@ -12,6 +13,9 @@ import { useTrackData } from '../../hooks/useTrackData'
 import { useCore } from '../../hooks/useCoreApi'
 import { DeviceType } from '../../lib/protocol'
 import type { AppDevice } from '../map/types'
+
+/** @brief 首次进入终端才加载终端模拟器及 CSS，普通地图访问不承担终端初始化成本。 */
+const TerminalPanel = lazy(() => import('./TerminalPanel'))
 
 type LogLevel = 'ALL' | 'INFO' | 'WARN' | 'ERROR'
 
@@ -75,9 +79,12 @@ function DataTableTab({ allDevices }: { allDevices: AppDevice[] }) {
   )
 }
 
+/** @brief 编排底部页签；终端建立后持续挂载，放大和折叠不改变其会话所有权。 */
 export default function BottomPanel({ allDevices }: { allDevices: AppDevice[] }) {
   const [collapsed, setCollapsed] = useState(false)
-  const [tab, setTab] = useState<'activity' | 'track'>('activity')
+  const [tab, setTab] = useState<'activity' | 'track' | 'terminal'>('activity')
+  const [terminalOpened, setTerminalOpened] = useState(false)
+  const [expanded, setExpanded] = useState(false)
   const [filter, setFilter] = useState<LogLevel>('ALL')
   const { logEntries, systemEvents, historyLogs, historyLoading, historyError, historyViewNotice, isHistoryView } = useCore()
   const logEndRef = useRef<HTMLDivElement>(null)
@@ -115,14 +122,15 @@ export default function BottomPanel({ allDevices }: { allDevices: AppDevice[] })
       style={{
         background: 'var(--surfaceLow)',
         borderTop: '1px solid rgba(191,201,195,0.3)',
-        height: collapsed ? '34px' : '240px',
+        height: collapsed ? '34px' : tab === 'terminal' && expanded ? '70vh' : tab === 'terminal' ? '360px' : '240px',
+        flexShrink: 0,
       }}
     >
       {/* Header */}
       <div className="px-5 flex items-center justify-between shrink-0 h-[34px]"
         style={{ borderBottom: '1px solid rgba(229,231,226,0.35)' }}>
         <div className="flex items-center h-full gap-1.5">
-          {(['activity', 'track'] as const).map((key) => (
+          {(['activity', 'track', 'terminal'] as const).map((key) => (
             <button
               key={key}
               className="text-[11px] px-4 py-1.5 rounded-md border cursor-pointer transition-all font-semibold"
@@ -134,11 +142,14 @@ export default function BottomPanel({ allDevices }: { allDevices: AppDevice[] })
                 borderColor: tab === key ? 'rgba(6,78,59,0.05)' : 'transparent',
                 fontFamily: "'Inter', sans-serif",
               }}
-              onClick={() => setTab(key)}
+              onClick={() => {
+                setTab(key)
+                if (key === 'terminal') { setTerminalOpened(true); setCollapsed(false) }
+              }}
             >
               {key === 'activity'
                 ? (isHistoryView ? '任务日志' : '活动日志')
-                : (isHistoryView ? '历史数据' : '数据表格')}
+                : key === 'terminal' ? '终端' : (isHistoryView ? '历史数据' : '数据表格')}
             </button>
           ))}
           {/* 日志级别筛选 */}
@@ -159,6 +170,11 @@ export default function BottomPanel({ allDevices }: { allDevices: AppDevice[] })
           )}
         </div>
         <div className="flex items-center gap-3">
+          {tab === 'terminal' && !collapsed && (
+            <button className="text-[11px] px-2 py-0.5 rounded border-none cursor-pointer"
+              style={{ color: 'var(--onSurfaceVariant)', background: 'transparent' }}
+              onClick={() => setExpanded(value => !value)}>{expanded ? '还原' : '放大'}</button>
+          )}
           <button
             className="p-1 rounded border-none bg-transparent cursor-pointer transition-colors hover:bg-stone-100"
             style={{ color: '#9ca3af' }}
@@ -175,7 +191,7 @@ export default function BottomPanel({ allDevices }: { allDevices: AppDevice[] })
       </div>
 
       {/* Content */}
-      {!collapsed && (
+      {!collapsed && tab !== 'terminal' && (
         <div className="flex-1 flex flex-col overflow-hidden">
           {tab === 'activity' ? (
             <div className="flex-1 overflow-y-auto">
@@ -250,7 +266,13 @@ export default function BottomPanel({ allDevices }: { allDevices: AppDevice[] })
           )}
         </div>
       )}
+      {terminalOpened && (
+        <div className="flex-1 min-h-0 flex flex-col" style={{ display: !collapsed && tab === 'terminal' ? 'flex' : 'none' }}>
+          <Suspense fallback={<div className="p-3 text-[12px]">正在加载终端…</div>}>
+            <TerminalPanel />
+          </Suspense>
+        </div>
+      )}
     </section>
   )
 }
-

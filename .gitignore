@@ -7,3 +7,7 @@
 /ui/dist/
 /ui/.env
 /ui/*.tsbuildinfo
+/ui/*.mbtiles
+/ui/maps/
+/release/
+/release-fixed/

@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
+/** @brief 字体与图标随构建产物提供；断网时不请求 Google Fonts，文字仍有系统字体兜底。 */
+@import './fonts.css';
 
 @tailwind base;
 @tailwind components;

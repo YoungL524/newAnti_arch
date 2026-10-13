@@ -89,7 +89,7 @@ void EventWebSocketService::sendRecent(QWebSocket *client)
 }
 
 /**
- * @brief 在 Web 边界从稳定码形成中文活动日志；未知码保留十六进制编号以便诊断。
+ * @brief 在 Web 边界从稳定码形成中文活动日志与级别；未知码保留十六进制编号以便诊断。
  */
 QJsonObject EventWebSocketService::message(
     const core::domain::TopicRecord<core::model::SystemEvent> &record) const
@@ -104,6 +104,45 @@ QJsonObject EventWebSocketService::message(
         case 4: text = QStringLiteral("任务已归档，历史事实保留"); break;
         default: return {};
         }
+    } else if (event.eventCode == core::model::EventCode::DeviceHeartbeatChanged) {
+        const QString source = event.argument0 == 1 ? QStringLiteral("DP") : QStringLiteral("SP");
+        const qint64 status = event.argument1 / 16;
+        const qint64 mask = event.argument1 % 16;
+        if (status == 1) {
+            text = QStringLiteral("%1 心跳在线，阵面位图 0x%2")
+                .arg(source).arg(mask, 0, 16);
+        } else if (status == 2) {
+            text = QStringLiteral("%1 心跳离线或迟到，阵面位图 0x%2")
+                .arg(source).arg(mask, 0, 16);
+        } else {
+            text = QStringLiteral("%1 心跳超时").arg(source);
+        }
+    } else if (event.eventCode == core::model::EventCode::ControlAcquisitionChanged) {
+        text = event.argument0 == 1 ? QStringLiteral("本地采集已开始")
+                                     : QStringLiteral("本地采集已停止");
+    } else if (event.eventCode == core::model::EventCode::ControlUdpSubmissionFailed) {
+        if (event.argument0 == 1) {
+            text = QStringLiteral("0x0001 控制报文未能提交本地 UDP Socket");
+        } else {
+            text = event.argument1 == 1
+                ? QStringLiteral("0xFFFF 工作命令未能提交本地 UDP Socket")
+                : QStringLiteral("0xFFFF 待机命令未能提交本地 UDP Socket");
+        }
+    } else if (event.eventCode == core::model::EventCode::ControlUdpSubmissionRecovered) {
+        text = QStringLiteral("0x0001 控制报文本地提交已恢复");
+    } else if (event.eventCode == core::model::EventCode::ControlTaskControlSettingsPersistFailed) {
+        text = QStringLiteral("任务控制参数未能保存到数据库");
+    } else if (event.eventCode == core::model::EventCode::ControlTaskControlSettingsInvariantFailed) {
+        text = QStringLiteral("任务参数已保存，但运行控制快照更新失败");
+    } else if (event.eventCode == core::model::EventCode::DeviceMalformedFrame) {
+        text = QStringLiteral("收到无效设备报文");
+    } else if (event.eventCode == core::model::EventCode::TrackPublishRejected) {
+        text = QStringLiteral("航迹数据未通过发布校验，原因 %1").arg(event.argument0);
+    } else if (event.eventCode == core::model::EventCode::SystemTopicSequenceGap) {
+        text = QStringLiteral("实时事件缺失：序号 %1 至 %2")
+            .arg(event.argument0).arg(event.argument1);
+    } else if (event.eventCode == core::model::EventCode::ControlDatagramSendFailed) {
+        text = QStringLiteral("控制报文未能提交本地 UDP Socket");
     } else {
         text = QStringLiteral("系统事件 0x%1")
             .arg(static_cast<quint32>(event.eventCode), 8, 16, QLatin1Char('0'));

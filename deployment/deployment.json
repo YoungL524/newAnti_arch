@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "webPort": 8080,
+  "startupTimeoutMs": 30000,
+  "dp": {
+    "enabled": false,
+    "executable": "",
+    "arguments": [],
+    "workingDirectory": "../dp"
+  },
+  "sp": {
+    "enabled": false,
+    "executable": "",
+    "arguments": [],
+    "workingDirectory": "../sp"
+  }
+}

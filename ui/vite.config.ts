@@ -6,9 +6,43 @@
 
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { installTerminal } from './terminal/server.mjs'
+import { openOfflineMap } from './server/offline-map.mjs'
+import { fileURLToPath } from 'node:url'
+import type { PreviewServer, ViteDevServer } from 'vite'
+
+/** @brief 保存当前 Web 服务器终端清理入口，Vite 插件关闭时不留存 PTY 会话。 */
+let stopTerminal: (() => void) | undefined
+/** @brief 地图连接随开发/预览 HTTP 服务释放，不进入构建产物中的浏览器脚本。 */
+let stopOfflineMap: (() => void) | undefined
+
+/** @brief 开发与预览复用地图和终端路由；终端依赖 HTTP/1 升级，显式排除 HTTP/2 服务器。 */
+function attachTerminal(server: ViteDevServer | PreviewServer) {
+  if (!server.httpServer || !('maxHeadersCount' in server.httpServer)) return
+  const terminal = installTerminal(server.httpServer)
+  const offlineMap = openOfflineMap(fileURLToPath(new URL('./maps/basemap.mbtiles', import.meta.url)),
+    fileURLToPath(new URL('./maps/xyz', import.meta.url)))
+  stopOfflineMap = offlineMap.dispose
+  server.httpServer.once('close', offlineMap.dispose)
+  stopTerminal = terminal.dispose
+  server.middlewares.use((request, response, next) => {
+    if (!terminal.handleRequest(request, response)) next()
+  })
+  server.middlewares.use((request, response, next) => {
+    if (!offlineMap.handleRequest(request, response)) next()
+  })
+}
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), {
+    name: 'local-terminal',
+    /** @brief 开发服务器就绪前挂接同源终端，关闭服务器时由服务入口清理 PTY。 */
+    configureServer(server) { attachTerminal(server) },
+    /** @brief 本机生产预览复用相同终端入口，不另开 Shell 监听端口。 */
+    configurePreviewServer(server) { attachTerminal(server) },
+    /** @brief Vite dev 关闭插件容器时主动清理升级连接，避免依赖 HTTP close 的完成顺序。 */
+    closeBundle() { stopTerminal?.(); stopTerminal = undefined; stopOfflineMap?.(); stopOfflineMap = undefined },
+  }],
   server: {
     port: 5173,
     strictPort: false,

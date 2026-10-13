@@ -107,22 +107,6 @@ QString migrateFacePoseJson(const QString &legacyJson,
     return QString::fromUtf8(QJsonDocument(migrated).toJson(QJsonDocument::Compact));
 }
 
-/**
- * @brief 判断事件码是否属于当前程序已经冻结并可持久化的登记集合。
- */
-bool isRegisteredEventCode(core::model::EventCode code) noexcept
-{
-    using core::model::EventCode;
-    switch (code) {
-    case EventCode::DeviceMalformedFrame:
-    case EventCode::TrackPublishRejected:
-    case EventCode::SystemTopicSequenceGap:
-    case EventCode::ControlDatagramSendFailed:
-        return true;
-    }
-    return false;
-}
-
 } // namespace
 
 /**
@@ -521,7 +505,7 @@ bool SqliteArchiveRepository::appendEventBatch(
             && (hasArgument0 || event.argument0 == 0)
             && (hasArgument1 || event.argument1 == 0)
             && (!meta.endpointId.isSet() || endpointBinding != m_endpointKeys.cend())
-            && isRegisteredEventCode(event.eventCode)
+            && core::model::isRegisteredEventCode(event.eventCode)
             && core::model::eventDomainOf(event.eventCode) == event.domain
             && static_cast<quint8>(event.severity) <= 4
             && event.messageTemplateId == 0;
@@ -648,10 +632,23 @@ bool SqliteArchiveRepository::initializeDatabase()
         return verifyRequiredTables();
     }
     if (version == 11) {
-        if (!executeSql(QStringLiteral("BEGIN IMMEDIATE"))
-            || !executeSql(QStringLiteral(
+        if (!executeSql(QStringLiteral("BEGIN IMMEDIATE"))) return false;
+        /** @brief 兼容旧初始化提前创建归档列的数据库；保留已有值，只为缺列的正常 v11 文件补列。 */
+        QSqlQuery taskColumns(m_database);
+        if (!taskColumns.exec(QStringLiteral("PRAGMA table_info(tasks)"))) {
+            return rollbackWithError(taskColumns.lastError().text());
+        }
+        bool hasArchivedUtcMs = false;
+        while (taskColumns.next()) {
+            if (taskColumns.value(1).toString() == QStringLiteral("archived_utc_ms")) {
+                hasArchivedUtcMs = true;
+            }
+        }
+        taskColumns.finish();
+        taskColumns.clear();
+        if ((!hasArchivedUtcMs && !executeSql(QStringLiteral(
                 "ALTER TABLE tasks ADD COLUMN archived_utc_ms INTEGER "
-                "CHECK(archived_utc_ms IS NULL OR archived_utc_ms>=closed_utc_ms)"))
+                "CHECK(archived_utc_ms IS NULL OR archived_utc_ms>=closed_utc_ms)")))
             || !executeSql(QStringLiteral("PRAGMA user_version = 12"))
             || !executeSql(QStringLiteral("COMMIT"))) {
             return rollbackWithError(m_lastError);
@@ -1031,7 +1028,6 @@ bool SqliteArchiveRepository::initializeDatabase()
             "task_name TEXT NOT NULL CHECK(length(task_name)>0), operator_name TEXT NOT NULL DEFAULT '', "
             "description TEXT NOT NULL DEFAULT '', created_utc_ms INTEGER NOT NULL CHECK(created_utc_ms>0), "
             "updated_utc_ms INTEGER NOT NULL CHECK(updated_utc_ms>=created_utc_ms), closed_utc_ms INTEGER, "
-            "archived_utc_ms INTEGER CHECK(archived_utc_ms IS NULL OR archived_utc_ms>=closed_utc_ms), "
             "is_deleted INTEGER NOT NULL DEFAULT 0 CHECK(is_deleted IN(0,1)), deleted_utc_ms INTEGER, "
             "deleted_by TEXT NOT NULL DEFAULT '', CHECK(closed_utc_ms IS NULL OR closed_utc_ms>=created_utc_ms), "
             "CHECK((is_deleted=0 AND deleted_utc_ms IS NULL) OR (is_deleted=1 AND deleted_utc_ms IS NOT NULL)), "

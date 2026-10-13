@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useMemo, useState, useCallback } from 'react'
 import type { TrackHistoryPoint } from '../../lib/protocol'
+import type { MapViewport } from './mapViewport'
 import type { RadarDevice } from './types'
 import { projectRadarTrack } from '../../lib/radarPose'
 
@@ -15,11 +16,11 @@ const HISTORY_LINE = 'rgba(148, 163, 184, 0.35)'
 const HISTORY_DOT = '#94a3b8'
 const DOT_R = 1.8
 
+/** @brief 仅绘制上层已经提供的历史结果，不新增历史查询接口。 */
 interface Props {
-  device: RadarDevice
-  points: TrackHistoryPoint[]
-  mapInstance: any
-  mapClass: any
+  device: RadarDevice ///< 设备安装参数。
+  points: TrackHistoryPoint[] ///< 上层拥有的历史结果，本层不持久缓存副本。
+  mapInstance: MapViewport | null ///< 借用当前地图，不拥有其生命周期。
 }
 
 function strokePolyline(ctx: CanvasRenderingContext2D, points: ScreenPoint[], color: string, width: number, alpha: number) {
@@ -37,7 +38,8 @@ function strokePolyline(ctx: CanvasRenderingContext2D, points: ScreenPoint[], co
   ctx.restore()
 }
 
-export default function HistoryTrackLayer({ device, points, mapInstance, mapClass }: Props) {
+/** @brief 使用与实时航迹相同的当前地图投影绘制已有历史结果，未扩展回放功能。 */
+export default function HistoryTrackLayer({ device, points, mapInstance }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rafRef = useRef(0)
   const [repaintTick, setRepaintTick] = useState(0)
@@ -66,22 +68,17 @@ export default function HistoryTrackLayer({ device, points, mapInstance, mapClas
   useEffect(() => {
     const map = mapInstance
     if (!map) return
-    map.on('mapmove', scheduleRepaint)
-    map.on('zoomchange', scheduleRepaint)
-    map.on('resize', scheduleRepaint)
+    const unsubscribe = map.watchView(scheduleRepaint)
     return () => {
-      map.off('mapmove', scheduleRepaint)
-      map.off('zoomchange', scheduleRepaint)
-      map.off('resize', scheduleRepaint)
+      unsubscribe()
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
     }
   }, [mapInstance, scheduleRepaint])
 
   useEffect(() => {
     const canvas = canvasRef.current
-    const AMap = mapClass
     const map = mapInstance
-    if (!canvas || !AMap || !map) return
+    if (!canvas || !map) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
     const { clientWidth: cw, clientHeight: ch } = map.getContainer()
@@ -100,7 +97,7 @@ export default function HistoryTrackLayer({ device, points, mapInstance, mapClas
             pt.range,
           )
           if (!projected) return null
-          const p = map.lngLatToContainer(new AMap.LngLat(projected.lng, projected.lat))
+          const p = map.project(projected.lng, projected.lat)
           return p ? { x: p.x, y: p.y } : null
         })
         .filter((v): v is ScreenPoint => {
@@ -117,7 +114,7 @@ export default function HistoryTrackLayer({ device, points, mapInstance, mapClas
         ctx.restore()
       }
     }
-  }, [trailMap, device, mapInstance, mapClass, repaintTick])
+  }, [trailMap, device, mapInstance, repaintTick])
 
   if (points.length === 0) return null
 

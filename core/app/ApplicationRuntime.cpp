@@ -11,10 +11,11 @@ ApplicationRuntime::ApplicationRuntime(QString databasePath, QString application
     : m_domain(4096,1024),
       m_databasePath(std::move(databasePath)),
       m_applicationVersion(std::move(applicationVersion)),
+      m_deviceEventPublisher(m_domain.eventTopic()),
       m_deviceController(m_domain.deviceState(),
           [this](const QByteArray &bytes, const QHostAddress &address, quint16 port) {
               return m_sock2DpSp.send(bytes, address, port);
-          }),
+          }, &m_deviceEventPublisher),
       m_trackIngress(m_domain.trackTopic()),
       m_applicationController(m_deviceController, m_trackIngress),
       m_adapter(
@@ -35,7 +36,7 @@ ApplicationRuntime::ApplicationRuntime(QString databasePath, QString application
  */
 ApplicationRuntime::~ApplicationRuntime() { stop(); }
 /**
- * @brief Web失败立即解绑UDP；全部成功后启用期限检查，不留下半运行服务。
+ * @brief 在回环地址接收航迹与心跳；Web失败立即解绑UDP，不留下半运行服务。
  */
 bool ApplicationRuntime::start(quint16 internalPort,quint16 webSocketPort,quint16 deviceHttpPort)
 {

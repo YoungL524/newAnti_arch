@@ -160,6 +160,20 @@ ArchiveReader 按独立 cursor 将同一事实写入 `system_events`。
 两条事件都由存储线程的事件 Owner 发布，只记录已发生事实，不改变任务或设备状态，也不重试；发布失败不回滚
 已经确认的本地结果。
 
+2026-09-30 活动日志接入继续登记以下低频事实，复用同一个 `EventTopic<SystemEvent>`、Web Reader 和 SQLite 归档：
+
+| 事件码 | 级别 | 参数合同 | 产生时机 |
+| --- | --- | --- | --- |
+| `DeviceHeartbeatChanged = 0x01010002` | 在线 Info；离线/迟到/超时 Warning | `argument0`：1 DP、2 SP；`argument1`：状态值 × 16 + 低四位阵面位图 | 状态或阵面位图变化并成功发布 DeviceState 后；周期相同值不重复记录 |
+| `ControlAcquisitionChanged = 0x04010006` | Info | 有效 TaskId、DeviceId；`argument0`：1 本地开始、0 本地停止 | 本地 DeviceState 转换成功后；不表示 DP 已收到 0xFFFF |
+| `ControlUdpSubmissionFailed = 0x04010007` | Error | `argument0`：1 为 0x0001、65535 为 0xFFFF；`argument1`：0 待机或周期包、1 工作包 | 本地 UDP 提交失败；周期包连续失败只记录首包 |
+| `ControlUdpSubmissionRecovered = 0x04010008` | Info | `argument0=1` | 周期 0x0001 在连续失败后首次本地提交成功；不表示 DP 已收到 |
+
+旧版 `Logger` 的 INFO/WARN/ERROR 分级仅作为展示语义参考；其全局 Qt 消息回调、文本文件缓存和独立 Web 分发
+不进入新架构。活动日志文本只在 Web 边界由稳定事件码生成，SQLite 归档的是原始事件事实。
+事件码是否已登记统一由 `core/model/SystemEvent.h::isRegisteredEventCode()` 判定，发布门禁和 SQLite 归档不得维护两份白名单；
+此前任务生命周期事件可发布、却可能在归档端因旧白名单被拒绝，本次同步修复。
+
 第一批实现前应建立独立事件码登记表。建议预留但暂不创建空壳枚举项；只登记当前代码能够真实产生、测试和
 处置的事件。
 

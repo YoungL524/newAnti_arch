@@ -516,12 +516,13 @@ export function CoreProvider({
 
     const WS_TRACKS_TYPE_RE = /"type"\s*:\s*"track(?:Snapshot|Delta)"/
 
+    /** @brief 按同源实时接口建立连接；显式开发环境配置可覆盖地址，所有状态仍由本 Hook 独占。 */
     const connect = () => {
       if (cancelled) return
 
-      // V1 实时出口固定使用/ws/v1；部署地址仍可通过VITE_WS_URL覆盖。
+      /** @brief 默认使用同源实时出口，开发与部署共用代理；显式环境配置仍可覆盖地址。 */
       const url = (import.meta.env.VITE_WS_URL as string | undefined)
-        ?? `ws://${window.location.hostname || '127.0.0.1'}:8089/ws/v1`
+        ?? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/v1`
 
       ws = new WebSocket(url)
 

@@ -13,7 +13,8 @@ $ErrorActionPreference = "Stop"
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $scanRoots = @(
     (Join-Path $repositoryRoot "core"),
-    (Join-Path $repositoryRoot "tests")
+    (Join-Path $repositoryRoot "tests"),
+    (Join-Path $repositoryRoot "deployment")
 )
 $failures = [System.Collections.Generic.List[string]]::new()
 $headerCount = 0

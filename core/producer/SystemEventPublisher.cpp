@@ -4,28 +4,9 @@ namespace core::producer {
 namespace {
 
 /**
- * @brief 判断事件码是否属于当前已冻结的首批登记表。
- * @details 使用穷举 switch，确保新增枚举值必须同时经过门禁评审，不能因数值落在某个范围内而自动获准持久化。
- */
-bool isRegisteredEventCode(core::model::EventCode code) noexcept
-{
-    switch (code) {
-    case core::model::EventCode::DeviceMalformedFrame:
-    case core::model::EventCode::TrackPublishRejected:
-    case core::model::EventCode::SystemTopicSequenceGap:
-    case core::model::EventCode::ControlDatagramSendFailed:
-    case core::model::EventCode::ControlTaskLifecycleChanged:
-    case core::model::EventCode::ControlTaskControlSettingsPersistFailed:
-    case core::model::EventCode::ControlTaskControlSettingsInvariantFailed:
-        return true;
-    }
-    return false;
-}
-
-/**
  * @brief 检查具体事件码必须携带的关联上下文。
- * @details Topic gap 必须给出丢失闭区间，控制数据报发送失败必须关联请求；其余首批事件允许按
- * 事实发生阶段选择设备、航迹或拒绝原因上下文。
+ * @details Topic gap 必须给出丢失闭区间；任务和设备控制事实分别校验已登记的主体与数值参数，
+ * 使 Web 文案与 SQLite 中的原始事件保持可解释。
  */
 bool hasRequiredContext(const core::model::SystemEvent &event) noexcept
 {
@@ -53,6 +34,34 @@ bool hasRequiredContext(const core::model::SystemEvent &event) noexcept
     if (event.eventCode == EventCode::TrackPublishRejected) {
         return core::model::hasEventSubject(event.flags, EventSubjectFlag::Argument0Valid)
             && event.argument0 > 0;
+    }
+    if (event.eventCode == EventCode::DeviceHeartbeatChanged) {
+        return core::model::hasEventSubject(event.flags, EventSubjectFlag::Argument0Valid)
+            && core::model::hasEventSubject(event.flags, EventSubjectFlag::Argument1Valid)
+            && (event.argument0 == 1 || event.argument0 == 2)
+            && event.argument1 >= 0 && event.argument1 <= 47
+            && (event.argument1 / 16 == 1
+                ? event.severity == core::model::EventSeverity::Info
+                : event.severity == core::model::EventSeverity::Warning);
+    }
+    if (event.eventCode == EventCode::ControlAcquisitionChanged) {
+        return core::model::hasEventSubject(event.flags, EventSubjectFlag::DeviceIdValid)
+            && core::model::hasEventSubject(event.flags, EventSubjectFlag::TaskIdValid)
+            && core::model::hasEventSubject(event.flags, EventSubjectFlag::Argument0Valid)
+            && (event.argument0 == 0 || event.argument0 == 1)
+            && event.severity == core::model::EventSeverity::Info;
+    }
+    if (event.eventCode == EventCode::ControlUdpSubmissionFailed) {
+        return core::model::hasEventSubject(event.flags, EventSubjectFlag::Argument0Valid)
+            && core::model::hasEventSubject(event.flags, EventSubjectFlag::Argument1Valid)
+            && (event.argument0 == 1 || event.argument0 == 0xFFFF)
+            && (event.argument1 == 0 || event.argument1 == 1)
+            && event.severity == core::model::EventSeverity::Error;
+    }
+    if (event.eventCode == EventCode::ControlUdpSubmissionRecovered) {
+        return core::model::hasEventSubject(event.flags, EventSubjectFlag::Argument0Valid)
+            && event.argument0 == 1
+            && event.severity == core::model::EventSeverity::Info;
     }
     return true;
 }
@@ -148,7 +157,7 @@ EventPublishRejection SystemEventPublisher::validate(
     if (meta.quality != SampleQuality::Good && meta.quality != SampleQuality::Suspect) {
         return EventPublishRejection::InvalidQuality;
     }
-    if (!isRegisteredEventCode(event.eventCode)) return EventPublishRejection::UnregisteredEventCode;
+    if (!core::model::isRegisteredEventCode(event.eventCode)) return EventPublishRejection::UnregisteredEventCode;
     if (event.domain != eventDomainOf(event.eventCode)) return EventPublishRejection::DomainMismatch;
     if (event.severity < EventSeverity::Info || event.severity > EventSeverity::Alarm) {
         return EventPublishRejection::InvalidSeverity;
