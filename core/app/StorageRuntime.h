@@ -153,7 +153,7 @@ public:
      * @param appliedTask 成功时写入更新后的完整任务台账快照。
      * @param response 始终写入 V1 成功或失败 JSON；失败时含稳定 error.code。
      * @return 结构、值域、任务状态与 SQLite 提交全部通过返回 true。
-     * @note 仅由 ApplicationController 在存储线程同步调用；不调用 DeviceController、不发送 UDP，
+     * @note 仅由 ApplicationController 安排到存储线程调用；不调用 DeviceController、不发送 UDP，
      * 也不保存第二份长期参数。Running 阶段且 preparedTaskId 与目标任务不一致时在落库前拒绝。
      */
     bool updateTaskControlSettings(const QString &taskUuid,
@@ -168,7 +168,7 @@ public:
      * @param taskId 已确认属于当前 TaskService 的任务句柄。
      * @return 事件通过门禁并写入 EventTopic 返回 true；未初始化或门禁拒绝返回 false。
      * @note 只发布已发生事实，不改变任务或设备状态，也不重试；发布失败不回滚任何业务结果。
-     * @warning 必须在存储线程调用；主线程应通过 BlockingQueuedConnection 调用本方法。
+     * @warning 必须在存储线程调用；主线程只通过异步 queued 调用安排，不阻塞等待存储。
      */
     bool publishTaskSettingsInvariantFault(core::model::TaskId taskId);
 
@@ -181,7 +181,7 @@ public:
     /** @brief 收口上下文中的全部活动会话，最后一个停止后TaskState回到Ready。 */
     bool stopCollections(const std::array<core::model::AcquisitionId, 4> &acquisitionIds);
 
-    /** @brief 返回最近初始化或关闭失败原因；只在同步调用返回后由组合根读取。 */
+    /** @brief 返回所属存储线程的最近失败原因；运行期在该线程复制进响应，组合根仅在启动/关停屏障后读取。 */
     QString lastError() const;
 
 private:

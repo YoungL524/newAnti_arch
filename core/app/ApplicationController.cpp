@@ -1,5 +1,4 @@
 #include "core/app/ApplicationController.h"
-
 #include "core/app/StorageRuntime.h"
 #include "core/control/DeviceController.h"
 #include "core/producer/TrackIngressProducer.h"
@@ -8,54 +7,57 @@
 #include <QJsonObject>
 #include <QMetaObject>
 #include <QSet>
-#include <QThread>
 
 namespace core::app {
-
 namespace {
-
 /**
- * @brief 形成编排层自身的V1失败响应；只用于存储调用失败或不变量故障，业务拒绝仍由存储层给出。
- * @param code 稳定错误码，本层只产生 `SERVICE_UNAVAILABLE` 与 `INTERNAL_ERROR`。
- * @param message 供界面展示的说明文本。
+ * @brief 编排失败沿原 HTTP 请求返回，不把本地失败伪装成设备确认。
  */
 QByteArray errorResponse(const QString &code, const QString &message)
 {
-    return QJsonDocument(QJsonObject {
-        {QStringLiteral("ok"), false},
-        {QStringLiteral("error"), QJsonObject {
-            {QStringLiteral("code"), code},
-            {QStringLiteral("message"), message}}}})
-        .toJson(QJsonDocument::Compact);
+    return QJsonDocument(QJsonObject{{"ok", false}, {"error", QJsonObject{
+        {"code", code}, {"message", message}}}}).toJson(QJsonDocument::Compact);
 }
 
-} // namespace
+/**
+ * @brief 仅判断存储已经返回的 V1 本地处理结果，不读取任何运行状态。
+ */
+bool succeeded(const QByteArray &response)
+{
+    return QJsonDocument::fromJson(response).object().value(QStringLiteral("ok")).toBool();
+}
 
 /**
- * @brief 固定ApplicationController到单一设备控制Owner，禁止运行期切换命令执行者。
+ * @brief 本地采集状态已经转换后生成响应，不代表 DP 已收到工作或待机报文。
+ */
+QByteArray acquisitionResponse(bool acquisition)
+{
+    return QJsonDocument(QJsonObject{{"ok", true}, {"data", QJsonObject{
+        {"acquisition", acquisition}}}}).toJson(QJsonDocument::Compact);
+}
+}
+
+/**
+ * @brief 保持编排者在创建它的主线程，借用唯一设备 Owner 和航迹入口。
  */
 ApplicationController::ApplicationController(
     core::control::DeviceController &deviceController,
     core::producer::TrackIngressProducer &trackIngress)
-    : m_deviceController(deviceController)
-    , m_trackIngress(trackIngress)
+    : m_deviceController(deviceController), m_trackIngress(trackIngress)
 {
 }
 
 /**
- * @brief 从非零会话槽推导阵面位图并与DeviceController准备态核对，匹配后一次替换Producer上下文。
+ * @brief 在主线程核对任务和阵面身份后一次绑定入口；未改变采集状态前不会发送工作报文。
  */
 bool ApplicationController::startAcquisition(
-    core::model::EndpointId endpointId,
-    core::model::DeviceId deviceId,
+    core::model::EndpointId endpointId, core::model::DeviceId deviceId,
     core::model::TaskId taskId,
     const std::array<core::model::AcquisitionId, 4> &faceAcquisitionIds)
 {
     quint8 faceMask = 0;
-    for (quint8 faceIndex = 0; faceIndex < faceAcquisitionIds.size(); ++faceIndex) {
-        if (faceAcquisitionIds[faceIndex].isSet()) {
-            faceMask |= quint8(1U) << faceIndex;
-        }
+    for (quint8 face = 0; face < faceAcquisitionIds.size(); ++face) {
+        if (faceAcquisitionIds[face].isSet()) faceMask |= quint8(1U) << face;
     }
     if (!endpointId.isSet() || !deviceId.isSet() || taskId != m_deviceController.preparedTaskId()
         || faceMask == 0U || faceMask != m_deviceController.faceMask(deviceId)) {
@@ -71,126 +73,146 @@ bool ApplicationController::startAcquisition(
 }
 
 /**
- * @brief 串行完成身份解析、会话创建、航迹绑定和DeviceState发布，后半段失败时收口已建会话。
- * @details 存储调用仅在跨线程时使用阻塞queued调用；心跳不是开始本地PPI扫描的门禁。
+ * @brief 存储线程激活并解析快照后返回主线程；控制准备失败必须等待撤销结果才能结束写请求。
+ * @details 上下文只按值跨两个执行阶段传递；不捕获栈引用，不从存储线程访问 DeviceController。
  */
-bool ApplicationController::startAcquisition(
-    StorageRuntime &storageRuntime, const QUuid &expectedTaskUuid)
+void ApplicationController::activateTask(StorageRuntime &storage, const QUuid &uuid,
+                                         std::function<void(QByteArray)> completed)
 {
-    if (expectedTaskUuid.isNull()) {
-        m_lastError = QStringLiteral("任务UUID无效");
-        return false;
-    }
-    ActiveTaskRuntimeContext context;
-    bool resolved = false;
-    if (storageRuntime.thread() == QThread::currentThread()) {
-        resolved = storageRuntime.resolveActiveTaskContext(context);
-    } else {
-        QMetaObject::invokeMethod(&storageRuntime, [&] {
-            resolved = storageRuntime.resolveActiveTaskContext(context);
-        }, Qt::BlockingQueuedConnection);
-    }
-    if (!resolved || context.task.taskUuid != expectedTaskUuid) {
-        m_lastError = resolved ? QStringLiteral("请求任务不是当前活动任务")
-                               : storageRuntime.lastError();
-        return false;
-    }
-    if (context.taskId != m_deviceController.preparedTaskId()
-        || m_deviceController.faceMask(context.deviceId) != context.faceMask) {
-        m_lastError = QStringLiteral("当前任务尚未准备控制快照");
-        return false;
-    }
-
-    bool sessionsStarted = false;
-    if (storageRuntime.thread() == QThread::currentThread()) {
-        sessionsStarted = storageRuntime.startCollections(context);
-    } else {
-        QMetaObject::invokeMethod(&storageRuntime, [&] {
-            sessionsStarted = storageRuntime.startCollections(context);
-        }, Qt::BlockingQueuedConnection);
-    }
-    if (!sessionsStarted) {
-        m_lastError = storageRuntime.lastError();
-        return false;
-    }
-    if (startAcquisition(context.endpointId, context.deviceId, context.taskId,
-                         context.faceAcquisitionIds)
-        && m_deviceController.beginAcquisition(
-            context.deviceId, context.endpointId, context.configurationRevision,
-            context.configuration,
-            context.faceAcquisitionIds)) {
-        m_lastError.clear();
-        return true;
-    }
-
-    const QString firstError = m_lastError.isEmpty()
-        ? m_deviceController.lastError() : m_lastError;
-    m_trackIngress.clearBinding();
-    if (storageRuntime.thread() == QThread::currentThread()) {
-        storageRuntime.stopCollections(context.faceAcquisitionIds);
-    } else {
-        QMetaObject::invokeMethod(&storageRuntime, [&] {
-            storageRuntime.stopCollections(context.faceAcquisitionIds);
-        }, Qt::BlockingQueuedConnection);
-    }
-    m_lastError = firstError;
-    return false;
+    const bool queued = QMetaObject::invokeMethod(&storage, [this, &storage, uuid, completed] {
+        QByteArray response = storage.activateTask(uuid.toString(QUuid::WithoutBraces));
+        ActiveTaskRuntimeContext context;
+        if (succeeded(response) && (!storage.resolveActiveTaskContext(context)
+                                   || context.task.taskUuid != uuid)) {
+            const QString reason = storage.lastError().isEmpty()
+                ? QStringLiteral("请求任务不是当前活动任务") : storage.lastError();
+            const bool cancelled = storage.cancelTaskActivation(uuid);
+            response = errorResponse(cancelled ? QStringLiteral("COMMAND_REJECTED")
+                                              : QStringLiteral("INTERNAL_ERROR"),
+                cancelled ? reason : reason + QStringLiteral("；任务激活撤销失败：") + storage.lastError());
+        }
+        QMetaObject::invokeMethod(this, [this, &storage, uuid, context, response, completed] {
+            if (!succeeded(response)) { completed(response); return; }
+            QHash<QUuid, core::model::DeviceId> devices;
+            devices.insert(context.task.deviceBindings.front().deviceUuid, context.deviceId);
+            if (prepareTask(context.taskId, context.task, devices)
+                && m_deviceController.configureControlSnapshot(context.deviceId, context.configuration)) {
+                completed(response);
+                return;
+            }
+            const QString reason = m_lastError.isEmpty() ? m_deviceController.lastError() : m_lastError;
+            if (m_deviceController.preparedTaskId() == context.taskId) clearPreparedTask(context.taskId);
+            QMetaObject::invokeMethod(&storage, [this, &storage, uuid, reason, completed] {
+                const bool cancelled = storage.cancelTaskActivation(uuid);
+                const QByteArray failure = errorResponse(
+                    cancelled ? QStringLiteral("COMMAND_REJECTED") : QStringLiteral("INTERNAL_ERROR"),
+                    cancelled ? reason : reason + QStringLiteral("；任务激活撤销失败：") + storage.lastError());
+                QMetaObject::invokeMethod(this, [completed, failure] { completed(failure); }, Qt::QueuedConnection);
+            }, Qt::QueuedConnection);
+        }, Qt::QueuedConnection);
+    }, Qt::QueuedConnection);
+    if (!queued) completed(errorResponse(QStringLiteral("SERVICE_UNAVAILABLE"), QStringLiteral("存储线程调用失败")));
 }
 
 /**
- * @brief 先由TaskService关闭全部会话，再清除航迹入口和DeviceState，避免停止后继续产生可归档航迹。
+ * @brief 只在持久化任务完成后清除控制准备态；存储等待期间主线程继续收包及发送当前快照。
  */
-bool ApplicationController::stopAcquisition(
-    StorageRuntime &storageRuntime, const QUuid &expectedTaskUuid)
+void ApplicationController::completeTask(StorageRuntime &storage, const QUuid &uuid,
+                                         std::function<void(QByteArray)> completed)
 {
-    ActiveTaskRuntimeContext context;
-    bool resolved = false;
-    if (storageRuntime.thread() == QThread::currentThread()) {
-        resolved = storageRuntime.resolveActiveTaskContext(context);
-    } else {
-        QMetaObject::invokeMethod(&storageRuntime, [&] {
-            resolved = storageRuntime.resolveActiveTaskContext(context);
-        }, Qt::BlockingQueuedConnection);
-    }
+    const bool queued = QMetaObject::invokeMethod(&storage, [this, &storage, uuid, completed] {
+        const QByteArray response = storage.completeTask(uuid.toString(QUuid::WithoutBraces));
+        QMetaObject::invokeMethod(this, [this, response, completed] {
+            if (succeeded(response) && !clearActiveTask()) {
+                completed(errorResponse(QStringLiteral("INTERNAL_ERROR"), m_lastError));
+            } else completed(response);
+        }, Qt::QueuedConnection);
+    }, Qt::QueuedConnection);
+    if (!queued) completed(errorResponse(QStringLiteral("SERVICE_UNAVAILABLE"), QStringLiteral("存储线程调用失败")));
+}
+
+/**
+ * @brief 存储线程先解析并创建会话，主线程再绑定入口和状态；失败异步停止已建会话并报告回滚失败。
+ * @details 主线程准备态在入队前取值，HTTP 写互斥保证请求收口前任务和设备配置不会被其他请求替换。
+ */
+void ApplicationController::startAcquisition(StorageRuntime &storage, const QUuid &uuid,
+                                             std::function<void(QByteArray)> completed)
+{
+    const auto preparedTaskId = m_deviceController.preparedTaskId();
+    const bool queued = QMetaObject::invokeMethod(&storage, [this, &storage, uuid, preparedTaskId, completed] {
+        ActiveTaskRuntimeContext context;
+        QByteArray failure;
+        if (uuid.isNull()) failure = errorResponse(QStringLiteral("INVALID_REQUEST"), QStringLiteral("任务UUID无效"));
+        else if (!storage.resolveActiveTaskContext(context)) {
+            failure = errorResponse(QStringLiteral("COMMAND_REJECTED"), storage.lastError());
+        } else if (context.task.taskUuid != uuid || context.taskId != preparedTaskId) {
+            failure = errorResponse(QStringLiteral("COMMAND_REJECTED"), QStringLiteral("当前任务尚未准备控制快照"));
+        } else if (!storage.startCollections(context)) {
+            failure = errorResponse(QStringLiteral("COMMAND_REJECTED"), storage.lastError());
+        }
+        QMetaObject::invokeMethod(this, [this, &storage, context, failure, completed] {
+            if (!failure.isEmpty()) { completed(failure); return; }
+            if (startAcquisition(context.endpointId, context.deviceId, context.taskId, context.faceAcquisitionIds)
+                && m_deviceController.beginAcquisition(context.deviceId, context.endpointId,
+                    context.configurationRevision, context.configuration, context.faceAcquisitionIds)) {
+                completed(acquisitionResponse(true));
+                return;
+            }
+            const QString reason = m_lastError.isEmpty() ? m_deviceController.lastError() : m_lastError;
+            m_trackIngress.clearBinding();
+            QMetaObject::invokeMethod(&storage, [this, &storage, context, reason, completed] {
+                const bool rolledBack = storage.stopCollections(context.faceAcquisitionIds);
+                const QByteArray response = errorResponse(
+                    rolledBack ? QStringLiteral("COMMAND_REJECTED") : QStringLiteral("INTERNAL_ERROR"),
+                    rolledBack ? reason : reason + QStringLiteral("；采集会话收口失败：") + storage.lastError());
+                QMetaObject::invokeMethod(this, [completed, response] { completed(response); }, Qt::QueuedConnection);
+            }, Qt::QueuedConnection);
+        }, Qt::QueuedConnection);
+    }, Qt::QueuedConnection);
+    if (!queued) completed(errorResponse(QStringLiteral("SERVICE_UNAVAILABLE"), QStringLiteral("存储线程调用失败")));
+}
+
+/**
+ * @brief 从设备 Owner 取得当前身份后异步关闭数据库会话，成功返回主线程才清除入口和发送一次待机。
+ * @details 等待期间本地采集仍然成立；HTTP 写互斥保证对应会话不会被其他写请求替换。
+ */
+void ApplicationController::stopAcquisition(StorageRuntime &storage, const QUuid &uuid,
+                                            std::function<void(QByteArray)> completed)
+{
     core::model::DeviceId deviceId;
     core::model::EndpointId endpointId;
     core::model::TaskId taskId;
     std::array<core::model::AcquisitionId, 4> acquisitionIds {};
-    if (!resolved || context.task.taskUuid != expectedTaskUuid
-        || !m_deviceController.activeAcquisition(
-            deviceId, endpointId, taskId, acquisitionIds)) {
-        m_lastError = !resolved ? storageRuntime.lastError()
-            : context.task.taskUuid != expectedTaskUuid
-                ? QStringLiteral("请求任务不是当前活动任务")
-                : QStringLiteral("当前没有正在进行的本地采集");
-        return false;
+    if (uuid.isNull() || !m_deviceController.activeAcquisition(deviceId, endpointId, taskId, acquisitionIds)) {
+        completed(errorResponse(uuid.isNull() ? QStringLiteral("INVALID_REQUEST") : QStringLiteral("COMMAND_REJECTED"),
+                                QStringLiteral("任务UUID无效或当前没有本地采集")));
+        return;
     }
-    bool stopped = false;
-    if (storageRuntime.thread() == QThread::currentThread()) {
-        stopped = storageRuntime.stopCollections(acquisitionIds);
-    } else {
-        QMetaObject::invokeMethod(&storageRuntime, [&] {
-            stopped = storageRuntime.stopCollections(acquisitionIds);
-        }, Qt::BlockingQueuedConnection);
-    }
-    if (!stopped) {
-        m_lastError = storageRuntime.lastError();
-        return false;
-    }
-    m_trackIngress.clearBinding();
-    if (!m_deviceController.endAcquisition()) {
-        m_lastError = m_deviceController.lastError();
-        return false;
-    }
-    m_lastError.clear();
-    return true;
+    const bool queued = QMetaObject::invokeMethod(&storage, [this, &storage, uuid, taskId, acquisitionIds, completed] {
+        ActiveTaskRuntimeContext context;
+        QByteArray failure;
+        if (!storage.resolveActiveTaskContext(context)) {
+            failure = errorResponse(QStringLiteral("COMMAND_REJECTED"), storage.lastError());
+        } else if (context.task.taskUuid != uuid || context.taskId != taskId) {
+            failure = errorResponse(QStringLiteral("COMMAND_REJECTED"), QStringLiteral("请求任务不是当前采集任务"));
+        } else if (!storage.stopCollections(acquisitionIds)) {
+            failure = errorResponse(QStringLiteral("COMMAND_REJECTED"), storage.lastError());
+        }
+        QMetaObject::invokeMethod(this, [this, failure, completed] {
+            if (!failure.isEmpty()) { completed(failure); return; }
+            m_trackIngress.clearBinding();
+            if (!m_deviceController.endAcquisition()) {
+                completed(errorResponse(QStringLiteral("INTERNAL_ERROR"), m_deviceController.lastError()));
+            } else completed(acquisitionResponse(false));
+        }, Qt::QueuedConnection);
+    }, Qt::QueuedConnection);
+    if (!queued) completed(errorResponse(QStringLiteral("SERVICE_UNAVAILABLE"), QStringLiteral("存储线程调用失败")));
 }
 
 /**
- * @brief 先完成稳定UUID、重复绑定和阵面位图校验，再一次性交给DeviceController，失败不改变旧准备态。
+ * @brief 先核对全部稳定身份与阵面位图，再委托设备 Owner 替换准备态，失败不保留半组绑定。
  */
-bool ApplicationController::prepareTask(
-    core::model::TaskId taskId,
+bool ApplicationController::prepareTask(core::model::TaskId taskId,
     const core::task::TaskDefinition &task,
     const QHash<QUuid, core::model::DeviceId> &deviceIdsByUuid)
 {
@@ -198,21 +220,20 @@ bool ApplicationController::prepareTask(
         m_lastError = QStringLiteral("任务句柄和设备绑定不能为空");
         return false;
     }
-    QHash<core::model::DeviceId, quint8> runtimeFaceMasks;
-    QSet<QUuid> seenDeviceUuids;
-    for (const core::task::TaskDeviceBinding &binding : task.deviceBindings) {
+    QHash<core::model::DeviceId, quint8> masks;
+    QSet<QUuid> seen;
+    for (const auto &binding : task.deviceBindings) {
         const auto device = deviceIdsByUuid.constFind(binding.deviceUuid);
-        if (binding.deviceUuid.isNull() || seenDeviceUuids.contains(binding.deviceUuid)
+        if (binding.deviceUuid.isNull() || seen.contains(binding.deviceUuid)
             || device == deviceIdsByUuid.cend() || !device.value().isSet()
-            || binding.faceMask == 0U || (binding.faceMask & 0xF0U) != 0U
-            || runtimeFaceMasks.contains(device.value())) {
+            || binding.faceMask == 0U || (binding.faceMask & 0xF0U) != 0U || masks.contains(device.value())) {
             m_lastError = QStringLiteral("任务设备绑定无法唯一解析为有效运行时设备");
             return false;
         }
-        seenDeviceUuids.insert(binding.deviceUuid);
-        runtimeFaceMasks.insert(device.value(), binding.faceMask);
+        seen.insert(binding.deviceUuid);
+        masks.insert(device.value(), binding.faceMask);
     }
-    if (!m_deviceController.prepareTask(taskId, task.controlSettings, runtimeFaceMasks)) {
+    if (!m_deviceController.prepareTask(taskId, task.controlSettings, masks)) {
         m_lastError = m_deviceController.lastError();
         return false;
     }
@@ -221,40 +242,7 @@ bool ApplicationController::prepareTask(
 }
 
 /**
- * @brief 在任务激活的同步调用栈内读取活动任务及设备台账，再准备 0x0001 发送快照。
- * @details 存储线程解析期间主线程不处理 Qt 定时器；配置成功后由设备 Owner 依心跳启停周期发送。
- */
-bool ApplicationController::prepareActiveTask(
-    StorageRuntime &storageRuntime, const QUuid &expectedTaskUuid)
-{
-    ActiveTaskRuntimeContext context;
-    bool resolved = false;
-    if (storageRuntime.thread() == QThread::currentThread()) {
-        resolved = storageRuntime.resolveActiveTaskContext(context);
-    } else {
-        QMetaObject::invokeMethod(&storageRuntime, [&] {
-            resolved = storageRuntime.resolveActiveTaskContext(context);
-        }, Qt::BlockingQueuedConnection);
-    }
-    if (!resolved || context.task.taskUuid != expectedTaskUuid) {
-        m_lastError = resolved ? QStringLiteral("请求任务不是当前活动任务")
-                               : storageRuntime.lastError();
-        return false;
-    }
-    QHash<QUuid, core::model::DeviceId> devices;
-    devices.insert(context.task.deviceBindings.front().deviceUuid, context.deviceId);
-    if (!prepareTask(context.taskId, context.task, devices)) return false;
-    if (!m_deviceController.configureControlSnapshot(context.deviceId, context.configuration)) {
-        m_lastError = m_deviceController.lastError();
-        m_deviceController.clearPreparedTask(context.taskId);
-        return false;
-    }
-    m_lastError.clear();
-    return true;
-}
-
-/**
- * @brief 任务完成后撤销设备 Owner 的当前准备态；不触发待机包或更改采集状态。
+ * @brief 已完成任务没有准备态时幂等成功，否则只清除当前设备 Owner 的准备身份。
  */
 bool ApplicationController::clearActiveTask()
 {
@@ -263,7 +251,7 @@ bool ApplicationController::clearActiveTask()
 }
 
 /**
- * @brief 委托唯一设备Owner按任务身份清除，防止ApplicationController保存第二份准备状态。
+ * @brief 以任务句柄保护清除操作，不能由旧请求撤销其他任务的周期发送。
  */
 bool ApplicationController::clearPreparedTask(core::model::TaskId taskId)
 {
@@ -276,7 +264,7 @@ bool ApplicationController::clearPreparedTask(core::model::TaskId taskId)
 }
 
 /**
- * @brief 返回最近编排错误；成功操作后为空。
+ * @brief 返回主线程最近一次身份编排错误，存储错误只通过请求的值响应传回。
  */
 QString ApplicationController::lastError() const
 {
@@ -284,59 +272,32 @@ QString ApplicationController::lastError() const
 }
 
 /**
- * @brief 先持久化任务快照，再在准备句柄匹配时同步设备运行副本；两步同在主线程同步调用栈内。
- * @details 存储调用为阻塞 queued 调用，期间不启动嵌套事件循环，所以 50 ms 定时器不会在两步之间发送，
- * 准备句柄也不会在读取后变化。持久化失败时原样返回存储层写入的稳定错误码。
+ * @brief 等待数据库时保留旧控制快照；提交完成后在主线程整体替换，不暂停心跳及 50 ms 定时器。
+ * @details 写请求互斥使 preparedTaskId 跨异步阶段稳定；运行副本不变量失败在存储线程发布同链事件。
  */
-bool ApplicationController::updateTaskControlSettings(
-    StorageRuntime &storageRuntime, const QUuid &expectedTaskUuid,
-    const QByteArray &requestBody, QByteArray &response)
+void ApplicationController::updateTaskControlSettings(StorageRuntime &storage,
+    const QUuid &uuid, const QByteArray &body, std::function<void(QByteArray)> completed)
 {
-    response.clear();
-    const core::model::TaskId preparedTaskId = m_deviceController.preparedTaskId();
-    core::model::TaskId appliedTaskId;
-    core::task::TaskDefinition appliedTask;
-    bool updated = false;
-    if (storageRuntime.thread() == QThread::currentThread()) {
-        updated = storageRuntime.updateTaskControlSettings(
-            expectedTaskUuid.toString(QUuid::WithoutBraces), requestBody, preparedTaskId,
-            appliedTaskId, appliedTask, response);
-    } else {
-        const bool invoked = QMetaObject::invokeMethod(&storageRuntime, [&] {
-            updated = storageRuntime.updateTaskControlSettings(
-                expectedTaskUuid.toString(QUuid::WithoutBraces), requestBody, preparedTaskId,
-                appliedTaskId, appliedTask, response);
-        }, Qt::BlockingQueuedConnection);
-        if (!invoked) {
-            m_lastError = QStringLiteral("存储线程调用失败");
-            response = errorResponse(QStringLiteral("SERVICE_UNAVAILABLE"), m_lastError);
-            return false;
-        }
-    }
-    if (!updated) {
-        if (response.isEmpty()) {
-            m_lastError = QStringLiteral("存储线程未返回有效结果");
-            response = errorResponse(QStringLiteral("SERVICE_UNAVAILABLE"), m_lastError);
-            return false;
-        }
-        m_lastError.clear();
-        return false;
-    }
-    if (preparedTaskId.isSet() && preparedTaskId == appliedTaskId
-        && !m_deviceController.applyControlSettings(appliedTaskId, appliedTask.controlSettings)) {
-        m_lastError = QStringLiteral("任务快照已更新，但设备运行副本替换失败");
-        if (storageRuntime.thread() == QThread::currentThread()) {
-            storageRuntime.publishTaskSettingsInvariantFault(appliedTaskId);
-        } else {
-            QMetaObject::invokeMethod(&storageRuntime, [&] {
-                storageRuntime.publishTaskSettingsInvariantFault(appliedTaskId);
-            }, Qt::BlockingQueuedConnection);
-        }
-        response = errorResponse(QStringLiteral("INTERNAL_ERROR"), m_lastError);
-        return false;
-    }
-    m_lastError.clear();
-    return true;
+    const auto preparedTaskId = m_deviceController.preparedTaskId();
+    const bool queued = QMetaObject::invokeMethod(&storage, [this, &storage, uuid, body, preparedTaskId, completed] {
+        core::model::TaskId appliedTaskId;
+        core::task::TaskDefinition appliedTask;
+        QByteArray response;
+        const bool updated = storage.updateTaskControlSettings(uuid.toString(QUuid::WithoutBraces),
+            body, preparedTaskId, appliedTaskId, appliedTask, response);
+        QMetaObject::invokeMethod(this, [this, &storage, preparedTaskId, appliedTaskId, appliedTask, response, updated, completed] {
+            if (updated && preparedTaskId.isSet() && preparedTaskId == appliedTaskId
+                && !m_deviceController.applyControlSettings(appliedTaskId, appliedTask.controlSettings)) {
+                QMetaObject::invokeMethod(&storage, [this, &storage, appliedTaskId, completed] {
+                    storage.publishTaskSettingsInvariantFault(appliedTaskId);
+                    const QByteArray failure = errorResponse(QStringLiteral("INTERNAL_ERROR"),
+                        QStringLiteral("任务快照已更新，但设备运行副本替换失败"));
+                    QMetaObject::invokeMethod(this, [completed, failure] { completed(failure); }, Qt::QueuedConnection);
+                }, Qt::QueuedConnection);
+            } else completed(response);
+        }, Qt::QueuedConnection);
+    }, Qt::QueuedConnection);
+    if (!queued) completed(errorResponse(QStringLiteral("SERVICE_UNAVAILABLE"), QStringLiteral("存储线程调用失败")));
 }
 
 } // namespace core::app

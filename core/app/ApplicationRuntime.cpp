@@ -2,6 +2,7 @@
 #include "core/app/StorageRuntime.h"
 
 #include <QMetaObject>
+#include <QDebug>
 #include <utility>
 namespace core::app {
 /**
@@ -19,17 +20,50 @@ ApplicationRuntime::ApplicationRuntime(QString databasePath, QString application
       m_trackIngress(m_domain.trackTopic()),
       m_applicationController(m_deviceController, m_trackIngress),
       m_adapter(
-          [this](const auto&,const auto& p,qint64 u,qint64 s){m_deviceController.acceptHeartbeat(false,p.dpOnline,p.fpOnlineMask,u,s,&p);},
-          [this](const auto&,const auto& p,qint64 u,qint64 s){m_deviceController.acceptHeartbeat(true,p.spOnline,p.fpDataMask,u,s);},
+          [this](const auto&,const auto& p,qint64 u,qint64 s){++m_dpReceived; m_deviceController.acceptHeartbeat(false,p.dpOnline,p.fpOnlineMask,u,s,&p);},
+          [this](const auto&,const auto& p,qint64 u,qint64 s){++m_spReceived; m_deviceController.acceptHeartbeat(true,p.spOnline,p.fpDataMask,u,s);},
           [this](const auto&,quint8 face,quint32 sequence,const auto& track,qint64 u,qint64 s){
-              m_trackIngress.accept(face,sequence,track,u,s);
+              if (m_trackIngress.accept(face,sequence,track,u,s)
+                  == core::producer::TrackIngressProducer::Result::Published) ++m_trackPublished;
+              else ++m_trackRejected;
           }),
-      m_sock2DpSp([this](const char* p,qint64 n,const QHostAddress&,quint16,qint64 u,qint64 s){m_adapter.onDatagram(p,n,u,s);}),
+      m_sock2DpSp([this](const char* p,qint64 n,const QHostAddress& a,quint16 port,qint64 u,qint64 s){acceptDatagram(p,n,a,port,u,s);}),
       m_stateWeb(m_domain.deviceState(),m_lane,m_gateway,m_stableIds),
       m_trackWeb(m_domain.trackTopic(),m_domain.deviceState(),m_lane,m_gateway,m_stableIds,256),
       m_eventWeb(m_domain.eventTopic(),m_lane,m_gateway,m_stableIds)
 {
+    QObject::connect(&m_sock2DpSp, &core::comm::UdpEndpoint::transportError, &m_sock2DpSp,
+        [this, lastReported = QString()](const QString &error) mutable {
+            if (error == lastReported) return;
+            lastReported = error;
+            qWarning().noquote() << "[UDP传输错误]" << error << m_sock2DpSp.receiveDiagnostics();
+        });
     m_deviceController.stop();
+}
+
+/**
+ * @brief 保留唯一同步解析栈，以累计值低频定位停读或拒收，不逐包打印、不等待任何 Consumer。
+ * @details 汇总由实际来包触发；停止出现汇总而心跳超时日志继续时，可区分接收入口停滞与整个主线程停滞。
+ * 终端诊断不替代 EventTopic 的业务事实，定位完成后可删除此处汇总及计数，不改变协议或所有权。
+ */
+void ApplicationRuntime::acceptDatagram(const char *data, qint64 size, const QHostAddress &sender,
+                                      quint16 senderPort, qint64 utcMs, qint64 steadyNs)
+{
+    ++m_udpReceived;
+    const auto result = m_adapter.onDatagram(data, size, utcMs, steadyNs);
+    if (result != core::protocol::DcmpProtocolAdapter::Result::Accepted) {
+        ++m_protocolRejected;
+        m_lastProtocolRejection = result;
+    }
+    if (m_lastUdpReportSteadyNs != 0 && steadyNs - m_lastUdpReportSteadyNs < 5'000'000'000LL) return;
+    m_lastUdpReportSteadyNs = steadyNs;
+    qInfo().noquote() << "[UDP接收]" << "utcMs=" << utcMs
+        << "source=" << sender.toString() << senderPort << "total=" << m_udpReceived
+        << "DP=" << m_dpReceived << "SP=" << m_spReceived
+        << "trackPublished=" << m_trackPublished << "trackRejected=" << m_trackRejected
+        << "protocolRejected=" << m_protocolRejected
+        << "lastProtocolCode=" << static_cast<int>(m_lastProtocolRejection)
+        << m_sock2DpSp.receiveDiagnostics();
 }
 /**
  * @brief 成员逆序析构前停止接收，确保回调依赖仍存活。
@@ -57,11 +91,13 @@ bool ApplicationRuntime::start(quint16 internalPort,quint16 webSocketPort,quint1
     m_trackWeb.refresh(); m_eventWeb.refresh(); m_deviceController.start(); m_running=true; m_error.clear(); return true;
 }
 /**
- * @brief 阻止新报文后关闭计时和Web；清理不依赖后续事件循环。
+ * @brief 先收口已接受 HTTP 的提交和回滚，再停止接收、计时和 Web，最后排空归档。
+ * @details HTTP 关停只定向完成已接受请求，不启动嵌套事件循环；此时 Socket 和设备 Owner 仍存活，
+ * 避免已创建会话尚未绑定就关闭存储，或在工作/待机提交前提前关闭唯一 UDP 端点。
  */
 void ApplicationRuntime::stop()
 {
-    m_sock2DpSp.stop(); m_deviceController.stop(); m_deviceHttp.stop(); m_gateway.stop(); m_running=false; stopStorage();
+    m_deviceHttp.stop(); m_sock2DpSp.stop(); m_deviceController.stop(); m_gateway.stop(); m_running=false; stopStorage();
 }
 
 /**

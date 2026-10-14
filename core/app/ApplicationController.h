@@ -2,7 +2,7 @@
  * @file ApplicationController.h
  * @brief 定义任务稳定身份到设备控制运行身份的最小编排边界。
  * @details 上游 HTTP 任务激活和采集命令通过 StorageRuntime 提供已解析任务；下游准备 DeviceController 快照、
- * 编排本地会话和航迹入口。本类不直接写 SQLite、Socket 或 LatestState；新人从 prepareActiveTask() 阅读。
+ * 异步编排本地会话和航迹入口。本类不直接写 SQLite、Socket 或 LatestState；新人从 activateTask() 阅读。
  */
 
 #pragma once
@@ -15,8 +15,10 @@
 #include <QHash>
 #include <QString>
 #include <QUuid>
+#include <QObject>
 
 #include <array>
+#include <functional>
 
 namespace core::control {
 class DeviceController;
@@ -31,7 +33,7 @@ namespace core::app {
 class StorageRuntime;
 
 /**
- * @brief 在一次同步编排调用内传递当前任务的唯一设备及逐阵面会话身份。
+ * @brief 在一次有界异步请求内传递当前任务的唯一设备及逐阵面会话身份。
  * @note 本值不进入Topic、不跨请求保存；第一版任务只允许绑定一台完整雷达。
  */
 struct ActiveTaskRuntimeContext
@@ -46,8 +48,12 @@ struct ActiveTaskRuntimeContext
     quint8 faceMask = 0; ///< 当前任务冻结的启用阵面位图。
 };
 
-/** @brief 校验任务绑定并把稳定设备UUID收敛为DeviceController使用的强类型运行时句柄。 */
-class ApplicationController final
+/**
+ * @brief 将稳定任务身份异步编排为唯一设备 Owner 的运行快照和本地采集状态。
+ * @warning 所有入口及完成回调均在创建本对象的主线程执行；存储线程只处理值副本和数据库操作。
+ * completed 必须非空；HTTP 写互斥及关停收口保证本对象和 StorageRuntime 覆盖每次请求。
+ */
+class ApplicationController final : public QObject
 {
 public:
     /** @brief 借用唯一DeviceController和航迹Producer；调用者保证二者生命周期覆盖本对象。 */
@@ -67,10 +73,23 @@ public:
         const QHash<QUuid, core::model::DeviceId> &deviceIdsByUuid);
 
     /**
-     * @brief 任务激活成功后解析唯一设备，准备发送到固定目标的 0x0001 周期快照。
-     * @return 当前活动任务身份一致且快照有效时返回 true；不创建采集会话或发送 0xFFFF。
+     * @brief 异步激活任务并准备唯一控制快照，准备失败时先撤销存储激活再返回。
+     * @param storageRuntime 已初始化且生命周期覆盖请求的唯一存储 Owner。
+     * @param expectedTaskUuid 请求指定的稳定任务 UUID。
+     * @param completed 在本对象主线程执行一次的 V1 JSON 完成回调；不能绑定客户端存活期。
+     * @note HTTP 边界必须串行受理全部写请求，直至完成回调；本对象和存储在请求收口后才能销毁。
      */
-    bool prepareActiveTask(StorageRuntime &storageRuntime, const QUuid &expectedTaskUuid);
+    void activateTask(StorageRuntime &storageRuntime, const QUuid &expectedTaskUuid,
+                      std::function<void(QByteArray)> completed);
+
+    /**
+     * @brief 异步完成存储任务，成功后在主线程撤销周期控制快照。
+     * @param storageRuntime 生命周期覆盖请求的存储 Owner。
+     * @param expectedTaskUuid 待完成任务 UUID。
+     * @param completed 主线程一次性 V1 响应回调；与其他写请求互斥。
+     */
+    void completeTask(StorageRuntime &storageRuntime, const QUuid &expectedTaskUuid,
+                      std::function<void(QByteArray)> completed);
 
     /** @brief 完成任务后清除当前控制快照及周期发送；没有准备态时视为已清除。 */
     bool clearActiveTask();
@@ -89,26 +108,37 @@ public:
         core::model::TaskId taskId,
         const std::array<core::model::AcquisitionId, 4> &faceAcquisitionIds);
 
-    /** @brief 从SQLite Owner解析指定活动任务、创建会话并启动本地PPI/航迹入口。 */
-    bool startAcquisition(StorageRuntime &storageRuntime, const QUuid &expectedTaskUuid);
-
-    /** @brief 停止指定活动任务的本地PPI/航迹入口并收口全部逐阵面会话。 */
-    bool stopAcquisition(StorageRuntime &storageRuntime, const QUuid &expectedTaskUuid);
+    /**
+     * @brief 异步创建逐阵面会话，回到主线程绑定航迹和采集状态；绑定失败先异步收口会话。
+     * @param storageRuntime 生命周期覆盖请求的存储 Owner。
+     * @param expectedTaskUuid 指定活动任务 UUID。
+     * @param completed 主线程一次性 V1 响应回调；与其他写请求互斥，断开客户端不取消回滚。
+     */
+    void startAcquisition(StorageRuntime &storageRuntime, const QUuid &expectedTaskUuid,
+                          std::function<void(QByteArray)> completed);
 
     /**
-     * @brief 主线程编排一次任务控制参数更新：先在存储线程持久化，再同步当前设备运行副本。
-     * @param storageRuntime 已初始化的存储组合根；不在本线程时使用 BlockingQueuedConnection。
+     * @brief 异步收口指定活动任务的全部会话，再在主线程停止航迹入口及本地采集。
+     * @param storageRuntime 生命周期覆盖请求的存储 Owner。
+     * @param expectedTaskUuid 指定活动任务 UUID。
+     * @param completed 主线程一次性 V1 响应回调；持久化失败保留当前本地采集。
+     * @note 与其他写请求互斥；等待存储期间 UDP、心跳和周期控制继续运行。
+     */
+    void stopAcquisition(StorageRuntime &storageRuntime, const QUuid &expectedTaskUuid,
+                         std::function<void(QByteArray)> completed);
+
+    /**
+     * @brief 异步持久化参数，提交成功后在主线程一次替换设备运行副本。
+     * @param storageRuntime 生命周期覆盖请求的唯一存储组合根。
      * @param expectedTaskUuid 请求路径中的稳定任务 UUID。
      * @param requestBody 完整请求体，顶层必须是含 controlSettings 的 JSON object。
-     * @param response 始终写入 V1 成功或失败 JSON；失败时含稳定 error.code。
-     * @return 持久化成功，且存在运行副本时同步成功返回 true。
-     * @note 两步在主线程同一同步调用栈内完成，期间不启动嵌套事件循环；本操作不是跨线程原子事务。
-     * 存储失败原样返回其错误码；准备句柄匹配却替换失败属于内部不变量故障，返回 INTERNAL_ERROR。
+     * @param completed 主线程一次性 V1 响应回调；存储失败保留原错误码。
+     * @note 与其他写请求互斥；等待提交时周期发送旧快照，完成回调后发送新快照，不承诺跨线程原子事务。
      */
-    bool updateTaskControlSettings(StorageRuntime &storageRuntime,
+    void updateTaskControlSettings(StorageRuntime &storageRuntime,
                                    const QUuid &expectedTaskUuid,
                                    const QByteArray &requestBody,
-                                   QByteArray &response);
+                                   std::function<void(QByteArray)> completed);
 
     /** @brief 返回最近一次编排失败原因。 */
     QString lastError() const;

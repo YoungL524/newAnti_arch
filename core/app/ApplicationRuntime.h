@@ -46,6 +46,17 @@ public:
     /** @brief 返回UDP实际端口，停止后为零。 */
     quint16 internalPort() const { return m_sock2DpSp.localPort(); }
 private:
+    /**
+     * @brief 同步交付报文并限频汇总接收及协议结果，区分 UDP 停读、解析拒绝和未绑定采集。
+     * @param data 端点本轮借用缓冲，只在调用期间有效。
+     * @param size 本次已从 Socket 取出的字节数。
+     * @param sender 本次数据报来源地址。
+     * @param senderPort 本次来源端口。
+     * @param utcMs 接收 UTC 毫秒。
+     * @param steadyNs 接收单调纳秒，用于每 5 秒至多一次的接收诊断，不驱动轮询。
+     */
+    void acceptDatagram(const char *data, qint64 size, const QHostAddress &sender,
+                        quint16 senderPort, qint64 utcMs, qint64 steadyNs);
     /** @brief 创建唯一存储线程并同步完成数据库、设备和任务身份加载。 */
     bool startStorage();
     /** @brief 在存储线程正常关闭 SQLite 后停止线程并清空本次运行稳定 ID。 */
@@ -71,5 +82,13 @@ private:
     core::web::EventWebSocketService m_eventWeb; ///< EventTopic独立cursor只读Reader；与归档共享事实，不复制历史。
     QString m_error; ///< 最近启动失败原因。
     bool m_running = false; ///< 重复启动保护。
+    quint64 m_udpReceived = 0; ///< 本运行时真正从 UDP 取出并交付解析的数据报数，非发送端计数。
+    quint64 m_dpReceived = 0; ///< 协议校验通过并交给设备 Owner 的 DP 心跳累计数。
+    quint64 m_spReceived = 0; ///< 协议校验通过并交给设备 Owner 的 SP 心跳累计数。
+    quint64 m_trackPublished = 0; ///< 航迹入口返回 Published 的累计数。
+    quint64 m_trackRejected = 0; ///< 航迹入口因未绑定、阵面或门禁等原因拒绝的累计数。
+    quint64 m_protocolRejected = 0; ///< 协议解释未返回 Accepted 的累计数。
+    core::protocol::DcmpProtocolAdapter::Result m_lastProtocolRejection = core::protocol::DcmpProtocolAdapter::Result::Accepted; ///< 最近协议拒绝枚举，仅用于诊断。
+    qint64 m_lastUdpReportSteadyNs = 0; ///< 上次接收汇总的单调纳秒；没有来包时不额外启动轮询。
 };
 }

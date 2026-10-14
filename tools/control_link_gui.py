@@ -1,17 +1,19 @@
 """! @file control_link_gui.py
-@brief 用标准库窗口发送 DP/SP 心跳和单目标航迹，并观察 DCMP 发出的 0x0001 与 0xFFFF 报文。
-@details 本工具位于设备侧联试边界：向 DCMP 内部 UDP 入口发送含共用经纬高和逐面姿态的 DP 心跳，
+@brief 用标准库窗口发送 DP/SP 心跳和 CSV 航迹，并观察 DCMP 发出的 0x0001 与 0xFFFF 报文。
+@details 本工具位于设备侧联试边界：向 DCMP 内部 UDP 入口发送含逐面经纬高与姿态的 DP 心跳，
 并发送原布局 SP 心跳；分别在 2345/1234 监听两种控制包。
 不发送 ACK、不模拟设备起控、不访问数据库。模拟航迹只发给已绑定采集会话的 1 号阵面。
 新人从 ControlLinkGui.start()、poll() 和 decode_control() 阅读交互及协议校验。
 """
 
 import socket
+import csv
 import struct
 import time
 import tkinter as tk
 import math
 from datetime import datetime
+from pathlib import Path
 from tkinter import messagebox, ttk
 
 
@@ -23,6 +25,10 @@ CONTROL_PORT = 2345
 WORKMODE_PORT = 1234
 TRACK_FRAME_SIZE = 656
 TRACK_OFFSET = PAYLOAD_OFFSET + 384
+## @brief CSV 固定取脚本同目录文件，不依赖启动命令的工作目录。
+CSV_PATH = Path(__file__).resolve().with_name("target_data.csv")
+## @brief 固定每 200 ms 处理最多 32 条 CSV 观测，与文件历史时间完全无关，不补发积压批次。
+CSV_BATCH_INTERVAL_SECONDS = 0.2
 
 ## @brief 协议结构以 core/protocol/DcmpPayloads.h 为准；每个载荷分组恰好包含 32 个小端字。
 COMMON_FIELDS = (
@@ -166,18 +172,45 @@ def heartbeat(kind: int, face_mask: int = 1,
     return bytes(packet)
 
 
-def track_packet(sequence: int, pack_flag: int = 1) -> bytes:
-    """! @brief 构造 1 号阵面、目标 1 的 0x0100 完整包；角度为度，包计数逐包递增。"""
+def track_packet(sequence: int, row: dict[str, str]) -> bytes:
+    """! @brief 将 CSV 的 ID、极坐标、径向 speed、原始 RCS 和 packFlag 映射到 1# 阵面 656 字节包。
+    @param sequence 本工具逐包递增的 uint32 计数，与 CSV Time 无关。
+    @param row CSV 原始行；角度为度、距离为米、speed 为抵近正的 m/s，RCS 仅作为未标定幅值原值。
+    @return 现行 0x0100 报文；未建立语义的字段及备份区保持零，不用 Lon/Lat/Hgt 替换雷达极坐标。
+    @throws ValueError 必填字段缺失、数值非法或观测超出 Core 的方位 ±45°、俯仰 0～45° 时拒绝。
+    """
+    try:
+        target_id = int(row["ID"])
+        pack_flag = int(row["packFlag"])
+        values = tuple(float(row[field]) for field in ("Range", "Azimuth", "Elevation", "speed", "RCS"))
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("CSV 航迹字段缺失或不是有效数值") from error
+    if not 0 <= target_id <= 0x7FFFFFFF or pack_flag not in (0, 1):
+        raise ValueError("CSV ID 或 packFlag 超范围")
+    if not all(math.isfinite(value) and abs(value) <= 3.402823466e38 for value in values):
+        raise ValueError("CSV 航迹包含非有限数或超出 float32 范围")
+    if values[0] < 0 or not -45 <= values[1] <= 45 or not 0 <= values[2] <= 45:
+        raise ValueError("CSV 观测超出现行接收扇区")
     packet = bytearray(TRACK_FRAME_SIZE)
     struct.pack_into("<4I", packet, 0, MAGIC, TRACK_FRAME_SIZE - 12, 0x0100, 20260915)
     struct.pack_into("<3I", packet, PAYLOAD_OFFSET + 4, sequence, 0, sequence)
-    struct.pack_into("<i", packet, TRACK_OFFSET, 1)
-    range_m = 2000.0 + 250.0 * math.sin(sequence * 0.04)
-    azimuth_deg = 18.0 * math.sin(sequence * 0.025)
-    struct.pack_into("<5f", packet, TRACK_OFFSET + 20,
-                     range_m, azimuth_deg, 8.0, 12.0, 35.0)
+    struct.pack_into("<i", packet, TRACK_OFFSET, target_id)
+    struct.pack_into("<5f", packet, TRACK_OFFSET + 20, *values)
     struct.pack_into("<I", packet, TRACK_OFFSET + 116, pack_flag)
     struct.pack_into("<I", packet, TRACK_FRAME_SIZE - 4, TAIL)
+    return bytes(packet)
+
+
+def retirement_packet(sequence: int, last_packet: bytes) -> bytes:
+    """! @brief 复用目标最近有效坐标生成消亡包，避免 CSV 消亡点越界导致 Core 拒绝删除。
+    @param sequence 本工具新分配的 uint32 包计数。
+    @param last_packet 同一目标先前成功提交的 656 字节 0x0100 报文。
+    @return 仅更新包计数、景幅计数和 packFlag=0 的临时报文，不修改保存的原包。
+    """
+    packet = bytearray(last_packet)
+    struct.pack_into("<I", packet, PAYLOAD_OFFSET + 4, sequence)
+    struct.pack_into("<I", packet, PAYLOAD_OFFSET + 12, sequence)
+    struct.pack_into("<I", packet, TRACK_OFFSET + 116, 0)
     return bytes(packet)
 
 
@@ -198,10 +231,15 @@ class ControlLinkGui:
         self.received = 0
         self.invalid = 0
         self.heartbeats_sent = 0
+        self.heartbeat_last_sent = {0x0101: "尚未提交", 0x0303: "尚未提交"}  ##< 分别记录本地 sendto 成功时间，不代表 Core 收到。
         self.tracks_sent = 0
         self.track_sequence = 0
         self.track_enabled = False
-        self.last_track = 0.0
+        self.track_file = None  ##< 绕过全文件预载，仅在 CSV 发送期间拥有打开的文本文件。
+        self.track_reader = None  ##< 当前 CSV 迭代器，与文件同时释放。
+        self.last_csv_batch = 0.0  ##< 最近一轮 CSV 处理的 monotonic 秒；与文件时间无关。
+        self.csv_skipped = 0  ##< 本轮非法或超扇区记录数，不伪造修改后的观测。
+        self.active_tracks: dict[int, bytes] = {}  ##< 每个当前目标只留最近有效包，供消亡时复用。
         self.dcmp_ip = tk.StringVar(value="127.0.0.1")
         self.dcmp_port = tk.StringVar(value="7788")
         self.dp_enabled = tk.BooleanVar(value=True)
@@ -217,6 +255,8 @@ class ControlLinkGui:
         self.state = tk.StringVar(value="未监听")
         self.counts = tk.StringVar(value="控制有效 0  |  无效 0  |  心跳已发送 0  |  航迹已发送 0")
         self.event = tk.StringVar(value="等待监听")
+        self.csv_progress = tk.StringVar(value="CSV 未开始")
+        self.heartbeat_submission = tk.StringVar(value="DP/SP 心跳尚未提交")
         self.packet_state = {1: tk.StringVar(value="尚未接收 0x0001"),
                              0xFFFF: tk.StringVar(value="尚未接收 0xFFFF")}
         self.trees: dict[int, ttk.Treeview] = {}
@@ -235,7 +275,7 @@ class ControlLinkGui:
         self.start_button.grid(row=1, column=5)
         self.stop_button = ttk.Button(config, text="停止", command=self.stop, state="disabled")
         self.stop_button.grid(row=1, column=7)
-        self.track_button = ttk.Button(config, text="开始模拟航迹", command=self.toggle_track, state="disabled")
+        self.track_button = ttk.Button(config, text="发送 CSV 航迹", command=self.toggle_track, state="disabled")
         self.track_button.grid(row=2, column=0, columnspan=2, sticky="w", pady=4)
 
         pose_frame = ttk.LabelFrame(root, text="DP 心跳实时位姿（逐面发送；DCMP 平均在线阵面的经纬高）", padding=8)
@@ -252,6 +292,8 @@ class ControlLinkGui:
         ttk.Label(root, textvariable=self.state, font=("Microsoft YaHei", 15, "bold")).pack(anchor="w", padx=16)
         ttk.Label(root, textvariable=self.counts).pack(anchor="w", padx=16, pady=4)
         ttk.Label(root, textvariable=self.event).pack(anchor="w", padx=16)
+        ttk.Label(root, textvariable=self.csv_progress).pack(anchor="w", padx=16)
+        ttk.Label(root, textvariable=self.heartbeat_submission).pack(anchor="w", padx=16)
         notebook = ttk.Notebook(root)
         notebook.pack(fill="both", expand=True, padx=12, pady=(4, 12))
         for kind, title in ((1, "0x0001 控制参数"), (0xFFFF, "0xFFFF 工作/待机")):
@@ -330,6 +372,7 @@ class ControlLinkGui:
             self.workmode_socket.bind(("127.0.0.1", WORKMODE_PORT))
             self.workmode_socket.setblocking(False)
             self.send_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.send_socket.setblocking(False)
             self.target = (self.dcmp_ip.get(), dcmp_port)
         except (OSError, ValueError) as error:
             self.stop()
@@ -343,13 +386,78 @@ class ControlLinkGui:
         self.last_heartbeat = 0.0
         self.poll()
 
+    def send_heartbeats(self, now: float) -> None:
+        """! @brief 优先发送到期心跳，DP 位姿或单路发送失败不会跳过 SP，错误不关闭整个工具。
+        @param now 本轮 monotonic 秒；每秒最多尝试一轮，不追补 GUI 停顿期间的历史心跳。
+        @note 仍由 Tk 单线程调度，操作系统暂停进程或 Tk 模态阻塞时不承诺持续发送。
+        """
+        if now - self.last_heartbeat < 1.0:
+            return
+        if self.last_heartbeat and now - self.last_heartbeat >= 2.0:
+            self.write_log(f"工具心跳调度间隔 {now - self.last_heartbeat:.2f}s，检查窗口阻塞或进程暂停")
+        self.last_heartbeat = now
+        face_mask = sum(1 << face for face, enabled in enumerate(self.face_enabled) if enabled.get())
+        for kind, enabled, label in ((0x0101, self.dp_enabled, "DP"), (0x0303, self.sp_enabled, "SP")):
+            if not enabled.get():
+                continue
+            try:
+                packet = heartbeat(kind, face_mask, self.heartbeat_pose()[1]) if kind == 0x0101 else heartbeat(kind, face_mask)
+                self.send_socket.sendto(packet, self.target)
+                self.heartbeats_sent += 1
+                self.heartbeat_last_sent[kind] = f"{datetime.now():%H:%M:%S.%f}"[:-3]
+            except (ValueError, OSError) as error:
+                self.write_log(f"{label} 心跳未发送：{error}")
+        self.heartbeat_submission.set(
+            f"心跳最近本地提交：DP {self.heartbeat_last_sent[0x0101]} | SP {self.heartbeat_last_sent[0x0303]} | 目标 {self.target[0]}:{self.target[1]}")
+
+    def send_csv_tracks(self, now: float) -> None:
+        """! @brief 每 200 ms 按文件顺序处理最多 32 条观测，完全忽略 CSV 时间，不补发历史批次。
+        @param now 本轮 monotonic 秒，仅用于工具自身的固定发送节奏。
+        @note 无效行跳过并计数，消亡优先复用同目标最近有效包；文件结束自动收口本工具剩余目标。
+        """
+        if not self.track_enabled:
+            return
+        if now - self.last_csv_batch < CSV_BATCH_INTERVAL_SECONDS:
+            return
+        self.last_csv_batch = now
+        try:
+            for _ in range(32):
+                row = next(self.track_reader, None)
+                if row is None:
+                    self.stop_tracks("CSV 发送完成")
+                    return
+                try:
+                    target_id = int(row["ID"])
+                    pack_flag = int(row["packFlag"])
+                    sequence = (self.track_sequence + 1) & 0xFFFFFFFF
+                    previous = self.active_tracks.get(target_id)
+                    packet = retirement_packet(sequence, previous) if pack_flag == 0 and previous else track_packet(sequence, row)
+                except (KeyError, TypeError, ValueError) as error:
+                    self.csv_skipped += 1
+                    self.write_log(f"CSV 第 {self.track_reader.line_num} 行跳过：{error}")
+                    continue
+                self.send_socket.sendto(packet, self.target)
+                self.track_sequence = sequence
+                self.tracks_sent += 1
+                if pack_flag == 0:
+                    self.active_tracks.pop(target_id, None)
+                else:
+                    self.active_tracks[target_id] = packet
+            self.csv_progress.set(f"CSV 运行中：已读取第 {self.track_reader.line_num} 行，下一轮继续")
+        except (OSError, csv.Error, UnicodeError) as error:
+            self.stop_tracks(f"CSV 发送中止：{error}")
+
     def poll(self) -> None:
-        """! @brief 在 GUI 事件循环中分别读取两个控制端口；每个端口每轮最多处理 100 包并每秒发送心跳。"""
+        """! @brief 心跳先于接收和 CSV 执行；每端口限 100 包，仅刷新本轮每种控制的最后一包。
+        @note finally 保证非关停回调仍重新调度；报文校验或字段显示异常不会永久断掉 after 链。
+        """
         self.poll_job = None
         if self.control_socket is None or self.workmode_socket is None or self.send_socket is None or self.target is None:
             return
         try:
+            self.send_heartbeats(time.monotonic())
             for receiver in (self.control_socket, self.workmode_socket):
+                latest = {}
                 for _ in range(100):
                     try:
                         packet, sender = receiver.recvfrom(65535)
@@ -362,69 +470,77 @@ class ControlLinkGui:
                         self.write_log(f"无效报文 {sender[0]}:{sender[1]}：{error}")
                         continue
                     self.received += 1
+                    latest[kind] = (packet, sender, control)
+                for kind, (packet, sender, control) in latest.items():
                     if kind == 0xFFFF:
                         label = "开始工作" if control == 1 else "待机"
                     else:
                         label = "周期控制"
                     self.state.set(f"最近控制：{label}")
                     self.show_packet(kind, packet, sender)
-            now = time.monotonic()
-            if now - self.last_heartbeat >= 1.0:
-                face_mask = sum(1 << face for face, enabled in enumerate(self.face_enabled) if enabled.get())
-                if self.dp_enabled.get():
-                    _, face_poses = self.heartbeat_pose()
-                    self.send_socket.sendto(heartbeat(0x0101, face_mask, face_poses), self.target)
-                    self.heartbeats_sent += 1
-                if self.sp_enabled.get():
-                    self.send_socket.sendto(heartbeat(0x0303, face_mask), self.target)
-                    self.heartbeats_sent += 1
-                self.last_heartbeat = now
-            if self.track_enabled and now - self.last_track >= 0.2:
-                self.track_sequence += 1
-                self.send_socket.sendto(track_packet(self.track_sequence), self.target)
-                self.tracks_sent += 1
-                self.last_track = now
-            self.counts.set(f"控制有效 {self.received}  |  无效 {self.invalid}  |  心跳已发送 {self.heartbeats_sent}  |  航迹已发送 {self.tracks_sent}")
-        except ValueError as error:
-            self.write_log(f"心跳位姿输入无效：{error}")
-        except OSError as error:
-            self.write_log(f"UDP 错误：{error}")
-            self.stop()
-            return
-        self.poll_job = self.root.after(20, self.poll)
+            self.send_csv_tracks(time.monotonic())
+            self.counts.set(f"控制有效 {self.received}  |  无效 {self.invalid}  |  心跳已发送 {self.heartbeats_sent}  |  航迹已发送 {self.tracks_sent}  |  CSV跳过 {self.csv_skipped}")
+        except (ValueError, OSError, tk.TclError) as error:
+            self.write_log(f"本轮联试异常：{error}")
+        finally:
+            if self.send_socket is not None:
+                self.poll_job = self.root.after(20, self.poll)
 
     def toggle_track(self) -> None:
-        """! @brief 显式启停单目标模拟流；停止时提交一包 packFlag=0 供显示端移除航迹。"""
+        """! @brief 从脚本同目录的 target_data.csv 开始发送；手动停止只结束航迹，不停止 DP/SP 心跳。"""
         if self.send_socket is None or self.target is None:
             return
-        if not self.track_enabled and not self.face_enabled[0].get():
+        if self.track_enabled:
+            self.stop_tracks("手动停止 CSV 航迹")
+            return
+        if not self.face_enabled[0].get():
             self.write_log("模拟航迹固定来自 1# 阵面，请先勾选 1# 在线")
             return
-        self.track_enabled = not self.track_enabled
-        if self.track_enabled:
-            self.last_track = 0.0
-            self.track_button.configure(text="停止模拟航迹")
-            self.write_log("开始发送 1 号阵面、目标 ID 1 的模拟航迹；请先在 DCMP 开始采集")
-        else:
-            self.track_button.configure(text="开始模拟航迹")
+        try:
+            self.track_file = CSV_PATH.open(encoding="utf-8-sig", newline="")
+            self.track_reader = csv.DictReader(self.track_file)
+            required = {"ID", "Range", "Azimuth", "Elevation", "speed", "RCS", "packFlag"}
+            if not required.issubset(self.track_reader.fieldnames or ()):
+                raise ValueError("CSV 缺少必需列：" + ", ".join(sorted(required - set(self.track_reader.fieldnames or ()))))
+        except (OSError, ValueError, csv.Error, UnicodeError) as error:
+            self.stop_tracks(f"无法读取 {CSV_PATH}：{error}")
+            return
+        self.csv_skipped = 0
+        self.last_csv_batch = 0.0
+        self.track_enabled = True
+        self.csv_progress.set("CSV 运行中：每 200 ms 最多处理 32 条，忽略文件时间")
+        self.track_button.configure(text="停止 CSV 航迹")
+        self.write_log("开始按文件顺序发送 target_data.csv，固定 1# 阵面；请先在 DCMP 开始采集")
+
+    def stop_tracks(self, reason: str) -> None:
+        """! @brief 关闭 CSV 文件并对仍活动的各目标提交一次消亡包；逐包失败计数，不关闭心跳套接字。
+        @param reason 手动停止、EOF 或 CSV 失败原因；事件明确区分本地提交成功和失败，不声明设备已收到。
+        """
+        self.track_enabled = False
+        if self.track_file is not None:
+            self.track_file.close()
+        self.track_file = None
+        self.track_reader = None
+        failed = 0
+        for packet in self.active_tracks.values():
             try:
-                self.track_sequence += 1
-                self.send_socket.sendto(track_packet(self.track_sequence, 0), self.target)
-            except OSError as error:
-                self.write_log(f"航迹消亡包发送失败：{error}")
-            self.write_log("停止模拟航迹并提交目标消亡包")
+                sequence = (self.track_sequence + 1) & 0xFFFFFFFF
+                self.send_socket.sendto(retirement_packet(sequence, packet), self.target)
+                self.track_sequence = sequence
+                self.tracks_sent += 1
+            except OSError:
+                failed += 1
+        self.active_tracks.clear()
+        self.track_button.configure(text="发送 CSV 航迹")
+        self.csv_progress.set(f"CSV 已停止：{reason}")
+        self.write_log(f"{reason}；跳过 {self.csv_skipped} 行，剩余目标消亡提交失败 {failed} 包")
 
     def stop(self) -> None:
         """! @brief 停止模拟流并释放本工具套接字；已发过的目标先提交一次消亡包。"""
         if self.poll_job is not None:
             self.root.after_cancel(self.poll_job)
             self.poll_job = None
-        if self.track_enabled and self.send_socket is not None and self.target is not None:
-            try:
-                self.track_sequence += 1
-                self.send_socket.sendto(track_packet(self.track_sequence, 0), self.target)
-            except OSError as error:
-                self.write_log(f"航迹消亡包发送失败：{error}")
+        self.stop_tracks("停止监听，心跳与 CSV 航迹均停止")
         for item in (self.control_socket, self.workmode_socket, self.send_socket):
             if item is not None:
                 item.close()
@@ -435,7 +551,7 @@ class ControlLinkGui:
         self.track_enabled = False
         self.start_button.configure(state="normal")
         self.stop_button.configure(state="disabled")
-        self.track_button.configure(state="disabled", text="开始模拟航迹")
+        self.track_button.configure(state="disabled", text="发送 CSV 航迹")
         self.state.set("已停止监听")
 
     def close(self) -> None:

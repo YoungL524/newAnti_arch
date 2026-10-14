@@ -42,13 +42,18 @@ public:
     QString lastError() const;
     /** @brief 返回端点生命周期累计因超过固定缓冲而整包丢弃的数据报数。 */
     quint64 oversizedDatagrams() const;
+    /**
+     * @brief 在所属线程生成端口、Socket 状态、排空标记、待收包、通知及读取计数的低频诊断文本。
+     * @return 仅用于终端定位停读，不是业务状态、ACK 或新的数据平面输出。
+     */
+    QString receiveDiagnostics() const;
 
 Q_SIGNALS:
     /** @brief 报告socket读取/绑定/发送失败的诊断文字，不携带业务数据；由组合根处理。 */
     void transportError(const QString &description);
 
 private:
-    /** @brief 在所属事件循环收取至多64个数据报，剩余数据通过一次合并续读处理。 */
+    /** @brief 在所属事件循环至少尝试读取一次以复位 Qt 通知，至多收取64包；剩余包合并续读，无包立即返回。 */
     void drain();
     /** @brief 保存错误并发出诊断信号，返回false以供失败分支直接返回。 */
     bool fail(const QString &description);
@@ -59,6 +64,9 @@ private:
     QString m_lastError; ///< 最近传输错误，低频诊断文本。
     quint64 m_generation = 0; ///< 启停代次，防止旧续读处理新socket。
     quint64 m_oversized = 0; ///< 超长整包丢弃计数。
+    quint64 m_readFailures = 0; ///< readDatagram 非暂时性失败累计次数，不包含无包或协议门禁拒绝。
+    quint64 m_readyReadNotifications = 0; ///< 生命周期累计 Qt 接收通知数，区别于实际数据报数。
+    quint64 m_emptyReads = 0; ///< 生命周期累计暂时无包次数；延迟通知/续读的空唤醒不代表丢包。
     bool m_active = false; ///< 当前socket已经成功绑定。
     bool m_continuationPending = false; ///< 传输层唯一续读唤醒，不保存数据或Consumer调度状态。
     bool m_draining = false; ///< 拒绝同步重入，保护借用缓冲有效期。
