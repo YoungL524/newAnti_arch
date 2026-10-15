@@ -40,6 +40,7 @@ TaskService::TaskService(
 /**
  * @brief 读取全部未软删除任务，为每项分配新 TaskId 并建立归档映射。
  * @details TaskId 仅在当前进程稳定，加载顺序按数据库 task_id 确定，重启后允许得到不同数值。
+ * 加载完成后明确发布 None；历史任务台账不代表本进程已重新激活任务或重建采集会话。
  */
 bool TaskService::loadFromDatabase()
 {
@@ -94,6 +95,7 @@ bool TaskService::loadFromDatabase()
         m_taskIdsByUuid.insert(tasks[index].taskUuid, taskId);
         m_tasks.insert(taskId.value(), tasks[index]);
     }
+    if (!publishTaskState(core::model::TaskId(), core::model::TaskPhase::None)) return false;
     m_lastError.clear();
     return true;
 }
@@ -420,17 +422,13 @@ bool TaskService::resolveTask(const QUuid &taskUuid, core::model::TaskId &taskId
 }
 
 /**
- * @brief 验证任务和设备配置后先创建 SQLite 会话，再分配 AcquisitionId 并冻结归档上下文。
- * @details protocolAdapterKey 为空时明确拒绝启动，因此当前可以搭好架构而不会假装未知协议已经可用。
+ * @brief 校验完整阵面集合，预留不复用句柄，原子创建全部会话；身份绑定失败显式收口，清理失败置 Faulted。
  */
-bool TaskService::startCollection(
-    core::model::TaskId taskId,
-    core::model::DeviceId deviceId,
-    core::model::EndpointId endpointId,
-    quint8 faceIndex,
-    core::model::AcquisitionId &acquisitionId)
+bool TaskService::startCollections(core::model::TaskId taskId, core::model::DeviceId deviceId,
+    core::model::EndpointId endpointId, quint8 faceMask,
+    std::array<core::model::AcquisitionId, 4> &acquisitionIds)
 {
-    acquisitionId = core::model::AcquisitionId();
+    acquisitionIds = {};
     const auto taskFound = m_databaseTaskIds.constFind(taskId.value());
     if (!taskId.isSet() || taskFound == m_databaseTaskIds.cend()) {
         m_lastError = QStringLiteral("TaskId 未由当前 TaskService 创建或加载");
@@ -449,10 +447,10 @@ bool TaskService::startCollection(
     const QUuid deviceUuid = m_stableIds.resolveDevice(deviceId);
     const auto &bindings = m_tasks.value(taskId.value()).deviceBindings;
     const bool belongsToTask = std::any_of(
-        bindings.cbegin(), bindings.cend(), [&deviceUuid, faceIndex](const TaskDeviceBinding &binding) {
-            return !deviceUuid.isNull() && faceIndex < 4U
+        bindings.cbegin(), bindings.cend(), [&deviceUuid, faceMask](const TaskDeviceBinding &binding) {
+            return !deviceUuid.isNull() && faceMask != 0U && (faceMask & 0xF0U) == 0U
                 && binding.deviceUuid == deviceUuid
-                && (binding.faceMask & (quint8(1U) << faceIndex)) != 0U;
+                && binding.faceMask == faceMask;
         });
     if (!belongsToTask) {
         m_lastError = QStringLiteral("设备或阵面不属于当前任务的冻结绑定");
@@ -470,110 +468,82 @@ bool TaskService::startCollection(
         return false;
     }
 
-    QUuid sessionUuid;
-    qint64 collectionSessionId = 0;
-    if (!m_runtimeRepository.createCollectionSession(
-            *taskFound, deviceRevisionId, endpointKey, faceIndex, sessionUuid, collectionSessionId)) {
-        m_lastError = m_runtimeRepository.lastError();
-        return false;
-    }
-    const auto allocated = allocateAcquisitionId();
-    if (!allocated.isSet()) {
-        return false;
-    }
-    if (!m_archiveRepository.bindAcquisition(
-            allocated, collectionSessionId, deviceId, taskId, endpointId)
-        || !m_stableIds.registerAcquisition(allocated, sessionUuid)) {
-        m_lastError = m_archiveRepository.lastError();
-        if (m_lastError.isEmpty()) m_lastError = QStringLiteral("稳定采集会话身份登记冲突");
-        return false;
-    }
-    m_collections.insert(allocated.value(), ActiveCollection {collectionSessionId, taskId, faceIndex, true});
-    acquisitionId = allocated;
-    m_lastError.clear();
-    return true;
-}
 
-/**
- * @brief 串行创建各启用阵面的独立会话，全部成功后才把任务推进到Running。
- * @details 任一创建或状态发布失败时，以Error原因收口本次已创建会话，避免留下可继续接收的半启动集合。
- */
-bool TaskService::startCollections(
-    core::model::TaskId taskId,
-    core::model::DeviceId deviceId,
-    core::model::EndpointId endpointId,
-    quint8 faceMask,
-    std::array<core::model::AcquisitionId, 4> &acquisitionIds)
-{
-    acquisitionIds = {};
-    if (faceMask == 0U || (faceMask & 0xF0U) != 0U) {
-        m_lastError = QStringLiteral("采集阵面位图无效");
-        return false;
+    std::array<core::model::AcquisitionId, 4> allocated {};
+    for (quint8 face = 0; face < 4; ++face) {
+        if ((faceMask & (1U << face)) == 0) continue;
+        allocated[face] = allocateAcquisitionId();
+        if (!allocated[face].isSet()) return false;
     }
-    for (quint8 faceIndex = 0; faceIndex < acquisitionIds.size(); ++faceIndex) {
-        if ((faceMask & (quint8(1U) << faceIndex)) == 0U) continue;
-        if (!startCollection(taskId, deviceId, endpointId, faceIndex,
-                             acquisitionIds[faceIndex])) {
-            const QString firstError = m_lastError;
-            const qint64 stoppedUtcMs = QDateTime::currentMSecsSinceEpoch();
-            for (core::model::AcquisitionId created : acquisitionIds) {
-                if (created.isSet()) {
-                    stopCollection(created, CollectionStopReason::Error, stoppedUtcMs);
-                }
-            }
-            acquisitionIds = {};
-            m_lastError = firstError;
-            return false;
+    std::array<QUuid, 4> uuids {};
+    std::array<qint64, 4> ids {};
+    if (!m_runtimeRepository.createCollectionSessions(*taskFound, deviceRevisionId, endpointKey, faceMask, uuids, ids)) {
+        m_lastError = m_runtimeRepository.lastError(); return false;
+    }
+    QVector<core::model::AcquisitionId> created;
+    for (quint8 face = 0; face < 4; ++face) if (allocated[face].isSet()) {
+        m_collections.insert(allocated[face].value(), ActiveCollection {ids[face], taskId, face, true});
+        created.append(allocated[face]);
+    }
+    bool bound = true;
+    for (quint8 face = 0; face < 4; ++face) if (allocated[face].isSet()) {
+        if (!m_archiveRepository.bindAcquisition(allocated[face], ids[face], deviceId, taskId, endpointId)
+            || !m_stableIds.registerAcquisition(allocated[face], uuids[face])) {
+            bound = false; m_lastError = QStringLiteral("采集会话归档或稳定身份绑定失败"); break;
         }
     }
-    if (publishTaskState(taskId, core::model::TaskPhase::Running)) {
-        m_lastError.clear();
-        return true;
+    if (bound && publishTaskState(taskId, core::model::TaskPhase::Running)) {
+        acquisitionIds = allocated; m_lastError.clear(); return true;
     }
     const QString firstError = m_lastError;
-    const qint64 stoppedUtcMs = QDateTime::currentMSecsSinceEpoch();
-    for (core::model::AcquisitionId created : acquisitionIds) {
-        if (created.isSet()) {
-            stopCollection(created, CollectionStopReason::Error, stoppedUtcMs);
-        }
-    }
-    acquisitionIds = {};
-    m_lastError = firstError;
+    if (!stopCollections(created, CollectionStopReason::Error, QDateTime::currentMSecsSinceEpoch())) {
+        const QString cleanupError = m_lastError;
+        publishTaskState(taskId, core::model::TaskPhase::Faulted);
+        m_lastError = firstError + QStringLiteral("；采集回滚失败：") + cleanupError;
+    } else m_lastError = firstError;
     return false;
 }
 
 /**
- * @brief 数据库成功收口后再把内存活动位改为 false，失败时 Producer 仍可按原状态处置。
- * @details 归档身份映射不会删除，使停止前已经进入 Topic、但尚未提交 SQLite 的记录仍能解析会话。
+ * @brief 先校验所有活动句柄，再原子提交停止，成功后统一更新内存；晚到归档身份保持有效。
  */
-bool TaskService::stopCollection(
-    core::model::AcquisitionId acquisitionId,
-    CollectionStopReason reason,
-    qint64 stoppedUtcMs)
+bool TaskService::stopCollections(const QVector<core::model::AcquisitionId> &acquisitionIds,
+    CollectionStopReason reason, qint64 stoppedUtcMs)
 {
-    auto found = m_collections.find(acquisitionId.value());
-    const quint8 reasonValue = static_cast<quint8>(reason);
-    if (!acquisitionId.isSet() || found == m_collections.end() || !found->active
-        || reasonValue < 1 || reasonValue > 4 || stoppedUtcMs <= 0) {
-        m_lastError = QStringLiteral("AcquisitionId、停止原因或停止时间无效");
-        return false;
+    QVector<qint64> ids;
+    QSet<quint64> seen;
+    core::model::TaskId taskId;
+    for (const auto id : acquisitionIds) {
+        const auto found = m_collections.constFind(id.value());
+        if (!id.isSet() || seen.contains(id.value()) || found == m_collections.cend() || !found->active
+            || (taskId.isSet() && taskId != found->taskId)) {
+            m_lastError = QStringLiteral("停止集合包含无效、重复、已停止或跨任务句柄"); return false;
+        }
+        seen.insert(id.value()); ids.append(found->collectionSessionId); taskId = found->taskId;
     }
-    if (!m_runtimeRepository.stopCollectionSession(
-            found->collectionSessionId, reasonValue, stoppedUtcMs)) {
-        m_lastError = m_runtimeRepository.lastError();
-        return false;
+    if (!m_runtimeRepository.stopCollectionSessions(ids, static_cast<quint8>(reason), stoppedUtcMs)) {
+        const QString failure = m_runtimeRepository.lastError();
+        if (reason == CollectionStopReason::Error && taskId.isSet())
+            publishTaskState(taskId, core::model::TaskPhase::Faulted);
+        m_lastError = failure; return false;
     }
-    found->active = false;
-    const core::model::TaskId taskId = found->taskId;
-    const bool taskStillRunning = std::any_of(
-        m_collections.cbegin(), m_collections.cend(), [taskId](const ActiveCollection &collection) {
-            return collection.active && collection.taskId == taskId;
-        });
-    if (!taskStillRunning && !publishTaskState(taskId, core::model::TaskPhase::Ready)) {
-        return false;
-    }
-    m_lastError.clear();
-    return true;
+    for (const auto id : acquisitionIds) m_collections[id.value()].active = false;
+    const bool running = std::any_of(m_collections.cbegin(), m_collections.cend(),
+        [taskId](const ActiveCollection &collection) { return collection.active && collection.taskId == taskId; });
+    if (!running && !publishTaskState(taskId, core::model::TaskPhase::Ready)) return false;
+    m_lastError.clear(); return true;
+}
+
+/**
+ * @brief Producer 停止后收口当前 run 全部活动会话；空集合成功，失败保留活动位供异常恢复。
+ */
+bool TaskService::stopAllCollections(qint64 stoppedUtcMs)
+{
+    QVector<core::model::AcquisitionId> active;
+    for (auto it = m_collections.cbegin(); it != m_collections.cend(); ++it)
+        if (it->active) active.append(core::model::AcquisitionId::fromRaw(it.key()));
+    if (active.isEmpty()) { m_lastError.clear(); return true; }
+    return stopCollections(active, CollectionStopReason::ProcessShutdown, stoppedUtcMs);
 }
 
 /**

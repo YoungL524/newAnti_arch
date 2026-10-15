@@ -6,9 +6,11 @@
  */
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { HeartbeatStatus, WsDeviceStateMessage, WsMessage, WsTracksMessage, WsTrackDisplayPoint, RadarTrack, LogEntry, TrackHistoryPoint, SystemEvent } from '../lib/protocol'
+import type { HeartbeatStatus, WsDeviceStateMessage, WsSystemStateMessage, WsTaskStateMessage, WsMessage, WsTracksMessage, WsTrackDisplayPoint, RadarTrack, LogEntry, TrackHistoryPoint, SystemEvent } from '../lib/protocol'
 import { applyTrackStreamMessage, trackPointKey, trackTrailKey } from '../lib/trackStream'
 import { startTaskAcquisitionApi, stopTaskAcquisitionApi } from '../lib/tasksApi'
+import { fetchTaskLogPage } from '../lib/historyApi'
+import { useTrackReplay } from './useTrackReplay'
 
 interface DeviceState {
   id: string
@@ -19,6 +21,8 @@ interface DeviceState {
 interface CoreState {
   connected: boolean
   deviceHeartbeat: WsDeviceStateMessage | null
+  systemState: WsSystemStateMessage | null ///< Core 系统最后完整快照；断线或未初始化为 null。
+  taskState: WsTaskStateMessage | null ///< TaskService 最后完整快照，None 与未收到消息的 null 含义不同。
   acquisition: boolean
   state: string
   commandPending: boolean
@@ -30,10 +34,14 @@ interface CoreState {
   tracks: RadarTrack[]
   mapOldTracks: RadarTrack[] ///< 仅供地图绘制的旧路径形状点；数据表继续使用近期原始点。
   historyTracks: TrackHistoryPoint[]
+  replay: ReturnType<typeof useTrackReplay> | null ///< 只读回放控制器；historyTracks 与其 points 为同一可见数组。
   systemEvents: SystemEvent[]
   historyLogs: LogEntry[]
   historyLoading: boolean
   historyError: string
+  historyNextCursor: string | null ///< 当前页的更早游标，不是 Topic cursor，也不保存过去页面。
+  loadEarlierHistoryLogs: () => void ///< 使用当前游标替换日志页。
+  reloadHistoryLogs: () => void ///< 重新读取最新页，亦用于失败后重试。
   historyViewNotice: string
   isHistoryView: boolean
   trackRate: number
@@ -48,10 +56,11 @@ interface CoreState {
 }
 
 const defaultState: CoreState = {
-  connected: false, deviceHeartbeat: null, acquisition: false, state: 'Unknown', commandPending: false,
+  connected: false, deviceHeartbeat: null, systemState: null, taskState: null, acquisition: false, state: 'Unknown', commandPending: false,
   devices: [], checkedDeviceIds: [], noSelectionHint: false, commandError: '', interactionError: '',
-  tracks: [], mapOldTracks: [], trackRate: 0, historyTracks: [], systemEvents: [], historyLogs: [], historyLoading: false, historyError: '',
+  tracks: [], mapOldTracks: [], trackRate: 0, historyTracks: [], replay: null, systemEvents: [], historyLogs: [], historyLoading: false, historyError: '',
   historyViewNotice: '', isHistoryView: false,
+  historyNextCursor: null, loadEarlierHistoryLogs: () => {}, reloadHistoryLogs: () => {},
   logEntries: [], liveTracksNotice: '',
   setCheckedDevices: () => {}, dismissNoSelectionHint: () => {}, dismissCommandError: () => {}, dismissInteractionError: () => {}, toggleAcquisition: () => {},
   setTrackInteraction: async () => false,
@@ -133,18 +142,45 @@ function simplifyOlderChunk(points: WsTrackDisplayPoint[]): WsTrackDisplayPoint[
 }
 
 /**
- * @brief 将退出 Web 近期窗口的原始点移入当前会话旧路径，每 64 点压缩一次。
+ * @brief 将退出 Web 近期窗口的点移入旧路径，每 64 点压缩，形状和待压缩点合计最多 2048 点。
  * @param route 当前 TrackKey 在浏览器内唯一的旧路径派生状态。
  * @param point 刚被近期窗口覆盖的原始点。
  */
 function appendOlderPoint(route: OlderRoute, point: WsTrackDisplayPoint): void {
   route.pending.push(point)
+  const excess = route.simplified.length + route.pending.length - 2048
+  if (excess > 0) {
+    const oldCount = Math.min(excess, route.simplified.length)
+    route.simplified.splice(0, oldCount)
+    if (excess > oldCount) route.pending.splice(0, excess - oldCount)
+  }
   if (route.pending.length < 64) return
   const previousEnd = route.simplified[route.simplified.length - 1]
   const chunk = previousEnd ? [previousEnd, ...route.pending] : route.pending
   const simplified = simplifyOlderChunk(chunk)
   route.simplified.push(...(previousEnd ? simplified.slice(1) : simplified))
   route.pending = []
+  if (route.simplified.length > 2048) route.simplified.splice(0, route.simplified.length - 2048)
+}
+
+/**
+ * @brief 全页旧路径最多 32768 点，优先裁剪最早前缀；不删除近期点，不修改设备消亡或归档。
+ */
+function trimOlderRoutes(routes: Map<string, OlderRoute>): void {
+  let total = 0
+  for (const route of routes.values()) total += route.simplified.length + route.pending.length
+  while (total > 32768) {
+    let oldest: OlderRoute | undefined
+    let timestamp = Infinity
+    for (const route of routes.values()) {
+      const point = route.simplified[0] ?? route.pending[0]
+      if (point && point.receiveUtcMs < timestamp) { oldest = route; timestamp = point.receiveUtcMs }
+    }
+    if (!oldest) break
+    const prefix = oldest.simplified.length ? oldest.simplified : oldest.pending
+    const count = Math.min(prefix.length, total - 32768)
+    prefix.splice(0, count); total -= count
+  }
 }
 
 /**
@@ -163,10 +199,9 @@ function toRadarTrack(point: WsTrackDisplayPoint, compacted: boolean): RadarTrac
     slantRange: point.rangeM,
     azimuth: point.azimuthRad * 180 / Math.PI,
     elevation: point.elevationRad * 180 / Math.PI,
-    altitude: 0,
     radialSpeed: point.radialVelocityMps,
-    amplitude: point.amplitude ?? 0, snr: 0, extrapolateFlag: 0,
-    targetType: point.trackId, signalId: 0, sceneNum: 0,
+    amplitude: point.amplitude,
+    targetType: 0,
     timestamp: point.receiveUtcMs,
     pointIndex: point.pointIndex,
     compacted,
@@ -195,6 +230,7 @@ function mapOlderRoutes(routes: Map<string, OlderRoute>, deviceIds: readonly str
   return older
 }
 
+/** @brief 持有页面唯一实时连接与最后快照；任务快照变化通知台账 Owner 刷新，不在此复制台账。 */
 export function CoreProvider({
   children,
   activeTaskId = null,
@@ -204,6 +240,7 @@ export function CoreProvider({
   tasksReady = false,
   devicesReady = false,
   defaultCheckedDeviceIds = [],
+  onTaskStateChange,
 }: {
   children: ReactNode
   activeTaskId?: string | null
@@ -213,11 +250,18 @@ export function CoreProvider({
   tasksReady?: boolean
   devicesReady?: boolean
   defaultCheckedDeviceIds?: string[]
+  onTaskStateChange?: (snapshot: WsTaskStateMessage | null) => void ///< 已接受的任务变化或断线；由上层刷新台账与选择。
 }) {
   const [state, setState] = useState<CoreState>(() => ({
     ...defaultState,
     setCheckedDevices: () => {}, toggleAcquisition: () => {},
   }))
+  const [historyPage, setHistoryPage] = useState<{ taskId: string; cursor?: string }>({ taskId: '' })
+
+  /** @brief React 提交最后快照后才通知台账 Owner，避免在 setState 更新函数内执行外部副作用。 */
+  useEffect(() => {
+    onTaskStateChange?.(state.taskState)
+  }, [state.taskState, onTaskStateChange])
 
   const tracksRef = useRef<RadarTrack[]>([])
   const olderRoutesRef = useRef<Map<string, OlderRoute>>(new Map())
@@ -236,6 +280,7 @@ export function CoreProvider({
   activeTaskDeviceIdsRef.current = activeTaskDeviceIds
   tasksReadyRef.current = tasksReady
   const isHistoryView = !!viewTaskRunId && viewTaskRunId !== activeTaskId
+  const replay = useTrackReplay(isHistoryView ? viewTaskRunId ?? null : null, state.connected)
   const selectionContextId = viewTaskRunId ?? activeTaskId
 
   const applyPendingInteractions = useCallback((list: RadarTrack[]): RadarTrack[] => {
@@ -377,10 +422,45 @@ export function CoreProvider({
       historyLogs: [],
       historyLoading: false,
       historyError: '',
+      historyNextCursor: null,
       historyViewNotice,
       isHistoryView,
     }))
   }, [viewTaskRunId, historyViewNotice, isHistoryView])
+
+  /** @brief 历史任务切换、页切换或重连时读取唯一当前页；取消旧请求后禁止回写其他任务的页面。 */
+  useEffect(() => {
+    if (!isHistoryView || !viewTaskRunId) return
+    if (!state.connected) {
+      setState(prev => ({ ...prev, historyLoading: false, historyError: '后端未连接，无法读取归档日志', historyNextCursor: null }))
+      return
+    }
+    const request = new AbortController()
+    const cursor = historyPage.taskId === viewTaskRunId ? historyPage.cursor : undefined
+    setState(prev => ({ ...prev, historyLoading: true, historyError: '', historyLogs: [], historyNextCursor: null }))
+    fetchTaskLogPage(viewTaskRunId, cursor, request.signal)
+      .then(page => {
+        if (!request.signal.aborted) setState(prev => ({ ...prev, historyLogs: page.logs, historyNextCursor: page.nextCursor ?? null }))
+      })
+      .catch(error => {
+        if (!request.signal.aborted) setState(prev => ({ ...prev, historyError: error instanceof Error ? error.message : '历史日志读取失败' }))
+      })
+      .finally(() => {
+        if (!request.signal.aborted) setState(prev => ({ ...prev, historyLoading: false }))
+      })
+    return () => request.abort()
+  }, [isHistoryView, viewTaskRunId, state.connected, historyPage])
+
+  /** @brief 只替换当前历史页，不拼接全量历史；末页或已有请求时忽略重复点击。 */
+  const loadEarlierHistoryLogs = useCallback(() => {
+    if (isHistoryView && viewTaskRunId && state.historyNextCursor && !state.historyLoading)
+      setHistoryPage({ taskId: viewTaskRunId, cursor: state.historyNextCursor })
+  }, [isHistoryView, viewTaskRunId, state.historyNextCursor, state.historyLoading])
+
+  /** @brief 清除该查询的分页位置并重新读取最新已提交记录，不要求后端强制排空归档。 */
+  const reloadHistoryLogs = useCallback(() => {
+    if (isHistoryView && viewTaskRunId && !state.historyLoading) setHistoryPage({ taskId: viewTaskRunId })
+  }, [isHistoryView, viewTaskRunId, state.historyLoading])
 
   // ── WebSocket（页面唯一实时连接；开关事件就是后端出口连接事实）──
   useEffect(() => {
@@ -448,13 +528,10 @@ export function CoreProvider({
     }
 
     /** @brief 先按 revision 应用完整批次，再以批次结束时仍存在的目标区分尾迹覆盖与目标消亡。 */
-    const applyTracksMessage = (msg: WsTracksMessage) => {
+    const applyTracksMessage = (msg: WsTracksMessage): boolean => {
       const expired = new Map<string, WsTrackDisplayPoint[]>()
       if (msg.type === 'trackSnapshot') {
-        const currentTrails = new Set(msg.payload.tracks.map(trackTrailKey))
-        for (const key of olderRoutes.keys()) {
-          if (!currentTrails.has(key)) olderRoutes.delete(key)
-        }
+        olderRoutes.clear()
       } else {
         const sameBatchPoints = new Map(msg.payload.upserts.map(point => [trackPointKey(point), point]))
         for (const key of msg.payload.removals) {
@@ -471,7 +548,7 @@ export function CoreProvider({
       if (nextRevision == null) {
         console.warn('[tracks] revision gap, reconnecting', tracksRevision, msg.revision)
         ws?.close(4000, 'tracks revision gap')
-        return
+        return false
       }
       if (msg.type === 'trackDelta') {
         const retired = new Set((msg.payload.retirements ?? []).map(trackTrailKey))
@@ -490,7 +567,7 @@ export function CoreProvider({
         }
       }
       tracksRevision = nextRevision
-      renderWireTracks()
+      return true
     }
 
     const scheduleTracksMessage = (raw: string) => {
@@ -505,12 +582,18 @@ export function CoreProvider({
         tracksRaf = 0
         const batch = pendingTracksRaw
         pendingTracksRaw = []
+        let changed = false
         for (const nextRaw of batch) {
           try {
             const msg = JSON.parse(nextRaw) as WsMessage
-            if (msg.type === 'trackSnapshot' || msg.type === 'trackDelta') applyTracksMessage(msg)
-          } catch { /* ignore */ }
+            if (msg.type === 'trackSnapshot' || msg.type === 'trackDelta') {
+              if (!applyTracksMessage(msg)) break
+              changed = true
+            }
+          } catch { ws?.close(4000, 'invalid tracks message'); break }
         }
+        trimOlderRoutes(olderRoutes)
+        if (changed) renderWireTracks()
       })
     }
 
@@ -542,7 +625,14 @@ export function CoreProvider({
         }
         try {
           const msg: WsMessage = JSON.parse(raw)
-          if (isDeviceStateMessage(msg)) {
+          if (isSystemStateMessage(msg)) {
+            /** @brief 同一连接只接受更新 revision；重连已清空旧值，允许新进程从 1 开始。 */
+            setState(prev => prev.systemState && BigInt(msg.revision) <= BigInt(prev.systemState.revision)
+              ? prev : { ...prev, systemState: msg })
+          } else if (isTaskStateMessage(msg)) {
+            setState(prev => prev.taskState && BigInt(msg.revision) <= BigInt(prev.taskState.revision)
+              ? prev : { ...prev, taskState: msg })
+          } else if (isDeviceStateMessage(msg)) {
             const acquisition = msg.payload.devices.some(device => device.acquisition)
             if (!acquisition) {
               /** 停止采集后丢弃尚未进入绘制帧的旧会话增量，避免清空后的画面被排队数据重新填充。 */
@@ -580,8 +670,15 @@ export function CoreProvider({
 
       ws.onclose = () => {
         if (cancelled) return
+        if (tracksRaf) cancelAnimationFrame(tracksRaf)
+        tracksRaf = 0; pendingTracksRaw = []; tracksRevision = null
+        wireTracks.clear(); olderRoutes.clear(); tracksRef.current = []
+        workingRef.current = false
+        setState(prev => ({ ...prev, acquisition: false, tracks: [], mapOldTracks: [], trackRate: 0 }))
         logRef.current = []
-        setState(prev => ({ ...prev, connected: false, deviceHeartbeat: null }))
+        setState(prev => ({ ...prev, connected: false, deviceHeartbeat: null, systemState: null, taskState: null,
+          historyLoading: false, historyNextCursor: null,
+          historyError: prev.isHistoryView ? '后端未连接，无法读取归档日志' : prev.historyError }))
         reconnectTimer = setTimeout(connect, 1000)
       }
     }
@@ -622,7 +719,10 @@ export function CoreProvider({
 
   const contextValue = useMemo(() => ({
     ...state, setCheckedDevices, dismissNoSelectionHint, dismissCommandError, dismissInteractionError, toggleAcquisition, setTrackInteraction,
-  }), [state, setCheckedDevices, dismissNoSelectionHint, dismissCommandError, dismissInteractionError, toggleAcquisition, setTrackInteraction])
+    historyTracks: replay.points, replay,
+    loadEarlierHistoryLogs, reloadHistoryLogs,
+  }), [state, setCheckedDevices, dismissNoSelectionHint, dismissCommandError, dismissInteractionError, toggleAcquisition, setTrackInteraction,
+    loadEarlierHistoryLogs, reloadHistoryLogs, replay])
 
   return (
     <CoreContext.Provider value={contextValue}>
@@ -672,6 +772,53 @@ function isDeviceStateMessage(value: unknown): value is WsDeviceStateMessage {
     && payload.fpDataMask >= 0 && payload.fpDataMask <= 0x0f
     && validPose
     && Array.isArray(payload.devices)
+}
+
+/**
+ * @brief 校验 Core 系统快照的时间、uint64 修订号、枚举与状态组合，拒绝伪造就绪及未知位。
+ * @param value WebSocket JSON 解析后的未知输入；本函数不修改页面状态。
+ * @return 满足 SystemState 网络合同才允许保留为最后快照。
+ */
+function isSystemStateMessage(value: unknown): value is WsSystemStateMessage {
+  if (!value || typeof value !== 'object') return false
+  const message = value as Partial<WsSystemStateMessage>
+  const payload = message.payload
+  return message.type === 'systemState'
+    && typeof message.sentUtcMs === 'number' && Number.isSafeInteger(message.sentUtcMs) && message.sentUtcMs > 0
+    && typeof message.revision === 'string' && /^[1-9]\d{0,19}$/.test(message.revision)
+    && BigInt(message.revision) <= 18446744073709551615n
+    && !!payload && typeof payload === 'object'
+    && Number.isSafeInteger(payload.processStartedUtcMs) && payload.processStartedUtcMs > 0
+    && payload.processStartedUtcMs <= message.sentUtcMs
+    && Number.isInteger(payload.phase) && payload.phase >= 0 && payload.phase <= 4
+    && Number.isInteger(payload.health) && payload.health >= 0 && payload.health <= 2
+    && Number.isInteger(payload.readinessFlags) && payload.readinessFlags >= 0 && payload.readinessFlags <= 63
+    && Number.isInteger(payload.degradationFlags) && payload.degradationFlags >= 0 && payload.degradationFlags <= 63
+    && (payload.phase !== 1 || payload.readinessFlags === 63)
+    && ((payload.phase !== 2 && payload.phase !== 3) || payload.readinessFlags === 0)
+    && ((payload.phase === 4) === (payload.health === 2))
+    && (payload.health === 2 || (payload.health === 0 ? payload.degradationFlags === 0 : payload.degradationFlags !== 0))
+}
+
+/**
+ * @brief 校验独立任务流的时间、修订号、阶段和非零稳定身份；不把未收到状态当作 None。
+ * @param value 网络 JSON 的未知输入，不修改任务台账或本地采集状态。
+ * @return 只有 None 省略 taskId、其他阶段具有有效 UUID 时允许进入最后快照。
+ */
+function isTaskStateMessage(value: unknown): value is WsTaskStateMessage {
+  if (!value || typeof value !== 'object') return false
+  const message = value as Partial<WsTaskStateMessage>
+  const payload = message.payload
+  if (message.type !== 'taskState'
+    || !Number.isSafeInteger(message.sentUtcMs) || (message.sentUtcMs ?? 0) <= 0
+    || typeof message.revision !== 'string' || !/^[1-9]\d{0,19}$/.test(message.revision)
+    || BigInt(message.revision) > 18446744073709551615n
+    || !payload || typeof payload !== 'object') return false
+  if (payload.phase === 'none') return payload.taskId === undefined
+  return ['ready', 'running', 'completed', 'faulted'].includes(payload.phase)
+    && typeof payload.taskId === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(payload.taskId)
+    && payload.taskId !== '00000000-0000-0000-0000-000000000000'
 }
 
 /**

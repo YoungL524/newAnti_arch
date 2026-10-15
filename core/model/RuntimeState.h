@@ -1,8 +1,8 @@
 /**
  * @file RuntimeState.h
  * @brief 定义设备、任务和后端进程三个低频完整运行状态。
- * @details 上游唯一 Owner 先在自身状态机内形成完整值并通过 RuntimeStateGate 校验，下游将在下一阶段由
- * CoreDataDomain 的三个 LatestState 共享给 WebReader；当前已接入心跳owner。本文件不保存历史、Command、设备配置或航迹，
+ * @details 上游 DeviceController、TaskService、SystemStateOwner 形成完整值并通过 RuntimeStateGate 校验，
+ * CoreDataDomain 的三个 LatestState 共享给 Reader，当前 Web 接入 Device/System。本文件不保存历史、Command、设备配置或航迹，
  * DeviceRuntimeState 仅是多设备完整快照的有界元素，不单独建立 Topic；新人应先阅读三个 State 的不变量。
  */
 
@@ -165,14 +165,14 @@ enum class SystemReadinessFlag : quint32
     ConfigurationLoaded = 1U << 1, ///< 设备配置真源已经装载并验证。
     DataDomainReady = 1U << 2, ///< CoreDataDomain 已按容量策略构造。
     ArchiveReady = 1U << 3, ///< 归档 Repository 与 Reader 已可工作。
-    WebReady = 1U << 4, ///< Web 静态/API/WebSocket 边界已监听。
+    WebReady = 1U << 4, ///< Core HTTP/API 与 WebSocket 已监听；不代表外部 Node 静态页面服务健康。
     ControlPlaneReady = 1U << 5 ///< ApplicationController 与设备控制通道已就绪。
 };
 
 /** @brief 保存多个 SystemReadinessFlag 的紧凑位集合。 */
 using SystemReadinessFlags = quint32;
 
-/** @brief 标记当前仍成立且能由 SystemStateOwner 解除的系统降级原因。 */
+/** @brief 标记系统降级原因；归档不可用可恢复，已发生的归档缺口在本 Runtime 生命周期内保留。 */
 enum class SystemDegradationFlag : quint32
 {
     None = 0, ///< 当前没有系统降级。

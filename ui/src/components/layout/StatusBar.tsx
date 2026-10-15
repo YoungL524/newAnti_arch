@@ -1,7 +1,7 @@
 /**
  * @file StatusBar.tsx
  * @brief 显示核心服务连接、WebSocket 数据流和当前时间等运行状态。
- * @details 状态栏只消费连接状态，不参与重连策略或航迹缓存更新。
+ * @details 状态栏消费 CoreProvider 的系统最后快照与连接状态，不参与重连或航迹缓存更新。
  */
 
 import { useState, useEffect } from 'react'
@@ -29,7 +29,18 @@ function useClock() {
  */
 export default function StatusBar({ activeTask }: { activeTask: Task | null }) {
   const clock = useClock()
-  const { trackRate, acquisition } = useCore()
+  const { trackRate, acquisition, connected, systemState } = useCore()
+  const system = connected ? systemState?.payload : undefined
+  const systemLabel = !connected ? 'Core 未连接' : !system ? '等待系统状态'
+    : system.health === 2 ? 'Core 故障' : system.health === 1 ? 'Core 降级'
+      : ['Core 启动中', 'Core 就绪', 'Core 停止中', 'Core 已停止', 'Core 故障'][system.phase]
+  const systemColor = !system ? 'var(--hairlineStrong)' : system.health === 2 ? '#ef4444'
+    : system.health === 1 ? '#f59e0b' : system.phase === 1 ? 'var(--primaryContainer)' : 'var(--hairlineStrong)'
+  const systemDetail = system ? [
+    (system.degradationFlags & 1) !== 0 ? '归档提交失败' : '',
+    (system.degradationFlags & 2) !== 0 ? '已发生航迹归档缺口' : '',
+    (system.degradationFlags & 4) !== 0 ? '已发生事件归档缺口' : '',
+  ].filter(Boolean).join('；') || systemLabel : systemLabel
   const activeFaceIndices = activeTask
     ? [0, 1, 2, 3].filter(index => activeTask.deviceIds.some(deviceId =>
         ((activeTask.deviceFaceMasks[deviceId] ?? 0x01) & (1 << index)) !== 0))
@@ -45,10 +56,10 @@ export default function StatusBar({ activeTask }: { activeTask: Task | null }) {
         fontFamily: "'JetBrains Mono', monospace",
       }}
     >
-      <div className="flex items-center gap-2">
-        <span className="w-1.5 h-1.5 rounded-full animate-pulse"
-          style={{ background: 'var(--primaryContainer)' }} />
-        <span>DCMP v2.4.0 · 就绪</span>
+      <div className="flex items-center gap-2" title={systemDetail}>
+        <span className="w-1.5 h-1.5 rounded-full"
+          style={{ background: systemColor }} />
+        <span>DCMP v2.4.0 · {systemLabel}</span>
       </div>
       <div className="flex gap-4 items-center">
         {activeTask && <HeartbeatIndicators faceIndices={activeFaceIndices} />}

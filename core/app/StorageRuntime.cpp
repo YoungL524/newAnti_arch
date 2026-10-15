@@ -3,6 +3,7 @@
 
 #include "core/archive/SqliteArchiveRepository.h"
 #include "core/archive/ArchiveReader.h"
+#include "core/app/SystemStateOwner.h"
 #include "core/producer/SystemEventPublisher.h"
 #include "core/config/DeviceConfigService.h"
 #include "core/execution/ExecutionLane.h"
@@ -12,11 +13,15 @@
 #include "core/task/RadarControlSettingsJson.h"
 
 #include <QDateTime>
+#include <QDebug>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QThread>
+#include <QUrl>
+#include <QUrlQuery>
+#include <QSet>
 
 #include <chrono>
 #include <limits>
@@ -230,13 +235,15 @@ StorageRuntime::StorageRuntime(
     core::model::StableIdRegistry &stableIds,
     const core::domain::HistoryTopic<core::model::TrackPacket> &trackTopic,
     core::domain::EventTopic<core::model::SystemEvent> &eventTopic,
-    core::domain::LatestState<core::model::TaskState> &taskState)
+    core::domain::LatestState<core::model::TaskState> &taskState,
+    SystemStateOwner &systemStateOwner)
     : m_databasePath(std::move(databasePath))
     , m_applicationVersion(std::move(applicationVersion))
     , m_stableIds(stableIds)
     , m_trackTopic(trackTopic)
     , m_eventTopic(eventTopic)
     , m_taskState(taskState)
+    , m_systemStateOwner(systemStateOwner)
 {
 }
 
@@ -244,6 +251,253 @@ StorageRuntime::StorageRuntime(
  * @brief 在异常析构时释放纯 C++ Owner；正常路径已由 shutdown() 在正确线程清空。
  */
 StorageRuntime::~StorageRuntime() = default;
+
+/**
+ * @brief 校验航迹查询及其任务/时间绑定游标，复用唯一连接读取一页；不把查询结果重新写进实时 Topic。
+ */
+QByteArray StorageRuntime::listArchivedTracks(const QString &requestTarget)
+{
+    if (!m_runtimeRepository || !m_taskService) return errorJson(QStringLiteral("SERVICE_UNAVAILABLE"), QStringLiteral("存储尚未初始化"));
+    const QUrl url(requestTarget);
+    const QUrlQuery query(url);
+    if (!url.isValid() || requestTarget.size() > 2048) return errorJson(QStringLiteral("INVALID_REQUEST"), QStringLiteral("航迹查询目标无效"));
+    QSet<QString> keys;
+    for (const auto &item : query.queryItems(QUrl::FullyDecoded)) {
+        if (keys.contains(item.first) || (item.first != "taskId" && item.first != "startUtcMs"
+            && item.first != "endUtcMs" && item.first != "limit" && item.first != "cursor"))
+            return errorJson(QStringLiteral("INVALID_REQUEST"), QStringLiteral("航迹查询参数重复或不支持"));
+        keys.insert(item.first);
+    }
+    const QUuid uuid(query.queryItemValue("taskId", QUrl::FullyDecoded));
+    bool startValid = true, endValid = true, limitValid = true;
+    const qint64 start = keys.contains("startUtcMs") ? query.queryItemValue("startUtcMs").toLongLong(&startValid) : 1;
+    const qint64 end = keys.contains("endUtcMs") ? query.queryItemValue("endUtcMs").toLongLong(&endValid) : 9007199254740991LL;
+    const int limit = keys.contains("limit") ? query.queryItemValue("limit").toInt(&limitValid) : 1000;
+    if (uuid.isNull() || !startValid || !endValid || !limitValid || start <= 0 || end < start
+        || end > 9007199254740991LL || limit < 1 || limit > 1000)
+        return errorJson(QStringLiteral("INVALID_REQUEST"), QStringLiteral("航迹查询任务、时间或上限无效"));
+    qint64 afterUtcMs = 0, afterId = 0;
+    if (keys.contains("cursor")) {
+        const QByteArray encoded = query.queryItemValue("cursor", QUrl::FullyDecoded).toLatin1();
+        const QByteArray decoded = QByteArray::fromBase64(encoded, QByteArray::Base64UrlEncoding);
+        QJsonParseError parseError;
+        const auto document = QJsonDocument::fromJson(decoded, &parseError);
+        const auto cursor = document.object();
+        bool utcValid = false, idValid = false;
+        afterUtcMs = cursor.value("utc").toString().toLongLong(&utcValid);
+        afterId = cursor.value("id").toString().toLongLong(&idValid);
+        if (encoded.isEmpty() || encoded.size() > 512
+            || decoded.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals) != encoded
+            || parseError.error != QJsonParseError::NoError || !document.isObject()
+            || cursor.value("taskId").toString() != uuid.toString(QUuid::WithoutBraces)
+            || cursor.value("start").toString() != QString::number(start)
+            || cursor.value("end").toString() != QString::number(end)
+            || !utcValid || !idValid || afterUtcMs < start || afterUtcMs > end || afterId <= 0)
+            return errorJson(QStringLiteral("INVALID_REQUEST"), QStringLiteral("航迹游标无效或查询条件已变化"));
+    }
+    core::model::TaskId taskId;
+    if (!m_taskService->resolveTask(uuid, taskId)) return errorJson(QStringLiteral("RESOURCE_NOT_FOUND"), QStringLiteral("任务不存在或已删除"));
+    QJsonArray tracks;
+    bool more = false;
+    if (!m_runtimeRepository->readTaskTrackPage(uuid, start, end, afterUtcMs, afterId, limit, tracks, more))
+        return errorJson(QStringLiteral("PERSISTENCE_FAILED"), m_runtimeRepository->lastError());
+    QJsonObject page{{"tracks", tracks}};
+    if (more && !tracks.isEmpty()) {
+        const auto last = tracks.last().toObject();
+        const QJsonObject cursor{{"taskId", uuid.toString(QUuid::WithoutBraces)},
+            {"start", QString::number(start)}, {"end", QString::number(end)},
+            {"utc", QString::number(last.value("tsMs").toVariant().toLongLong())}, {"id", last.value("observationId")}};
+        page.insert("nextCursor", QString::fromLatin1(QJsonDocument(cursor).toJson(QJsonDocument::Compact)
+            .toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals)));
+    }
+    return successJson(page);
+}
+
+/**
+ * @brief 校验全局或指定任务事件筛选，将全部条件绑定到 keyset 游标后读取有界页。
+ * @details HTTP 在主线程只安排异步工作；本方法仅在存储线程生成短期 JSON，不保留跨请求 SQL 事务。
+ */
+QByteArray StorageRuntime::listArchivedEvents(const QString &requestTarget)
+{
+    if (!m_runtimeRepository || !m_taskService) return errorJson(QStringLiteral("SERVICE_UNAVAILABLE"), QStringLiteral("存储尚未初始化"));
+    const QUrl url(requestTarget);
+    const QUrlQuery query(url);
+    if (!url.isValid() || requestTarget.size() > 2048) return errorJson(QStringLiteral("INVALID_REQUEST"), QStringLiteral("历史查询目标无效"));
+    QSet<QString> keys;
+    for (const auto &item : query.queryItems(QUrl::FullyDecoded)) {
+        if (keys.contains(item.first) || (item.first != "taskId" && item.first != "limit" && item.first != "cursor"
+            && item.first != "deviceId" && item.first != "domain" && item.first != "severity"
+            && item.first != "startUtcMs" && item.first != "endUtcMs"))
+            return errorJson(QStringLiteral("INVALID_REQUEST"), QStringLiteral("历史查询参数重复或不支持"));
+        keys.insert(item.first);
+    }
+    const QUuid uuid(query.queryItemValue("taskId", QUrl::FullyDecoded));
+    const QUuid deviceUuid(query.queryItemValue("deviceId", QUrl::FullyDecoded));
+    bool limitValid = true, domainValid = true, severityValid = true, startValid = true, endValid = true;
+    const int limit = keys.contains("limit") ? query.queryItemValue("limit").toInt(&limitValid) : 200;
+    const int domain = keys.contains("domain") ? query.queryItemValue("domain").toInt(&domainValid) : 0;
+    const int severity = keys.contains("severity") ? query.queryItemValue("severity").toInt(&severityValid) : -1;
+    const qint64 start = keys.contains("startUtcMs") ? query.queryItemValue("startUtcMs").toLongLong(&startValid) : 1;
+    const qint64 end = keys.contains("endUtcMs") ? query.queryItemValue("endUtcMs").toLongLong(&endValid) : 9007199254740991LL;
+    if ((keys.contains("taskId") && uuid.isNull()) || (keys.contains("deviceId") && deviceUuid.isNull())
+        || !limitValid || limit < 1 || limit > 200 || !domainValid || (keys.contains("domain") && (domain < 1 || domain > 4))
+        || !severityValid || (keys.contains("severity") && (severity < 0 || severity > 4))
+        || !startValid || !endValid || start <= 0 || end < start || end > 9007199254740991LL)
+        return errorJson(QStringLiteral("INVALID_REQUEST"), QStringLiteral("事件查询身份、域、级别、时间或上限无效"));
+    const QJsonObject filters{{"taskId", uuid.isNull() ? QString() : uuid.toString(QUuid::WithoutBraces)},
+        {"deviceId", deviceUuid.isNull() ? QString() : deviceUuid.toString(QUuid::WithoutBraces)},
+        {"domain", domain}, {"severity", severity}, {"start", QString::number(start)}, {"end", QString::number(end)}};
+    qint64 beforeUtcMs = 0, beforeEventId = 0;
+    if (keys.contains("cursor")) {
+        const QByteArray encoded = query.queryItemValue("cursor", QUrl::FullyDecoded).toLatin1();
+        const QByteArray decoded = QByteArray::fromBase64(encoded, QByteArray::Base64UrlEncoding);
+        QJsonParseError parseError;
+        const auto document = QJsonDocument::fromJson(decoded, &parseError);
+        const auto cursor = document.object();
+        bool utcValid = false, idValid = false;
+        beforeUtcMs = cursor.value("utc").toString().toLongLong(&utcValid);
+        beforeEventId = cursor.value("id").toString().toLongLong(&idValid);
+        if (encoded.isEmpty() || encoded.size() > 512
+            || decoded.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals) != encoded
+            || parseError.error != QJsonParseError::NoError || !document.isObject()
+            || cursor.value("filters").toObject() != filters
+            || !utcValid || !idValid || beforeUtcMs < start || beforeEventId <= 0 || beforeUtcMs > end)
+            return errorJson(QStringLiteral("INVALID_REQUEST"), QStringLiteral("事件分页游标无效或筛选条件已变化"));
+    }
+    core::model::TaskId taskId;
+    if (!uuid.isNull() && !m_taskService->resolveTask(uuid, taskId)) return errorJson(QStringLiteral("RESOURCE_NOT_FOUND"), QStringLiteral("任务不存在或已删除"));
+    QJsonArray events;
+    bool hasMore = false;
+    if (!m_runtimeRepository->readEventPage(uuid, deviceUuid, domain, severity, start, end,
+            beforeUtcMs, beforeEventId, limit, events, hasMore))
+        return errorJson(QStringLiteral("PERSISTENCE_FAILED"), m_runtimeRepository->lastError());
+    QJsonObject page{{"events", events}};
+    if (hasMore && !events.isEmpty()) {
+        const auto last = events.last().toObject();
+        const QJsonObject cursor{{"filters", filters},
+            {"utc", QString::number(last.value("timestamp").toVariant().toLongLong())}, {"id", last.value("eventId")}};
+        page.insert("nextCursor", QString::fromLatin1(QJsonDocument(cursor).toJson(QJsonDocument::Compact)
+            .toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals)));
+    }
+    return successJson(page);
+}
+
+/**
+ * @brief 校验启动时间、退出标记及绑定条件的游标，沿唯一连接读取一页运行记录，不修改运行事实。
+ */
+QByteArray StorageRuntime::listArchivedRuns(const QString &requestTarget)
+{
+    if (!m_runtimeRepository) return errorJson(QStringLiteral("SERVICE_UNAVAILABLE"), QStringLiteral("存储尚未初始化"));
+    const QUrl url(requestTarget);
+    const QUrlQuery query(url);
+    if (!url.isValid() || requestTarget.size() > 2048) return errorJson(QStringLiteral("INVALID_REQUEST"), QStringLiteral("运行查询目标无效"));
+    QSet<QString> keys;
+    for (const auto &item : query.queryItems(QUrl::FullyDecoded)) {
+        if (keys.contains(item.first) || (item.first != "startUtcMs" && item.first != "endUtcMs"
+            && item.first != "shutdownState" && item.first != "limit" && item.first != "cursor"))
+            return errorJson(QStringLiteral("INVALID_REQUEST"), QStringLiteral("运行查询参数重复或不支持"));
+        keys.insert(item.first);
+    }
+    bool startValid = true, endValid = true, stateValid = true, limitValid = true;
+    const qint64 start = keys.contains("startUtcMs") ? query.queryItemValue("startUtcMs").toLongLong(&startValid) : 1;
+    const qint64 end = keys.contains("endUtcMs") ? query.queryItemValue("endUtcMs").toLongLong(&endValid) : 9007199254740991LL;
+    const int state = keys.contains("shutdownState") ? query.queryItemValue("shutdownState").toInt(&stateValid) : -1;
+    const int limit = keys.contains("limit") ? query.queryItemValue("limit").toInt(&limitValid) : 200;
+    if (!startValid || !endValid || start <= 0 || end < start || end > 9007199254740991LL
+        || !stateValid || (keys.contains("shutdownState") && (state < 0 || state > 2)) || !limitValid || limit < 1 || limit > 200)
+        return errorJson(QStringLiteral("INVALID_REQUEST"), QStringLiteral("运行查询时间、退出类型或上限无效"));
+    const QJsonObject filters{{"start", QString::number(start)}, {"end", QString::number(end)}, {"state", state}};
+    qint64 beforeUtcMs = 0, beforeId = 0;
+    if (keys.contains("cursor")) {
+        const QByteArray encoded = query.queryItemValue("cursor", QUrl::FullyDecoded).toLatin1();
+        const QByteArray decoded = QByteArray::fromBase64(encoded, QByteArray::Base64UrlEncoding);
+        QJsonParseError parseError;
+        const auto document = QJsonDocument::fromJson(decoded, &parseError);
+        const auto cursor = document.object();
+        bool utcValid = false, idValid = false;
+        beforeUtcMs = cursor.value("utc").toString().toLongLong(&utcValid);
+        beforeId = cursor.value("id").toString().toLongLong(&idValid);
+        if (encoded.isEmpty() || encoded.size() > 512
+            || decoded.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals) != encoded
+            || parseError.error != QJsonParseError::NoError || !document.isObject() || cursor.value("filters").toObject() != filters
+            || !utcValid || !idValid || beforeUtcMs < start || beforeUtcMs > end || beforeId <= 0)
+            return errorJson(QStringLiteral("INVALID_REQUEST"), QStringLiteral("运行游标无效或条件已变化"));
+    }
+    QJsonArray runs;
+    bool more = false;
+    if (!m_runtimeRepository->readRunPage(start, end, state, beforeUtcMs, beforeId, limit, runs, more))
+        return errorJson(QStringLiteral("PERSISTENCE_FAILED"), m_runtimeRepository->lastError());
+    QJsonObject page{{"runs", runs}};
+    if (more && !runs.isEmpty()) {
+        const auto last = runs.last().toObject();
+        const QJsonObject cursor{{"filters", filters},
+            {"utc", QString::number(last.value("startedUtcMs").toVariant().toLongLong())}, {"id", last.value("runId")}};
+        page.insert("nextCursor", QString::fromLatin1(QJsonDocument(cursor).toJson(QJsonDocument::Compact)
+            .toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals)));
+    }
+    return successJson(page);
+}
+
+/**
+ * @brief 先同步更新唯一系统状态，再按单调时钟限频发布变化事实，持续失败不会反复追加自身日志。
+ * @details 不调度主线程、不等待 SQLite；被限频的瞬态不缓存，当前状态仍立即可读。
+ */
+void StorageRuntime::reportArchiveStatus(quint32 flags)
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    const auto previous = m_archiveFlags;
+    m_archiveFlags = flags;
+    if (!m_systemStateOwner.reportArchive(flags)) qWarning() << "归档状态未通过系统状态门禁";
+    if (m_closing || previous == flags) return;
+    const qint64 now = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (m_lastArchiveEventSteadyNs != 0 && now - m_lastArchiveEventSteadyNs < 5'000'000'000LL) return;
+    m_lastArchiveEventSteadyNs = now;
+    publishArchiveEvent(core::model::EventCode::SystemArchiveHealthChanged, previous, flags);
+}
+
+/**
+ * @brief 区分两类 Topic 的首次覆盖，关停后或超出事件有符号参数范围时不伪造闭区间。
+ */
+void StorageRuntime::reportArchiveGap(bool eventTopic, quint64 firstLost, quint64 lastLost)
+{
+    Q_ASSERT(QThread::currentThread() == thread());
+    if (m_closing) return;
+    if (lastLost > static_cast<quint64>(std::numeric_limits<qint64>::max())) {
+        qWarning() << "归档缺口序号超出事件参数范围";
+        return;
+    }
+    publishArchiveEvent(eventTopic ? core::model::EventCode::SystemArchiveEventGap
+                                  : core::model::EventCode::SystemArchiveTrackGap,
+                        static_cast<qint64>(firstLost), static_cast<qint64>(lastLost));
+}
+
+/**
+ * @brief 复用正式事件门禁发布定长归档事实；失败只输出诊断，绝不递归发布或保存待重试队列。
+ */
+void StorageRuntime::publishArchiveEvent(core::model::EventCode code, qint64 argument0, qint64 argument1)
+{
+    if (!m_eventPublisher || m_closing) return;
+    core::model::Sample<core::model::SystemEvent> sample;
+    sample.meta.receiveTimeUtcMs = QDateTime::currentMSecsSinceEpoch();
+    sample.meta.receiveTimeSteadyNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    sample.meta.traceId = m_nextFaultTraceId++;
+    if (m_nextFaultTraceId == 0) m_nextFaultTraceId = 1;
+    sample.value.eventCode = code;
+    sample.value.domain = core::model::EventDomain::System;
+    sample.value.argument0 = argument0;
+    sample.value.argument1 = argument1;
+    sample.value.flags = core::model::eventSubjectBit(core::model::EventSubjectFlag::Argument0Valid)
+        | core::model::eventSubjectBit(core::model::EventSubjectFlag::Argument1Valid);
+    sample.value.severity = code != core::model::EventCode::SystemArchiveHealthChanged
+        ? core::model::EventSeverity::Warning : (argument1 & 1) != 0
+            ? core::model::EventSeverity::Error : argument1 != 0
+                ? core::model::EventSeverity::Warning : core::model::EventSeverity::Info;
+    if (!m_eventPublisher->publish(std::move(sample)).accepted()) {
+        qWarning() << "归档诊断事件未通过发布门禁" << static_cast<quint32>(code);
+    }
+}
 
 /**
  * @brief 严格按连接、服务 Owner、存储 Lane 与 Reader 顺序构造，任一步失败都关闭当前 application run。
@@ -293,6 +547,16 @@ bool StorageRuntime::initialize()
     m_archiveLane = std::make_unique<core::execution::ExecutionLane>();
     m_archiveReader = std::make_unique<core::archive::ArchiveReader>(
         m_trackTopic, m_eventTopic, *m_archiveLane, *m_archiveRepository, 256, 128);
+    m_closing = false;
+    m_archiveFlags = 0;
+    m_lastArchiveEventSteadyNs = 0;
+    if (!m_systemStateOwner.reportArchive(0)) {
+        qWarning() << "归档初始化状态未通过系统状态门禁";
+    }
+    QObject::connect(m_archiveReader.get(), &core::archive::ArchiveReader::archiveStatusChanged,
+                     this, &StorageRuntime::reportArchiveStatus, Qt::DirectConnection);
+    QObject::connect(m_archiveReader.get(), &core::archive::ArchiveReader::firstGapDetected,
+                     this, &StorageRuntime::reportArchiveGap, Qt::DirectConnection);
     m_archiveReader->refresh();
     m_lastError.clear();
     return true;
@@ -309,7 +573,13 @@ bool StorageRuntime::shutdown()
         m_lastError = QStringLiteral("StorageRuntime 必须在所属存储线程关闭");
         return false;
     }
+    m_closing = true;
+    m_lastError.clear();
     bool archiveComplete = true;
+    if (m_taskService && !m_taskService->stopAllCollections(QDateTime::currentMSecsSinceEpoch())) {
+        archiveComplete = false;
+        m_lastError = QStringLiteral("正常关停采集会话收口失败：") + m_taskService->lastError();
+    }
     if (m_archiveReader) {
         const auto trackNewest = m_trackTopic.range().newest;
         const auto eventNewest = m_eventTopic.range().newest;
@@ -328,7 +598,7 @@ bool StorageRuntime::shutdown()
             || m_archiveReader->eventGapCount() != 0U) {
             archiveComplete = false;
         }
-        if (!archiveComplete) {
+        if (!archiveComplete && m_lastError.isEmpty()) {
             m_lastError = QStringLiteral("归档未完整提交：航迹或事件批次失败、记录已覆盖，运行实例保留为未正常退出");
         }
     }
@@ -790,35 +1060,22 @@ bool StorageRuntime::startCollections(ActiveTaskRuntimeContext &context)
 }
 
 /**
- * @brief 使用同一停止时刻依次收口全部非零阵面会话，并保留首个失败原因供原HTTP请求者诊断。
+ * @brief 使用同一停止时刻原子收口全部非零阵面会话，失败保持整组活动位，供原请求者安全重试。
  */
 bool StorageRuntime::stopCollections(
-    const std::array<core::model::AcquisitionId, 4> &acquisitionIds)
+    const std::array<core::model::AcquisitionId, 4> &acquisitionIds, core::task::CollectionStopReason reason)
 {
     if (!m_taskService) {
         m_lastError = QStringLiteral("任务服务尚未初始化");
         return false;
     }
-    bool found = false;
-    bool success = true;
-    QString firstError;
-    const qint64 stoppedUtcMs = QDateTime::currentMSecsSinceEpoch();
-    for (const auto acquisitionId : acquisitionIds) {
-        if (!acquisitionId.isSet()) continue;
-        found = true;
-        if (!m_taskService->stopCollection(
-                acquisitionId, core::task::CollectionStopReason::UserStop, stoppedUtcMs)) {
-            if (firstError.isEmpty()) firstError = m_taskService->lastError();
-            success = false;
-        }
+    QVector<core::model::AcquisitionId> ids;
+    for (const auto id : acquisitionIds) if (id.isSet()) ids.append(id);
+    if (!m_taskService->stopCollections(ids, reason,
+                                       QDateTime::currentMSecsSinceEpoch())) {
+        m_lastError = m_taskService->lastError(); return false;
     }
-    if (!found) firstError = QStringLiteral("当前没有可停止的采集会话");
-    if (!found || !success) {
-        m_lastError = firstError;
-        return false;
-    }
-    m_lastError.clear();
-    return true;
+    m_lastError.clear(); return true;
 }
 
 } // namespace core::app

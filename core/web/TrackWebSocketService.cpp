@@ -151,6 +151,7 @@ bool TrackWebSocketService::consumeOneBatch()
         applyRecord(record, upserts, removals, retirements);
         m_cursor = record.sequence;
     }
+    trimDisplayTargets(upserts, removals, retirements);
 
     if (rebuild) {
         ++m_revision;
@@ -226,10 +227,41 @@ void TrackWebSocketService::applyRecord(
     point.elevationRad = sample.value.elevationRad;
     point.radialVelocityMps = sample.value.radialVelocityMps;
     point.amplitude = sample.value.amplitude;
+    trail.lastSequence = record.sequence;
     trail.points[static_cast<std::size_t>(trail.nextSlot)] = point;
     trail.nextSlot = (trail.nextSlot + 1) % static_cast<qsizetype>(trail.points.size());
     trail.size = qMin(trail.size + 1, static_cast<qsizetype>(trail.points.size()));
+    /** @brief 同批消亡后重建可能复用点序号，删除仅约束先前版本，不能覆盖较新的 upsert。 */
+    const auto newKey = pointKeyJson(point);
+    QJsonArray remainingRemovals;
+    for (const auto &value : removals) if (value.toObject() != newKey) remainingRemovals.append(value);
+    removals = remainingRemovals;
     upserts.append(pointJson(point));
+}
+
+/**
+ * @brief 只淘汰最久未更新的显示目标，不修改 Topic 或归档；本批 upsert 必须同步移除以免客户端保留幽灵目标。
+ */
+void TrackWebSocketService::trimDisplayTargets(QJsonArray &upserts, QJsonArray &removals, QJsonArray &retirements)
+{
+    while (m_trails.size() > 256) {
+        auto oldest = m_trails.begin();
+        for (auto it = m_trails.begin(); it != m_trails.end(); ++it)
+            if (it->lastSequence < oldest->lastSequence) oldest = it;
+        const auto identity = pointKeyJson(oldest->points[0]);
+        retirements.append(identity);
+        for (qsizetype i = 0; i < oldest->size; ++i) removals.append(pointKeyJson(oldest->points[static_cast<std::size_t>(i)]));
+        QJsonArray retained;
+        for (const auto &value : upserts) {
+            const auto point = value.toObject();
+            if (point.value("deviceId") != identity.value("deviceId")
+                || point.value("acquisitionId") != identity.value("acquisitionId")
+                || point.value("faceIndex") != identity.value("faceIndex")
+                || point.value("trackId") != identity.value("trackId")) retained.append(value);
+        }
+        upserts = retained;
+        m_trails.erase(oldest);
+    }
 }
 
 /**

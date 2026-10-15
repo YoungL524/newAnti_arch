@@ -25,16 +25,28 @@ int main(int argc, char** argv)
     parser.addOption({QStringLiteral("launcher-token"), QStringLiteral("当前部署实例身份"), QStringLiteral("token")});
     parser.process(app);
     QLocalSocket lifecycle;
+    bool discardLifecycleLine = false; ///< 超长未完成行一直丢弃至换行，不能把其后缀误识别为 STOP。
     const bool managed = parser.isSet(QStringLiteral("launcher-channel"));
     if (managed != parser.isSet(QStringLiteral("launcher-token"))) return 1;
     if (managed) {
         lifecycle.connectToServer(parser.value(QStringLiteral("launcher-channel")));
         if (!lifecycle.waitForConnected(3000)) return 1;
+        lifecycle.setReadBufferSize(129);
         /** @brief 管理连接只接受完整 STOP 行；连接失效时退出，避免留下脱离启动器的 Core。 */
         QObject::connect(&lifecycle, &QLocalSocket::readyRead, &app, [&] {
-            if (lifecycle.bytesAvailable() > 128) { app.quit(); return; }
             while (lifecycle.canReadLine()) {
-                if (lifecycle.readLine() == QByteArrayLiteral("STOP\n")) app.quit();
+                const QByteArray line = lifecycle.readLine(129);
+                if (discardLifecycleLine) {
+                    if (line.endsWith('\n')) discardLifecycleLine = false;
+                    continue;
+                }
+                if (line == QByteArrayLiteral("STOP\n")) app.quit();
+                else qWarning() << "忽略无效生命周期指令";
+            }
+            if (lifecycle.bytesAvailable() > 128) {
+                lifecycle.readAll();
+                discardLifecycleLine = true;
+                qWarning() << "忽略超长生命周期指令";
             }
         });
         QObject::connect(&lifecycle, &QLocalSocket::disconnected, &app, &QCoreApplication::quit);

@@ -2,7 +2,7 @@
  * @file SqliteArchiveRepository.h
  * @brief 定义 ArchiveReader 到单写者 SQLite 数据库的强类型事务实现。
  * @details 本类位于 ArchiveReader 与 QSQLITE 之间：上游传入固定 ScratchBuffer 中的 TrackPacket/SystemEvent
- * 批次，下游在当前存储线程完成六表初始化、运行实例登记、紧凑句柄解析和事务提交。它不订阅 Topic、不维护
+ * 批次，下游在当前存储线程完成七表初始化、运行实例登记、紧凑句柄解析和事务提交。它不订阅 Topic、不维护
  * cursor、不创建内部队列或线程，也不负责 React 配置 API；新人应先阅读 open()、bindAcquisition() 与两个
  * append 方法的线程及提交合同。
  */
@@ -20,6 +20,7 @@
 
 class QSqlQuery;
 class QThread;
+class QLockFile;
 
 namespace core::persistence {
 class SqliteRuntimeRepository;
@@ -55,7 +56,7 @@ public:
     SqliteArchiveRepository& operator=(const SqliteArchiveRepository&) = delete;
 
     /**
-     * @brief 打开 QSQLITE、初始化六表 Schema、修复旧的未闭合 run 并登记当前 run。
+     * @brief 取得规范化路径独占锁后打开 QSQLITE、初始化七表 Schema、恢复旧会话并登记当前 run。
      * @return 所有步骤成功返回 true；失败时关闭连接并由 lastError() 提供原因。
      * @warning 只能调用一次，且必须早于通信 Producer 与 ArchiveReader 启动。
      */
@@ -148,10 +149,10 @@ private:
     /** @brief 检查调用线程、连接状态并设置统一失败文本。 */
     bool requireOwnerThread(const char *operation);
 
-    /** @brief 设置 PRAGMA、建立或迁移并核对当前 user_version 的六表 Schema。 */
+    /** @brief 设置 PRAGMA、建立或迁移并核对当前 user_version 的七表 Schema。 */
     bool initializeDatabase();
 
-    /** @brief 检查六张业务表均存在，防止错误接受损坏的 version=1 文件。 */
+    /** @brief 核对当前七表及必要列，拒绝缺表、旧姿态列或缺少冻结字段的数据库。 */
     bool verifyRequiredTables();
 
     /** @brief 标记历史未闭合 run，并插入当前 application_runs 行。 */
@@ -176,6 +177,7 @@ private:
     QString m_applicationVersion; ///< 当前二进制版本，写入 application_runs。
     QString m_connectionName; ///< 本实例唯一 Qt SQL 连接名，禁止跨对象复用。
     QSqlDatabase m_database; ///< 仅属于 open() 线程的单一写连接。
+    std::unique_ptr<QLockFile> m_databaseLock; ///< 按规范化数据库路径独占的进程锁；先于恢复获取，连接关闭后释放。
     std::unique_ptr<QSqlQuery> m_trackInsert; ///< 复用的 track_observations INSERT。
     std::unique_ptr<QSqlQuery> m_eventInsert; ///< 复用的 system_events INSERT。
     QThread *m_ownerThread = nullptr; ///< 首次 open() 的线程亲和性，不拥有线程。

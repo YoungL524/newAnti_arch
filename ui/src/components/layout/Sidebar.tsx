@@ -11,6 +11,8 @@ import type { Task } from '../../lib/taskTypes'
 import type { DeviceRegistryStatus } from '../../lib/devicesApi'
 import { useCore } from '../../hooks/useCoreApi'
 import { createRadarFaces, updateRadarFace } from '../../lib/radarFaces'
+import ArchiveEventsDialog from '../dialogs/ArchiveEventsDialog'
+import ArchiveRunsDialog from '../dialogs/ArchiveRunsDialog'
 
 interface NavItem {
   id: string; icon: string; label: string
@@ -83,6 +85,8 @@ const STATUS_META: Record<string, { icon: string; label: string }> = {
   draft: { icon: 'edit_note', label: '草稿' },
   ready: { icon: 'pending_actions', label: '已就绪' },
   active: { icon: 'radio_button_checked', label: '进行中' },
+  running: { icon: 'radio_button_checked', label: '进行中' },
+  syncing: { icon: 'sync', label: '等待任务状态同步' },
   faulted: { icon: 'error', label: '故障' },
   completed: { icon: 'check_circle', label: '已完成' },
   archived: { icon: 'archive', label: '已归档' },
@@ -95,8 +99,14 @@ function formatTaskTime(task: Task) {
   })
 }
 
+/**
+ * @brief 展示设备与任务台账，当前任务阶段只读取身份匹配的 TaskState，历史行保留持久化状态。
+ * @param props 上层持有的台账、选择和操作回调；本组件不改写运行时 TaskState。
+ * @return 侧栏与操作入口；任务未同步、采集中或已有任务操作时不可提交完成。
+ */
 export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevice, onAddSubDevice, onRemoveSubDevice, onEditDevice, activeTask, viewTaskRunId, tasks, deviceRegistryStatus, deviceListEmpty, onNewTask, onCompleteTask, onArchiveTask, onDeleteTask, onRerunTask, onViewTaskRun, onReturnToActiveView, canDeleteTask, taskActionPendingId, taskActionError }: SidebarProps) {
   const [activeNav, setActiveNav] = useState('devices')
+  const [archiveWindow, setArchiveWindow] = useState<'events' | 'runs' | null>(null) ///< 同时只挂载一个只读查询窗口，不更改任务查看身份。
   const [formExpanded, setFormExpanded] = useState(false)
   const [formKind, setFormKind] = useState<FormKind>('radar')
   const [radarForm, setRadarForm] = useState(RADAR_DEFAULTS)
@@ -108,7 +118,9 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
     [tasks, activeTask],
   )
   const isHistoryView = !!viewTaskRunId && viewTaskRunId !== activeTask?.id
-  const { checkedDeviceIds, noSelectionHint, setCheckedDevices } = useCore()
+  const { taskState, commandPending, checkedDeviceIds, noSelectionHint, setCheckedDevices } = useCore()
+  const activePhase = activeTask && taskState?.payload.taskId === activeTask.id
+    ? taskState.payload.phase : 'syncing'
 
   // Collapse add form when backend unavailable
   useEffect(() => {
@@ -212,21 +224,22 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                   <div className="flex items-center gap-2 px-2 py-1.5 mb-1 rounded-md"
                     style={{ background: 'var(--emeraldSubtle)' }}>
                     <span className="material-symbols-outlined !text-[14px]" style={{ color: 'var(--primaryContainer)' }}>
-                      {STATUS_META[activeTask.status]?.icon ?? 'radio_button_unchecked'}
+                      {STATUS_META[activePhase]?.icon ?? 'radio_button_unchecked'}
                     </span>
                     <div className="flex-1 min-w-0">
                       <div className="text-[10px] font-semibold truncate" style={{ color: 'var(--ink)' }}>
                         {activeTask.name}
                       </div>
                       <div className="text-[8px]" style={{ color: 'var(--secondary)' }}>
-                        {STATUS_META[activeTask.status]?.label} &middot; {activeTask.operator || '未指定'}
+                        {STATUS_META[activePhase]?.label} &middot; {activeTask.operator || '未指定'}
                       </div>
                     </div>
-                    {(activeTask.status === 'ready' || activeTask.status === 'active') && (
+                    {activePhase === 'ready' && (
                       <button
-                        className="px-1.5 py-0.5 rounded text-[8px] font-semibold border cursor-pointer"
+                        className="px-1.5 py-0.5 rounded text-[8px] font-semibold border cursor-pointer disabled:opacity-50"
                         style={{ borderColor: 'var(--primaryContainer)', color: 'var(--primaryContainer)', background: 'transparent' }}
                         onClick={onCompleteTask}
+                        disabled={commandPending || taskActionPendingId !== null}
                       >完成</button>
                     )}
                   </div>
@@ -542,12 +555,12 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                         onClick={() => onViewTaskRun(activeTask.id)}
                       >
                         <span className="material-symbols-outlined !text-[14px]" style={{ color: 'var(--primaryContainer)' }}>
-                          {STATUS_META[activeTask.status]?.icon ?? 'radio_button_checked'}
+                          {STATUS_META[activePhase]?.icon ?? 'radio_button_checked'}
                         </span>
                         <div className="flex-1 min-w-0">
                           <div className="text-[10px] font-semibold truncate" style={{ color: 'var(--ink)' }}>{activeTask.name}</div>
                           <div className="text-[8px]" style={{ color: 'var(--secondary)' }}>
-                            {STATUS_META[activeTask.status]?.label} &middot; {activeTask.operator || '未指定'} &middot; {activeTask.deviceIds.length} 设备
+                            {STATUS_META[activePhase]?.label} &middot; {activeTask.operator || '未指定'} &middot; {activeTask.deviceIds.length} 设备
                           </div>
                         </div>
                         <span className="text-[8px] px-1 py-px rounded-full font-medium"
@@ -555,7 +568,7 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
                           当前
                         </span>
                       </div>
-                      {activeTask.status === 'ready' && (
+                      {activePhase === 'ready' && (
                         <p className="text-[9px] px-1 leading-relaxed" style={{ color: 'var(--secondary)' }}>
                           任务已选定，尚未向设备发送开始采集命令。
                         </p>
@@ -686,11 +699,18 @@ export default function Sidebar({ onClose, allDevices, onAddDevice, onRemoveDevi
         <button className="w-full px-2 py-1.5 rounded-md flex items-center gap-2
                            border-none bg-transparent cursor-pointer transition-colors
                            hover:bg-white/60"
-          style={{ color: 'rgba(64, 73, 68, 0.6)' }}>
+          style={{ color: 'rgba(64, 73, 68, 0.6)' }} onClick={() => setArchiveWindow('events')}>
           <span className="material-symbols-outlined !text-[16px]">terminal</span>
           <span className="text-[12px] font-medium" style={{ fontFamily: "'Inter', sans-serif" }}>系统日志</span>
         </button>
+        <button className="w-full px-2 py-1.5 rounded-md flex items-center gap-2 border-none bg-transparent cursor-pointer hover:bg-white/60"
+          style={{ color: 'rgba(64, 73, 68, 0.6)' }} onClick={() => setArchiveWindow('runs')}>
+          <span className="material-symbols-outlined !text-[16px]">history</span>
+          <span className="text-[12px] font-medium">程序运行记录</span>
+        </button>
       </div>
+      {archiveWindow === 'events' && <ArchiveEventsDialog onClose={() => setArchiveWindow(null)} />}
+      {archiveWindow === 'runs' && <ArchiveRunsDialog onClose={() => setArchiveWindow(null)} />}
     </aside>
   )
 }

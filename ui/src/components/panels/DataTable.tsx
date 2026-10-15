@@ -33,6 +33,7 @@ function renderCell(key: string, row: DeviceDataRow, deviceType: DeviceType): st
   return fmt ? fmt(val) : String(val)
 }
 
+/** @brief 只显示当前页最终行，历史海拔标注为安装配置重建值，未知字段保留空值。 */
 export default function DataTable({ deviceType, rows, isLive }: Props) {
   const { isHistoryView, setTrackInteraction } = useCore()
   const [filters, setFilters] = useState<Record<string, FilterValue>>({})
@@ -133,7 +134,7 @@ export default function DataTable({ deviceType, rows, isLive }: Props) {
                     paddingRight: col.key === columns[columns.length - 1]?.key ? '1.25rem' : undefined,
                   }}
                 >
-                  {col.header}
+                  {col.key === 'altitude' && deviceType === DeviceType.RADAR ? (isHistoryView ? '重建海拔(m)' : '海拔(m)') : col.header}
                 </th>
               ))}
             </tr>

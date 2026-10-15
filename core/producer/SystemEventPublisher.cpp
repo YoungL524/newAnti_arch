@@ -12,6 +12,22 @@ bool hasRequiredContext(const core::model::SystemEvent &event) noexcept
 {
     using core::model::EventCode;
     using core::model::EventSubjectFlag;
+    if (event.eventCode == EventCode::SystemArchiveHealthChanged) {
+        const auto severity = (event.argument1 & 1) != 0 ? core::model::EventSeverity::Error
+            : event.argument1 != 0 ? core::model::EventSeverity::Warning : core::model::EventSeverity::Info;
+        return event.flags == (core::model::eventSubjectBit(EventSubjectFlag::Argument0Valid)
+                | core::model::eventSubjectBit(EventSubjectFlag::Argument1Valid))
+            && event.argument0 >= 0 && event.argument0 <= 7
+            && event.argument1 >= 0 && event.argument1 <= 7
+            && event.argument0 != event.argument1 && event.severity == severity;
+    }
+    if (event.eventCode == EventCode::SystemArchiveTrackGap
+        || event.eventCode == EventCode::SystemArchiveEventGap) {
+        return event.flags == (core::model::eventSubjectBit(EventSubjectFlag::Argument0Valid)
+                | core::model::eventSubjectBit(EventSubjectFlag::Argument1Valid))
+            && event.argument0 > 0 && event.argument1 >= event.argument0
+            && event.severity == core::model::EventSeverity::Warning;
+    }
     if (event.eventCode == EventCode::SystemTopicSequenceGap) {
         return core::model::hasEventSubject(event.flags, EventSubjectFlag::Argument0Valid)
             && core::model::hasEventSubject(event.flags, EventSubjectFlag::Argument1Valid)
@@ -33,7 +49,17 @@ bool hasRequiredContext(const core::model::SystemEvent &event) noexcept
     }
     if (event.eventCode == EventCode::TrackPublishRejected) {
         return core::model::hasEventSubject(event.flags, EventSubjectFlag::Argument0Valid)
-            && event.argument0 > 0;
+            && event.argument0 > 0
+            && (!core::model::hasEventSubject(event.flags, EventSubjectFlag::Argument1Valid)
+                || event.argument1 > 0);
+    }
+    if (event.eventCode == EventCode::DeviceMalformedFrame) {
+        return core::model::hasEventSubject(event.flags, EventSubjectFlag::Argument0Valid)
+            && (event.argument0 == 1 || event.argument0 == 2 || event.argument0 == 3
+                || event.argument0 == 4 || event.argument0 == 6 || event.argument0 == 7)
+            && event.severity == core::model::EventSeverity::Warning
+            && (!core::model::hasEventSubject(event.flags, EventSubjectFlag::Argument1Valid)
+                || event.argument1 > 0);
     }
     if (event.eventCode == EventCode::DeviceHeartbeatChanged) {
         return core::model::hasEventSubject(event.flags, EventSubjectFlag::Argument0Valid)

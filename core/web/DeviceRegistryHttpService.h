@@ -1,6 +1,6 @@
 /**
  * @file DeviceRegistryHttpService.h
- * @brief 定义设备台账与任务登记使用的最小HTTP入口。
+ * @brief 定义设备台账、任务登记与有界归档事件/航迹查询共用的 HTTP 入口。
  * @details 上游 React 调用设备及任务 HTTP；下游通过有界异步调用访问 StorageRuntime，采集编排交给 ApplicationController。
  * 本类只拥有 Socket、请求容量及写请求互斥，不访问 SQLite、Topic 或执行设备命令；
  * 新人应从start()和dispatch()阅读请求边界。

@@ -100,10 +100,14 @@ private:
         qsizetype size = 0; ///< 已填充槽位数，范围 [0,20]。
         qsizetype nextSlot = 0; ///< 下一次覆盖槽位，范围 [0,19]。
         quint32 nextPointIndex = 0; ///< 下一个浏览器排序序号；溢出时本航迹重建。
+        core::domain::TopicSequence lastSequence = 0; ///< 最近观测次序，仅用于显示容量淘汰，不表示设备消亡。
     };
 
     /** @brief 从 Topic 读取一个固定容量批次，返回仍有未读取记录时为 true。 */
     bool consumeOneBatch();
+
+    /** @brief 批次折叠完成后裁剪到 256 个最近目标；同步过滤被裁剪 upsert，避免同批重插和删除键冲突。 */
+    void trimDisplayTargets(QJsonArray &upserts, QJsonArray &removals, QJsonArray &retirements);
 
     /**
      * @brief 折叠一条权威航迹并向 upserts/removals 追加本批 Web 变化。
@@ -143,7 +147,7 @@ private:
     const core::execution::ExecutionSlot m_executionSlot; ///< 本 Reader 在 Lane 中的唯一 pending 位。
     core::model::DeviceId m_currentDeviceId; ///< 当前采集雷达；零表示待机。
     std::array<core::model::AcquisitionId, 4> m_currentAcquisitionIds {}; ///< 当前各阵面会话；变化时清除旧显示态。
-    QHash<core::model::TrackKey, TrackTrail> m_trails; ///< 每目标近期 20 点；目标消亡或采集停止时删除，不预设目标数上限。
+    QHash<core::model::TrackKey, TrackTrail> m_trails; ///< 持续态最多 256 目标各 20 点；本轮最多额外增加一个固定 ScratchBuffer 批次的目标。
     core::domain::TopicSequence m_cursor = 0; ///< 本 Consumer 独立读取水位。
     quint64 m_revision = 0; ///< Web snapshot/delta 单调修订号。
 };

@@ -171,6 +171,33 @@ ArchiveReader 按独立 cursor 将同一事实写入 `system_events`。
 
 旧版 `Logger` 的 INFO/WARN/ERROR 分级仅作为展示语义参考；其全局 Qt 消息回调、文本文件缓存和独立 Web 分发
 不进入新架构。活动日志文本只在 Web 边界由稳定事件码生成，SQLite 归档的是原始事件事实。
+归档闭环新增三个 System 域稳定码（2026-10-14）：
+
+- `0x03020001 SystemArchiveHealthChanged`：argument0/argument1 为变化前/后三位归档降级位图（0～7），必须不同；
+  新位图含 ArchiveUnavailable 时 Error，仅含历史 gap 时 Warning，全零时 Info。只在变化时发布，相邻此类事件至少间隔
+  5 秒（单调时钟）；被抑制的瞬态不补排队，最新健康度始终以 SystemState 为准。
+- `0x03020002 SystemArchiveTrackGap`、`0x03020003 SystemArchiveEventGap`：Warning；argument0/argument1 是首次
+  观察到的丢失闭区间，须为正且有序。每个 ArchiveReader 生命周期、每个 Topic 最多各发布一条，后续覆盖仍计数并保留降级位。
+- 三类事件均无业务主体、使用内部端点零，不携带 SQL 文本；通过原有 EventTopic/Web/归档链传播。发布失败只输出诊断，
+  不为事件发布失败再发布事件。持续相同失败不产生日志，自消费引起的失败/恢复抖动受 5 秒限频约束。
+- 关停排空阶段停止生成归档诊断事件，仍更新系统状态和计数，避免目标水位之后产生无法闭合的诊断尾部。
+  数据库不可用时只能保证实时可见和有界内存保留，不能保证故障日志一定落盘。
+
+接入异常闭环（2026-10-14）：
+
+- DeviceMalformedFrame 由唯一 UDP 接入组合根按 Adapter 确定结果发布，Warning；argument0 为协议拒绝编号：
+  1 长度、2 包头、3 版本、4 包尾、6 心跳字段、7 航迹字段。合法但不支持的消息（5）和未配置处理器（8）
+  只保留接入指标，不把它们冒充坏帧。未解析来源身份时不猜测设备/任务，内部事件 endpointId 为零。
+- TrackPublishRejected 由 TrackIngressProducer 在最终 TrackPublisher 门禁失败时发布，Warning；argument0 为
+  TrackPublishRejection 的稳定编号 1～18（现有顺序冻结，后续仅可尾部追加），关联已绑定设备、任务、采集、航迹与端点。
+  UnboundContext/UnboundFace 是未采集或未选择阵面的正常过滤，不发布故障；协议 InvalidTrack 留在 DeviceMalformedFrame。
+- 两类各自最多五秒一条，首条立即发布，argument1 为上次报告后至当前、该类别累计拒绝条数（含当前，正 int64）；
+  argument0 只描述当前触发报告的拒绝原因，不把计数说成同一原因。固定计数饱和于 int64 上限，无动态原因表。
+  发布后清零计数，静默期不补定时器、不补尾部日志；恢复后再出现错误仍遵守五秒间隔。
+  航迹绑定撤销时丢弃尚未报告的计数，避免把旧会话计数关联到新会话，但保留最近报告时刻防止切换绕过限频。
+- Event 发布失败不改变原接收/航迹拒绝结果，不递归报告；未填写有效接收时间时只保留原始拒绝，不制造虚假事件时间。
+  事件沿唯一 EventTopic、Web 与 SQLite 传播，不增加错误专用队列或日志库。
+
 事件码是否已登记统一由 `core/model/SystemEvent.h::isRegisteredEventCode()` 判定，发布门禁和 SQLite 归档不得维护两份白名单；
 此前任务生命周期事件可发布、却可能在归档端因旧白名单被拒绝，本次同步修复。
 

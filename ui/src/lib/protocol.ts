@@ -27,23 +27,25 @@ export interface LogsResponse {
   logs: LogEntry[]
 }
 
-/** @brief 历史视图使用的只读航迹点；归档 HTTP 落地前不会由网络填充。 */
+/** @brief 当前有界回放页的最终绘制点；地理位置按采集时设备 revision 计算，多个视图共用，不进入实时缓存。 */
 export interface TrackHistoryPoint {
-  taskId: string
-  deviceId: string
-  /** 协议阵面索引；旧归档尚未提供时不允许猜测安装姿态。 */
-  faceIndex?: number
-  tsMs: number
-  sceneNum: number
-  targetId: number
-  range: number
-  azimuth: number
-  elevation: number
-  radialSpeed: number
-  altitude: number
-  x: number
-  y: number
-  z: number
+  taskId: string ///< 稳定任务 UUID。
+  deviceId: string ///< 稳定设备 UUID。
+  acquisitionId: string ///< 稳定采集会话 UUID，厂家航迹号不得跨会话连线。
+  observationId: string ///< 数据库观测主键十进制字符串，不是 Topic sequence。
+  faceIndex: number ///< 0～3 物理阵面，不猜测缺失姿态。
+  tsMs: number ///< 接收 Unix epoch UTC 毫秒。
+  targetId: number ///< uint32 厂家航迹号。
+  range: number ///< 斜距，米。
+  azimuth: number ///< RFU 局部方位，弧度。
+  elevation: number ///< RFU 局部俯仰，弧度。
+  radialSpeed: number ///< 径向速度，米每秒。
+  amplitude: number ///< 厂家幅值原值。
+  packFlag: 0 | 1 ///< 0 消亡、1 存在。
+  scanSequence?: number ///< 仅真实归档扫描号存在时提供，不制造 sceneNum。
+  longitude: number ///< 按归档安装配置重建的经度，度。
+  latitude: number ///< 按归档安装配置重建的纬度，度。
+  altitude: number ///< 安装原点 MSL 海拔加旋转后目标高差，米。
 }
 
 /** @brief 历史视图使用的只读系统事件；归档 HTTP 落地前不会由网络填充。 */
@@ -80,7 +82,30 @@ export interface WsLogMessage extends LogEntry {
   type: 'log'
 }
 
-export type WsMessage = WsStatusMessage | WsTracksMessage | WsLogMessage | WsDeviceStateMessage
+export type WsMessage = WsStatusMessage | WsTracksMessage | WsLogMessage | WsDeviceStateMessage | WsSystemStateMessage | WsTaskStateMessage
+
+/** @brief 唯一活动任务的完整实时快照；稳定身份关联台账，不包含设备数组或第二份任务配置。 */
+export interface WsTaskStateMessage {
+  type: 'taskState' ///< 独立实时流，不能与设备或系统 revision 比较。
+  sentUtcMs: number ///< Web 序列化的 Unix epoch UTC 毫秒。
+  revision: string ///< 非零 uint64 十进制修订号，重连后重新接受。
+  payload: { phase: 'none'; taskId?: never }
+    | { phase: 'ready' | 'running' | 'completed' | 'faulted'; taskId: string } ///< None 无身份，其他阶段关联非零稳定 UUID。
+}
+
+/** @brief Core 系统状态完整网络快照；页面只保留最后一份，断线清除，独立于设备/任务状态。 */
+export interface WsSystemStateMessage {
+  type: 'systemState' ///< 独立消息类型，不作为通用状态路由。
+  sentUtcMs: number ///< 序列化时的 Unix epoch UTC 毫秒。
+  revision: string ///< 本运行实例 SystemState 的非零 uint64 十进制修订号。
+  payload: {
+    processStartedUtcMs: number ///< Runtime 首次形成状态的 UTC 毫秒，服务重启不修改。
+    phase: 0 | 1 | 2 | 3 | 4 ///< Starting、Ready、Stopping、Stopped、Faulted。
+    health: 0 | 1 | 2 ///< Healthy、Degraded、Faulted；由 Core 唯一 Owner 判定。
+    readinessFlags: number ///< 数据库、配置、数据域、归档、Core Web、控制平面的低六位就绪标记。
+    degradationFlags: number ///< 低六位降级原因；当前接入归档不可用、航迹缺口、事件缺口，后两者不会因写入恢复而清除。
+  }
+}
 
 /** @brief 表示后端心跳 owner 已判定且V1网络合同允许的三态枚举。 */
 export type HeartbeatStatus = 'unknownOrTimedOut' | 'online' | 'offlineOrLate'
@@ -152,14 +177,14 @@ export interface RadarTrack {
   slantRange: number       // 斜距 (m)
   azimuth: number          // 方位角 (°)
   elevation: number        // 俯仰角 (°)
-  altitude: number         // 目标高度 (m)
+  altitude?: number        ///< MSL 海拔米；实时未提供时省略，历史按安装配置重建。
   radialSpeed: number      // 径向速度 (m/s)
-  amplitude: number        // 幅度 (dB)
-  snr: number              // 信噪比 (dB)
-  extrapolateFlag: number  // 外推标志 (0=实测, 1=外推)
-  targetType: number       // 目标类型
-  signalId: number         // 信号识别标识
-  sceneNum: number         // 景幅
+  amplitude: number        ///< 厂家未标定幅值原值，不标注为 dB。
+  snr?: number             ///< 信噪比 dB；没有真实归档值时省略。
+  extrapolateFlag?: number ///< 外推标志；消亡不等同外推，缺失时省略。
+  targetType: number       ///< 识别类别；0 为 Unknown，不使用厂家航迹号冒充类别。
+  signalId?: number        ///< 真实信号 ID，历史未归档时省略。
+  sceneNum?: number        ///< 真实景幅；扫描序号不能冒充景幅。
   timestamp: number
   pointIndex?: number
   compacted?: boolean     ///< true 表示旧路径形状点，只绘制线路，不绘制近期观测点样式。

@@ -2,7 +2,7 @@
  * @file TrackIngressProducer.h
  * @brief 定义0x0100协议航迹到权威TrackPacket的唯一映射与发布入口。
  * @details 上游DcmpProtocolAdapter同步交付已校验的阵面、源序号和DpTrack，下游仅调用TrackPublisher写入
- * CoreDataDomain::trackTopic。本类保存一台整机及四阵面采集会话的轻量身份绑定，不保存报文历史、不发送Web消息、
+ * CoreDataDomain::trackTopic，并将最终门禁失败限频写入统一 EventTopic。本类保存一台整机及四阵面采集会话的轻量身份绑定，不保存报文历史、不发送Web消息、
  * 不拥有Socket或Command状态；新人应从bind()和accept()阅读运行时上下文及单位转换规则。
  */
 #pragma once
@@ -14,6 +14,7 @@
 #include <array>
 
 namespace core::producer {
+class SystemEventPublisher;
 
 /**
  * @brief 将一个内部UDP入口的四阵面协议观测映射到共享航迹数据域。
@@ -32,8 +33,13 @@ public:
         PublisherRejected ///< 映射结果被TrackPublisher最终门禁拒绝。
     };
 
-    /** @brief 绑定唯一TrackTopic发布门禁，不创建线程或额外队列。 */
-    explicit TrackIngressProducer(core::domain::HistoryTopic<core::model::TrackPacket> &trackTopic) noexcept;
+    /**
+     * @brief 绑定航迹门禁与可空事件门禁；后者只报告最终业务校验失败，不报告正常未采集过滤。
+     * @param trackTopic 唯一航迹历史，生命周期覆盖本对象。
+     * @param eventPublisher 可空借用的共享事件门禁；非空时生命周期覆盖本对象。
+     */
+    explicit TrackIngressProducer(core::domain::HistoryTopic<core::model::TrackPacket> &trackTopic,
+                                  SystemEventPublisher *eventPublisher = nullptr) noexcept;
 
     /**
      * @brief 原子地替换下一条航迹使用的运行时身份上下文。
@@ -49,7 +55,7 @@ public:
               core::model::TaskId taskId,
               const std::array<core::model::AcquisitionId, 4> &faceAcquisitionIds) noexcept;
 
-    /** @brief 清除活动采集绑定；之后到达的航迹返回UnboundContext且不会发布。 */
+    /** @brief 清除绑定及未报告拒绝计数；保留限频时刻，切换会话不能绕过五秒间隔。 */
     void clearBinding() noexcept;
 
     /**
@@ -67,6 +73,9 @@ public:
 
 private:
     TrackPublisher m_publisher; ///< TrackPacket发布前的最终字段门禁。
+    SystemEventPublisher *m_eventPublisher = nullptr; ///< 同线程可空借用，只写入已有统一 EventTopic。
+    qint64 m_lastRejectionReportSteadyNs = 0; ///< 最近拒绝事件尝试发布时间，单调纳秒，五秒间隔，无计时器。
+    qint64 m_pendingRejectionCount = 0; ///< 自上次报告以来的所有最终门禁拒绝数，饱和于 int64 上限，不保存历史报文。
     core::model::EndpointId m_endpointId; ///< 一台完整雷达共用的逻辑接收端点句柄。
     core::model::DeviceId m_deviceId; ///< 一台完整雷达在设备注册表中的运行时句柄。
     core::model::TaskId m_taskId; ///< 四阵面共享的当前非零任务句柄。

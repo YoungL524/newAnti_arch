@@ -107,13 +107,18 @@ export async function fetchTaskTemplates(): Promise<ApiResult<TemplateListData>>
   return apiCall('/api/v1/task-templates')
 }
 
-export async function fetchTasksFromBackend(): Promise<{ tasks: Task[]; activeTaskId: string | null } & ApiResult> {
-  const listResult = await apiCall<TaskListData>(BASE)
+/**
+ * @brief 读取任务台账和当前活动身份；刷新被替代或页面卸载时允许取消同一轮的两次请求。
+ * @param signal 可空的浏览器取消信号，只影响只读刷新，不取消任务命令。
+ * @return 后端权威列表与活动身份；失败不构造活动任务。
+ */
+export async function fetchTasksFromBackend(signal?: AbortSignal): Promise<{ tasks: Task[]; activeTaskId: string | null } & ApiResult> {
+  const listResult = await apiCall<TaskListData>(BASE, { signal })
   if (!listResult.ok || !listResult.data) {
     return { ok: false, error: listResult.error, tasks: [], activeTaskId: null }
   }
 
-  const activeResult = await apiCall<ActiveTaskData>(`${BASE}/active`)
+  const activeResult = await apiCall<ActiveTaskData>(`${BASE}/active`, { signal })
   if (!activeResult.ok || !activeResult.data) {
     return { ok: false, error: activeResult.error, tasks: [], activeTaskId: null }
   }

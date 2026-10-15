@@ -15,6 +15,7 @@
 #include <QVariant>
 
 #include <limits>
+#include <cmath>
 #include <utility>
 
 namespace core::persistence {
@@ -520,20 +521,19 @@ bool SqliteRuntimeRepository::softDeleteTask(qint64 databaseTaskId, const QStrin
 }
 
 /**
- * @brief 使用当前 run、任务、冻结设备 revision 和 endpointKey 插入一条 Running 会话。
+ * @brief 使用同一启动时刻，在一个事务内插入当前 run 全部启用阵面的 Running 会话；提交前不交付部分身份。
  */
-bool SqliteRuntimeRepository::createCollectionSession(
+bool SqliteRuntimeRepository::createCollectionSessions(
     qint64 databaseTaskId,
     qint64 deviceRevisionId,
     const QString &endpointKey,
-    quint8 faceIndex,
-    QUuid &sessionUuid,
-    qint64 &collectionSessionId)
+    quint8 faceMask,
+    std::array<QUuid, 4> &sessionUuids,
+    std::array<qint64, 4> &collectionSessionIds)
 {
-    sessionUuid = QUuid();
-    collectionSessionId = 0;
-    if (!requireDatabase("createCollectionSession") || databaseTaskId <= 0
-        || deviceRevisionId <= 0 || endpointKey.trimmed().isEmpty() || faceIndex > 3U) {
+    sessionUuids = {}; collectionSessionIds = {};
+    if (!requireDatabase("createCollectionSessions") || databaseTaskId <= 0
+        || deviceRevisionId <= 0 || endpointKey.trimmed().isEmpty() || faceMask == 0 || (faceMask & 0xF0U) != 0) {
         if (m_lastError.isEmpty()) m_lastError = QStringLiteral("采集会话参数无效");
         return false;
     }
@@ -541,62 +541,69 @@ bool SqliteRuntimeRepository::createCollectionSession(
         m_lastError = m_databaseOwner.lastError();
         return false;
     }
-    const QUuid newUuid = QUuid::createUuid();
+    std::array<QUuid, 4> uuids {};
+    std::array<qint64, 4> ids {};
+    const qint64 startedUtcMs = QDateTime::currentMSecsSinceEpoch();
     QSqlQuery insert(m_databaseOwner.m_database);
     insert.prepare(QStringLiteral(
         "INSERT INTO collection_sessions("
         "session_uuid,run_id,task_id,device_revision_id,endpoint_key,face_index,started_utc_ms,stop_reason) "
         "VALUES(?,?,?,?,?,?,?,0)"));
-    insert.addBindValue(newUuid.toRfc4122());
-    insert.addBindValue(m_databaseOwner.m_runId);
-    insert.addBindValue(databaseTaskId);
-    insert.addBindValue(deviceRevisionId);
-    insert.addBindValue(endpointKey);
-    insert.addBindValue(faceIndex);
-    insert.addBindValue(QDateTime::currentMSecsSinceEpoch());
-    if (!insert.exec()) {
-        return rollbackWithError(insert.lastError().text());
-    }
-    const qint64 insertedId = insert.lastInsertId().toLongLong();
-    if (insertedId <= 0) {
-        return rollbackWithError(QStringLiteral("SQLite 未返回有效采集会话主键"));
+    for (quint8 face = 0; face < 4; ++face) {
+        if ((faceMask & (1U << face)) == 0) continue;
+        uuids[face] = QUuid::createUuid();
+        insert.bindValue(0, uuids[face].toRfc4122());
+        insert.bindValue(1, m_databaseOwner.m_runId);
+        insert.bindValue(2, databaseTaskId); insert.bindValue(3, deviceRevisionId);
+        insert.bindValue(4, endpointKey); insert.bindValue(5, face); insert.bindValue(6, startedUtcMs);
+        if (!insert.exec()) return rollbackWithError(insert.lastError().text());
+        ids[face] = insert.lastInsertId().toLongLong();
+        if (ids[face] <= 0) return rollbackWithError(QStringLiteral("SQLite 未返回有效采集会话主键"));
+        insert.finish();
     }
     if (!m_databaseOwner.executeSql(QStringLiteral("COMMIT"))) {
         return rollbackWithError(m_databaseOwner.lastError());
     }
-    sessionUuid = newUuid;
-    collectionSessionId = insertedId;
+    sessionUuids = uuids;
+    collectionSessionIds = ids;
     m_lastError.clear();
     return true;
 }
 
 /**
- * @brief 只允许将当前 run 中唯一 Running 行收口为已知停止原因，拒绝重复停止和跨 run 更新。
+ * @brief 整组会话在一个事务内停止；任何行失败都回滚，避免四面阵部分停止后无法重试。
  */
-bool SqliteRuntimeRepository::stopCollectionSession(
-    qint64 collectionSessionId,
+bool SqliteRuntimeRepository::stopCollectionSessions(
+    const QVector<qint64> &collectionSessionIds,
     quint8 stopReason,
     qint64 stoppedUtcMs)
 {
-    if (!requireDatabase("stopCollectionSession") || collectionSessionId <= 0
+    if (!requireDatabase("stopCollectionSessions") || collectionSessionIds.isEmpty()
         || stopReason < 1 || stopReason > 4 || stoppedUtcMs <= 0) {
         if (m_lastError.isEmpty()) m_lastError = QStringLiteral("停止采集会话参数无效");
         return false;
+    }
+    QSet<qint64> seen;
+    for (const auto id : collectionSessionIds) {
+        if (id <= 0 || seen.contains(id)) { m_lastError = QStringLiteral("会话主键无效或重复"); return false; }
+        seen.insert(id);
+    }
+    if (!m_databaseOwner.executeSql(QStringLiteral("BEGIN IMMEDIATE"))) {
+        m_lastError = m_databaseOwner.lastError(); return false;
     }
     QSqlQuery update(m_databaseOwner.m_database);
     update.prepare(QStringLiteral(
         "UPDATE collection_sessions SET stopped_utc_ms=?,stop_reason=? "
         "WHERE collection_session_id=? AND run_id=? AND stop_reason=0"));
-    update.addBindValue(stoppedUtcMs);
-    update.addBindValue(stopReason);
-    update.addBindValue(collectionSessionId);
-    update.addBindValue(m_databaseOwner.m_runId);
-    if (!update.exec() || update.numRowsAffected() != 1) {
-        m_lastError = update.lastError().text().isEmpty()
-            ? QStringLiteral("采集会话不存在、已停止或不属于当前 run")
-            : update.lastError().text();
-        return false;
+    for (const auto id : collectionSessionIds) {
+        update.bindValue(0, stoppedUtcMs); update.bindValue(1, stopReason);
+        update.bindValue(2, id); update.bindValue(3, m_databaseOwner.m_runId);
+        if (!update.exec() || update.numRowsAffected() != 1)
+            return rollbackWithError(update.lastError().text().isEmpty()
+                ? QStringLiteral("采集会话不存在、已停止或不属于当前 run") : update.lastError().text());
+        update.finish();
     }
+    if (!m_databaseOwner.executeSql(QStringLiteral("COMMIT"))) return rollbackWithError(m_databaseOwner.lastError());
     m_lastError.clear();
     return true;
 }
@@ -607,6 +614,119 @@ bool SqliteRuntimeRepository::stopCollectionSession(
 QString SqliteRuntimeRepository::lastError() const
 {
     return m_lastError;
+}
+
+/**
+ * @brief 按实际指定的任务、设备、域、级别和时间做 keyset 读取，最多复制 200 条短期记录。
+ * @details 主键打破同毫秒时间冲突；跨请求不持有事务或 SQL cursor，查询不会等待任何 Topic Reader。
+ */
+bool SqliteRuntimeRepository::readEventPage(const QUuid &taskUuid, const QUuid &deviceUuid,
+    int domain, int severity, qint64 startUtcMs, qint64 endUtcMs, qint64 beforeUtcMs,
+    qint64 beforeEventId, int limit, QJsonArray &events, bool &hasMore)
+{
+    if (!requireDatabase("readEventPage")) return false;
+    if (domain < 0 || domain > 4 || severity < -1 || severity > 4 || startUtcMs <= 0
+        || endUtcMs < startUtcMs || endUtcMs > 9007199254740991LL
+        || (beforeUtcMs > 0 && (beforeUtcMs < startUtcMs || beforeUtcMs > endUtcMs))
+        || limit < 1 || limit > 200 || beforeUtcMs < 0 || beforeEventId < 0
+        || ((beforeUtcMs == 0) != (beforeEventId == 0))) {
+        m_lastError = QStringLiteral("历史事件分页参数无效");
+        return false;
+    }
+    QSqlQuery query(m_databaseOwner.m_database);
+    query.setForwardOnly(true);
+    QString sql = QStringLiteral("SELECT e.event_id,e.receive_time_utc_ms,e.event_code,e.severity,"
+        "e.argument0,e.argument1,d.device_uuid,e.event_domain,t.task_uuid FROM system_events e "
+        "LEFT JOIN devices d ON d.device_revision_id=e.device_revision_id "
+        "LEFT JOIN tasks t ON t.task_id=e.task_id "
+        "WHERE e.receive_time_utc_ms>=? AND e.receive_time_utc_ms<=? ");
+    if (!taskUuid.isNull()) sql += QStringLiteral("AND e.task_id=(SELECT task_id FROM tasks WHERE task_uuid=?) ");
+    if (!deviceUuid.isNull()) sql += QStringLiteral("AND d.device_uuid=? ");
+    if (domain != 0) sql += QStringLiteral("AND e.event_domain=? ");
+    if (severity != -1) sql += QStringLiteral("AND e.severity=? ");
+    if (beforeUtcMs > 0) sql += QStringLiteral("AND (e.receive_time_utc_ms<? OR "
+        "(e.receive_time_utc_ms=? AND e.event_id<?)) ");
+    sql += QStringLiteral("ORDER BY e.receive_time_utc_ms DESC,e.event_id DESC LIMIT ?");
+    if (!query.prepare(sql)) { m_lastError = query.lastError().text(); return false; }
+    query.addBindValue(startUtcMs);
+    query.addBindValue(endUtcMs);
+    if (!taskUuid.isNull()) query.addBindValue(taskUuid.toRfc4122());
+    if (!deviceUuid.isNull()) query.addBindValue(deviceUuid.toRfc4122());
+    if (domain != 0) query.addBindValue(domain);
+    if (severity != -1) query.addBindValue(severity);
+    if (beforeUtcMs > 0) {
+        query.addBindValue(beforeUtcMs);
+        query.addBindValue(beforeUtcMs);
+        query.addBindValue(beforeEventId);
+    }
+    query.addBindValue(limit + 1);
+    if (!query.exec()) { m_lastError = query.lastError().text(); return false; }
+    QJsonArray page;
+    bool more = false;
+    while (query.next()) {
+        if (page.size() == limit) { more = true; break; }
+        QJsonObject row{{"eventId", QString::number(query.value(0).toLongLong())},
+            {"timestamp", query.value(1).toLongLong()}, {"eventCode", query.value(2).toLongLong()},
+            {"severity", query.value(3).toInt()}};
+        if (!query.value(4).isNull()) row.insert("argument0", QString::number(query.value(4).toLongLong()));
+        if (!query.value(5).isNull()) row.insert("argument1", QString::number(query.value(5).toLongLong()));
+        if (!query.value(6).isNull()) row.insert("deviceId",
+            QUuid::fromRfc4122(query.value(6).toByteArray()).toString(QUuid::WithoutBraces));
+        row.insert("domain", query.value(7).toInt());
+        if (!query.value(8).isNull()) row.insert("taskId",
+            QUuid::fromRfc4122(query.value(8).toByteArray()).toString(QUuid::WithoutBraces));
+        page.append(row);
+    }
+    if (query.lastError().isValid()) { m_lastError = query.lastError().text(); return false; }
+    events = page;
+    hasMore = more;
+    m_lastError.clear();
+    return true;
+}
+
+/**
+ * @brief 只读现有 application_runs，以启动时刻和主键分页；可空退出信息原样保留，不猜测异常发生时刻。
+ */
+bool SqliteRuntimeRepository::readRunPage(qint64 startUtcMs, qint64 endUtcMs, int shutdownState,
+    qint64 beforeUtcMs, qint64 beforeRunId, int limit, QJsonArray &runs, bool &hasMore)
+{
+    if (!requireDatabase("readRunPage")) return false;
+    if (startUtcMs <= 0 || endUtcMs < startUtcMs || endUtcMs > 9007199254740991LL
+        || shutdownState < -1 || shutdownState > 2 || limit < 1 || limit > 200
+        || beforeUtcMs < 0 || beforeRunId < 0 || ((beforeUtcMs == 0) != (beforeRunId == 0))
+        || (beforeUtcMs > 0 && (beforeUtcMs < startUtcMs || beforeUtcMs > endUtcMs))) {
+        m_lastError = QStringLiteral("运行记录分页参数无效"); return false;
+    }
+    QSqlQuery query(m_databaseOwner.m_database);
+    query.setForwardOnly(true);
+    QString sql = QStringLiteral("SELECT run_id,run_uuid,started_utc_ms,ended_utc_ms,abnormal_detected_utc_ms,"
+        "application_version,schema_version,process_id,shutdown_state,exit_code FROM application_runs "
+        "WHERE started_utc_ms>=? AND started_utc_ms<=? ");
+    if (shutdownState != -1) sql += QStringLiteral("AND shutdown_state=? ");
+    if (beforeUtcMs > 0) sql += QStringLiteral("AND (started_utc_ms<? OR (started_utc_ms=? AND run_id<?)) ");
+    sql += QStringLiteral("ORDER BY started_utc_ms DESC,run_id DESC LIMIT ?");
+    if (!query.prepare(sql)) { m_lastError = query.lastError().text(); return false; }
+    query.addBindValue(startUtcMs); query.addBindValue(endUtcMs);
+    if (shutdownState != -1) query.addBindValue(shutdownState);
+    if (beforeUtcMs > 0) { query.addBindValue(beforeUtcMs); query.addBindValue(beforeUtcMs); query.addBindValue(beforeRunId); }
+    query.addBindValue(limit + 1);
+    if (!query.exec()) { m_lastError = query.lastError().text(); return false; }
+    QJsonArray page;
+    bool more = false;
+    while (query.next()) {
+        if (page.size() == limit) { more = true; break; }
+        QJsonObject row{{"runId", QString::number(query.value(0).toLongLong())},
+            {"runUuid", QUuid::fromRfc4122(query.value(1).toByteArray()).toString(QUuid::WithoutBraces)},
+            {"startedUtcMs", query.value(2).toLongLong()}, {"applicationVersion", query.value(5).toString()},
+            {"schemaVersion", query.value(6).toInt()}, {"shutdownState", query.value(8).toInt()}};
+        if (!query.value(3).isNull()) row.insert("endedUtcMs", query.value(3).toLongLong());
+        if (!query.value(4).isNull()) row.insert("abnormalDetectedUtcMs", query.value(4).toLongLong());
+        if (!query.value(7).isNull()) row.insert("processId", QString::number(query.value(7).toLongLong()));
+        if (!query.value(9).isNull()) row.insert("exitCode", query.value(9).toLongLong());
+        page.append(row);
+    }
+    if (query.lastError().isValid()) { m_lastError = query.lastError().text(); return false; }
+    runs = page; hasMore = more; m_lastError.clear(); return true;
 }
 
 /**
@@ -625,6 +745,79 @@ bool SqliteRuntimeRepository::requireDatabase(const char *operation)
         return false;
     }
     return true;
+}
+
+/**
+ * @brief 按任务和接收时刻进行 keyset 查询，从会话外键读取采集时的设备 revision 与逐面安装参数。
+ * @details 一页最多 1000 条，临时 JSON 不进入 Topic；缺失真实姿态时失败，不让历史绘制回退到当前台账。
+ */
+bool SqliteRuntimeRepository::readTaskTrackPage(const QUuid &taskUuid, qint64 startUtcMs, qint64 endUtcMs,
+    qint64 afterUtcMs, qint64 afterId, int limit, QJsonArray &tracks, bool &hasMore)
+{
+    if (!requireDatabase("readTaskTrackPage")) return false;
+    if (taskUuid.isNull() || startUtcMs <= 0 || endUtcMs < startUtcMs || limit < 1 || limit > 1000
+        || afterUtcMs < 0 || afterId < 0 || ((afterUtcMs == 0) != (afterId == 0))) {
+        m_lastError = QStringLiteral("历史航迹查询参数无效"); return false;
+    }
+    QSqlQuery query(m_databaseOwner.m_database);
+    query.setForwardOnly(true);
+    QString sql = QStringLiteral("SELECT o.observation_id,o.receive_time_utc_ms,s.session_uuid,d.device_uuid,"
+        "o.track_id,o.face_index,o.range_m,o.azimuth_rad,o.elevation_rad,o.radial_velocity_mps,"
+        "o.amplitude,o.pack_flag,o.scan_sequence,d.longitude_deg,d.latitude_deg,d.altitude_m,d.faces_json "
+        "FROM collection_sessions s JOIN track_observations o ON o.collection_session_id=s.collection_session_id AND o.run_id=s.run_id "
+        "JOIN devices d ON d.device_revision_id=s.device_revision_id "
+        "WHERE s.task_id=(SELECT task_id FROM tasks WHERE task_uuid=?) "
+        "AND o.receive_time_utc_ms>=? AND o.receive_time_utc_ms<=? ");
+    if (afterUtcMs > 0) sql += QStringLiteral("AND (o.receive_time_utc_ms>? OR (o.receive_time_utc_ms=? AND o.observation_id>?)) ");
+    sql += QStringLiteral("ORDER BY o.receive_time_utc_ms,o.observation_id LIMIT ?");
+    if (!query.prepare(sql)) { m_lastError = query.lastError().text(); return false; }
+    query.addBindValue(taskUuid.toRfc4122()); query.addBindValue(startUtcMs); query.addBindValue(endUtcMs);
+    if (afterUtcMs > 0) { query.addBindValue(afterUtcMs); query.addBindValue(afterUtcMs); query.addBindValue(afterId); }
+    query.addBindValue(limit + 1);
+    if (!query.exec()) { m_lastError = query.lastError().text(); return false; }
+    QJsonArray page;
+    bool more = false;
+    while (query.next()) {
+        if (page.size() == limit) { more = true; break; }
+        QJsonParseError parseError;
+        const auto document = QJsonDocument::fromJson(query.value(16).toString().toUtf8(), &parseError);
+        const int faceIndex = query.value(5).toInt();
+        QJsonObject face;
+        for (const auto &item : document.array()) {
+            const auto candidate = item.toObject();
+            if (candidate.value("faceIndex").toDouble(-1) == faceIndex) {
+                if (!face.isEmpty()) { m_lastError = QStringLiteral("归档安装配置阵面重复"); return false; }
+                face = candidate;
+            }
+        }
+        if (parseError.error != QJsonParseError::NoError || !document.isArray() || face.isEmpty()
+            || !face.value("headingDeg").isDouble() || !face.value("pitchDeg").isDouble() || !face.value("rollDeg").isDouble()) {
+            m_lastError = QStringLiteral("归档缺少对应阵面的真实安装姿态"); return false;
+        }
+        const double longitude = query.value(13).toDouble(), latitude = query.value(14).toDouble();
+        const double altitude = query.value(15).toDouble();
+        const double heading = face.value("headingDeg").toDouble(), pitch = face.value("pitchDeg").toDouble();
+        const double roll = face.value("rollDeg").toDouble();
+        if (!std::isfinite(longitude) || std::abs(longitude) > 180 || !std::isfinite(latitude) || std::abs(latitude) >= 90
+            || !std::isfinite(altitude) || !std::isfinite(heading) || std::abs(heading) > 360
+            || !std::isfinite(pitch) || std::abs(pitch) > 90 || !std::isfinite(roll) || std::abs(roll) > 180) {
+            m_lastError = QStringLiteral("归档安装位置或姿态越界，不能进行历史投影"); return false;
+        }
+        QJsonObject pose{{"lng", query.value(13).toDouble()}, {"lat", query.value(14).toDouble()},
+            {"altitude", query.value(15).toDouble()}, {"heading", face.value("headingDeg")},
+            {"pitch", face.value("pitchDeg")}, {"roll", face.value("rollDeg")}};
+        QJsonObject row{{"observationId", QString::number(query.value(0).toLongLong())},
+            {"tsMs", query.value(1).toLongLong()}, {"acquisitionId", QUuid::fromRfc4122(query.value(2).toByteArray()).toString(QUuid::WithoutBraces)},
+            {"deviceId", QUuid::fromRfc4122(query.value(3).toByteArray()).toString(QUuid::WithoutBraces)},
+            {"targetId", query.value(4).toLongLong()}, {"faceIndex", faceIndex}, {"range", query.value(6).toDouble()},
+            {"azimuth", query.value(7).toDouble()}, {"elevation", query.value(8).toDouble()},
+            {"radialSpeed", query.value(9).toDouble()}, {"amplitude", query.value(10).toDouble()},
+            {"packFlag", query.value(11).toInt()}, {"pose", pose}};
+        if (!query.value(12).isNull()) row.insert("scanSequence", query.value(12).toLongLong());
+        page.append(row);
+    }
+    if (query.lastError().isValid()) { m_lastError = query.lastError().text(); return false; }
+    tracks = page; hasMore = more; m_lastError.clear(); return true;
 }
 
 /**

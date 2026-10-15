@@ -135,9 +135,21 @@ QJsonObject EventWebSocketService::message(
     } else if (event.eventCode == core::model::EventCode::ControlTaskControlSettingsInvariantFailed) {
         text = QStringLiteral("任务参数已保存，但运行控制快照更新失败");
     } else if (event.eventCode == core::model::EventCode::DeviceMalformedFrame) {
-        text = QStringLiteral("收到无效设备报文");
+        text = QStringLiteral("收到无效设备报文，当前原因 %1").arg(event.argument0);
     } else if (event.eventCode == core::model::EventCode::TrackPublishRejected) {
         text = QStringLiteral("航迹数据未通过发布校验，原因 %1").arg(event.argument0);
+    } else if (event.eventCode == core::model::EventCode::SystemArchiveHealthChanged) {
+        text = (event.argument1 & 1) != 0
+            ? QStringLiteral("归档提交失败，系统已降级；实时接收继续")
+            : QStringLiteral("归档提交可用");
+        if ((event.argument1 & 2) != 0) text += QStringLiteral("；已发生航迹归档缺口");
+        if ((event.argument1 & 4) != 0) text += QStringLiteral("；已发生事件归档缺口");
+    } else if (event.eventCode == core::model::EventCode::SystemArchiveTrackGap
+               || event.eventCode == core::model::EventCode::SystemArchiveEventGap) {
+        text = QStringLiteral("%1首次归档缺口：序号 %2 至 %3；缺失历史无法自动恢复")
+            .arg(event.eventCode == core::model::EventCode::SystemArchiveTrackGap
+                ? QStringLiteral("航迹") : QStringLiteral("事件"))
+            .arg(event.argument0).arg(event.argument1);
     } else if (event.eventCode == core::model::EventCode::SystemTopicSequenceGap) {
         text = QStringLiteral("实时事件缺失：序号 %1 至 %2")
             .arg(event.argument0).arg(event.argument1);
@@ -146,6 +158,11 @@ QJsonObject EventWebSocketService::message(
     } else {
         text = QStringLiteral("系统事件 0x%1")
             .arg(static_cast<quint32>(event.eventCode), 8, 16, QLatin1Char('0'));
+    }
+    if ((event.eventCode == core::model::EventCode::DeviceMalformedFrame
+         || event.eventCode == core::model::EventCode::TrackPublishRejected)
+        && core::model::hasEventSubject(event.flags, core::model::EventSubjectFlag::Argument1Valid)) {
+        text += QStringLiteral("；本报告窗口该类别共拒绝 %1 条").arg(event.argument1);
     }
     const QString level = event.severity == core::model::EventSeverity::Info
         ? QStringLiteral("INFO")

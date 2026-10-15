@@ -58,8 +58,13 @@ ArchiveReader::~ArchiveReader()
  */
 bool ArchiveReader::consumeOneTurn()
 {
+    const quint32 previous = (m_trackFailed || m_eventFailed ? 1U : 0U)
+        | (m_trackGapCount ? 2U : 0U) | (m_eventGapCount ? 4U : 0U);
     const bool trackHasMore = consumeTrackBatch();
     const bool eventHasMore = consumeEventBatch();
+    const quint32 current = (m_trackFailed || m_eventFailed ? 1U : 0U)
+        | (m_trackGapCount ? 2U : 0U) | (m_eventGapCount ? 4U : 0U);
+    if (previous != current) Q_EMIT archiveStatusChanged(current);
     return trackHasMore || eventHasMore;
 }
 
@@ -144,7 +149,7 @@ void ArchiveReader::onExecutionRequested(quint64 pendingMask)
 
 /**
  * @brief 从 track committed cursor 读取一个固定批次，并以 Repository 返回值作为唯一提交判据。
- * @details Gap 只计数并归档当前仍保留的记录；若 cursor Ahead，当前阶段不擅自归零以避免重复写入，等待
+ * @details Gap 计数并同步报告首次缺口，再归档当前仍保留的记录；若 cursor Ahead，不擅自归零以避免重复写入，等待
  * 后续持久化会话合同决定恢复策略。空批次和 Ahead 均不调用 Repository。
  */
 bool ArchiveReader::consumeTrackBatch()
@@ -152,14 +157,17 @@ bool ArchiveReader::consumeTrackBatch()
     const auto result = m_trackTopic.readAfter(m_trackCommittedCursor, m_trackScratch);
     if (result.relation == core::domain::CursorRelation::Gap) {
         ++m_trackGapCount;
+        if (m_trackGapCount == 1) Q_EMIT firstGapDetected(false, result.gap->firstLost, result.gap->lastLost);
     }
     if (result.relation == core::domain::CursorRelation::Ahead || result.count == 0) {
         return false;
     }
     if (!m_repository.appendTrackBatch(m_trackScratch.data(), result.count)) {
         ++m_trackCommitFailureCount;
+        m_trackFailed = true;
         return false;
     }
+    m_trackFailed = false;
     m_trackCommittedCursor = m_trackScratch[result.count - 1].sequence;
     return result.hasMore;
 }
@@ -173,14 +181,17 @@ bool ArchiveReader::consumeEventBatch()
     const auto result = m_eventTopic.readAfter(m_eventCommittedCursor, m_eventScratch);
     if (result.relation == core::domain::CursorRelation::Gap) {
         ++m_eventGapCount;
+        if (m_eventGapCount == 1) Q_EMIT firstGapDetected(true, result.gap->firstLost, result.gap->lastLost);
     }
     if (result.relation == core::domain::CursorRelation::Ahead || result.count == 0) {
         return false;
     }
     if (!m_repository.appendEventBatch(m_eventScratch.data(), result.count)) {
         ++m_eventCommitFailureCount;
+        m_eventFailed = true;
         return false;
     }
+    m_eventFailed = false;
     m_eventCommittedCursor = m_eventScratch[result.count - 1].sequence;
     return result.hasMore;
 }

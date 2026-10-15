@@ -50,36 +50,53 @@ export function projectRadarTrack(
   const face = device.faces[faceIndex]
   const absoluteHeading = trackAbsoluteHeading(device, faceIndex)
   if (!face || absoluteHeading === null) return null
+  return projectRadarObservation(device, face, azimuthDeg, elevationDeg, slantRangeM)
+}
+
+/**
+ * @brief 用明确的原点和阵面安装姿态完成 RFU→地理转换，实时台账与历史冻结 revision 共用同一实现。
+ * @param origin 经度/纬度为度，altitude 为 MSL 米；不读取当前 DeviceState。
+ * @param face 绝对航向、俯仰、横滚，单位度；历史调用方必须提供真实归档值。
+ * @param azimuthDeg 局部方位角，度。
+ * @param elevationDeg 局部俯仰角，度。
+ * @param slantRangeM 斜距，米。
+ * @return 同一局部切平面近似下的经纬高和 ENU 分量，不宣称测地级精度。
+ */
+export function projectRadarObservation(
+  origin: { lng: number; lat: number; altitude: number },
+  face: { heading: number; pitch: number; roll: number },
+  azimuthDeg: number, elevationDeg: number, slantRangeM: number,
+): RadarProjection {
   const azimuth = azimuthDeg * DEG_TO_RAD
   const elevation = elevationDeg * DEG_TO_RAD
   const horizontal = slantRangeM * Math.cos(elevation)
 
-  // Local body axes: x=right, y=forward, z=up.
+  /** @brief 局部 RFU 轴：右、前、上；先滚转再俯仰，最后旋转绝对航向。 */
   let x = horizontal * Math.sin(azimuth)
   let y = horizontal * Math.cos(azimuth)
   let z = slantRangeM * Math.sin(elevation)
 
-  // Roll about forward axis (right side down is positive).
+  /** @brief 绕前向轴滚转，右侧下沉为正。 */
   const roll = face.roll * DEG_TO_RAD
   ;[x, z] = [x * Math.cos(roll) + z * Math.sin(roll),
              -x * Math.sin(roll) + z * Math.cos(roll)]
 
-  // Pitch about right axis (nose up is positive).
+  /** @brief 绕右向轴俯仰，抬头为正。 */
   const pitch = face.pitch * DEG_TO_RAD
   ;[y, z] = [y * Math.cos(pitch) - z * Math.sin(pitch),
              y * Math.sin(pitch) + z * Math.cos(pitch)]
 
-  // Rotate by the measured absolute heading (clockwise from north).
-  const heading = absoluteHeading * DEG_TO_RAD
+  /** @brief 按真北顺时针绝对航向旋转到 ENU。 */
+  const heading = absoluteFaceHeading(face.heading) * DEG_TO_RAD
   const eastM = x * Math.cos(heading) + y * Math.sin(heading)
   const northM = -x * Math.sin(heading) + y * Math.cos(heading)
   const upM = z
-  const metersPerDegLng = METERS_PER_DEG_LAT * Math.cos(device.lat * DEG_TO_RAD)
+  const metersPerDegLng = METERS_PER_DEG_LAT * Math.cos(origin.lat * DEG_TO_RAD)
 
   return {
-    lng: device.lng + eastM / metersPerDegLng,
-    lat: device.lat + northM / METERS_PER_DEG_LAT,
-    altitude: device.altitude + upM,
+    lng: origin.lng + eastM / metersPerDegLng,
+    lat: origin.lat + northM / METERS_PER_DEG_LAT,
+    altitude: origin.altitude + upM,
     bearingDeg: ((Math.atan2(eastM, northM) / DEG_TO_RAD) + 360) % 360,
     eastM,
     northM,

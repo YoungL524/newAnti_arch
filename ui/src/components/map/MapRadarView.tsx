@@ -13,6 +13,7 @@ import 'leaflet/dist/leaflet.css'
 import PPIOverlay from './PPIOverlay'
 import TrackLayer from './TrackLayer'
 import HistoryTrackLayer from './HistoryTrackLayer'
+import TrackReplayControls from './TrackReplayControls'
 import SelectedTracksPanel from './SelectedTracksPanel'
 import { type RadarDevice, RADAR_CENTER } from './types'
 import { useCore } from '../../hooks/useCoreApi'
@@ -42,7 +43,7 @@ interface Props {
 export default function MapRadarView({ devices, idleActionLabel, idleActionPending = false, idleActionError = '', onIdleAction }: Props) {
   const {
     acquisition, devices: deviceStates, checkedDeviceIds, historyTracks,
-    historyLoading, historyError, isHistoryView, liveTracksNotice, historyViewNotice, deviceHeartbeat,
+    replay, isHistoryView, liveTracksNotice, historyViewNotice, deviceHeartbeat,
   } = useCore()
   const shownDevices = useMemo(() =>
     isHistoryView ? devices : devices.map(device => applyLiveRadarPose(device, deviceHeartbeat?.payload.radarPose)),
@@ -231,6 +232,7 @@ export default function MapRadarView({ devices, idleActionLabel, idleActionPendi
           : error && <div style={{ color: 'var(--error)' }}>{error}</div>}
       </div>
 
+      {isHistoryView && <TrackReplayControls />}
       {ready && viewport && (
         <>
           {!isHistoryView && devices.length > 0 && checkedDeviceIds.length === 0 && (
@@ -267,12 +269,12 @@ export default function MapRadarView({ devices, idleActionLabel, idleActionPendi
               )}
             </div>
           )}
-          {isHistoryView && !historyLoading && (historyError || historyTracks.length === 0) && (
+          {isHistoryView && !replay?.loading && (replay?.error || replay?.pageCount === 0) && (
             <div
               className="absolute left-1/2 top-32 z-30 -translate-x-1/2 px-3 py-1.5 rounded-lg text-[11px] shadow-md"
-              style={{ background: 'rgba(255,255,255,0.95)', color: historyError ? 'var(--error)' : 'var(--secondary)', border: '1px solid var(--hairline)' }}
+              style={{ background: 'rgba(255,255,255,0.95)', color: replay?.error ? 'var(--error)' : 'var(--secondary)', border: '1px solid var(--hairline)' }}
             >
-              {historyError || '该任务没有归档航迹数据'}
+              {replay?.error || '所选范围没有已提交的归档航迹'}
             </div>
           )}
           {/* PPI overlays — 仅勾选的设备扫描 */}
@@ -291,14 +293,13 @@ export default function MapRadarView({ devices, idleActionLabel, idleActionPendi
             )
           })}
           {/* 历史航迹层（淡色，与实时层分离） */}
-          {isHistoryView && shownDevices.filter(d => checkedDeviceIds.includes(d.id)).map(d => (
+          {isHistoryView && (
             <HistoryTrackLayer
-              key={`history-${d.id}`}
-              device={d}
+              hiddenDeviceIds={devices.filter(d => !checkedDeviceIds.includes(d.id)).map(d => d.id)}
               points={historyTracks}
               mapInstance={viewport}
             />
-          ))}
+          )}
           {/* 实时航迹层 */}
           {!isHistoryView && shownDevices.filter(d => checkedDeviceIds.includes(d.id)).map(d => (
             <TrackLayer

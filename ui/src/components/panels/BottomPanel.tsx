@@ -86,7 +86,8 @@ export default function BottomPanel({ allDevices }: { allDevices: AppDevice[] })
   const [terminalOpened, setTerminalOpened] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [filter, setFilter] = useState<LogLevel>('ALL')
-  const { logEntries, systemEvents, historyLogs, historyLoading, historyError, historyViewNotice, isHistoryView } = useCore()
+  const { logEntries, systemEvents, historyLogs, historyLoading, historyError, historyViewNotice, isHistoryView,
+    historyNextCursor, loadEarlierHistoryLogs, reloadHistoryLogs } = useCore()
   const logEndRef = useRef<HTMLDivElement>(null)
 
   // 按级别筛选
@@ -198,7 +199,15 @@ export default function BottomPanel({ allDevices }: { allDevices: AppDevice[] })
               {(historyViewNotice || historyLoading || historyError) && (
                 <div className="px-5 py-1.5 text-[10px] shrink-0"
                   style={{ color: historyError ? 'var(--error)' : historyViewNotice ? '#b45309' : '#9ca3af', borderBottom: '1px solid rgba(229,231,226,0.3)' }}>
-                  {historyLoading ? '正在加载任务历史数据…' : historyError || historyViewNotice}
+                  {historyLoading ? '正在加载任务归档日志…' : historyError || historyViewNotice}
+                </div>
+              )}
+              {isHistoryView && (
+                <div className="px-5 py-1 flex items-center gap-3 text-[10px]">
+                  <button className="cursor-pointer disabled:opacity-40" onClick={reloadHistoryLogs} disabled={historyLoading}>最新一页</button>
+                  <button className="cursor-pointer disabled:opacity-40" onClick={loadEarlierHistoryLogs}
+                    disabled={historyLoading || !historyNextCursor}>更早一页</button>
+                  <span>当前页 {historyLogs.length} 条{!historyLoading && !historyNextCursor && historyLogs.length > 0 ? ' · 已到最早记录' : ''}</span>
                 </div>
               )}
               {!isHistoryView && systemEvents.length > 0 && (

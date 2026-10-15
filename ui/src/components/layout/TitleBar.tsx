@@ -1,14 +1,14 @@
 /**
  * @file TitleBar.tsx
  * @brief 显示当前任务名称、生命周期状态和设备执行摘要。
- * @details 所有值均来自上层任务状态，标题栏不发起任务命令，也不修改任务对象。
+ * @details 台账名称来自上层，实时阶段来自 CoreProvider 的 TaskState；本栏只提交采集意图，不修改任务对象。
  */
 
 import type { Task } from '../../lib/taskTypes'
 import { useCore } from '../../hooks/useCoreApi'
 
 const STATUS_LABEL: Record<string, string> = {
-  draft: '草稿', ready: '已就绪', active: '进行中', faulted: '故障',
+  draft: '草稿', ready: '已就绪', active: '进行中', running: '进行中', faulted: '故障',
   completed: '已完成', archived: '已归档',
 }
 
@@ -23,10 +23,13 @@ export default function TitleBar({ activeTask, viewTask, isHistoryView }: {
   viewTask: Task | null
   isHistoryView: boolean
 }) {
-  const { connected, acquisition, state, commandPending, checkedDeviceIds, devices,
+  const { connected, taskState, acquisition, state, commandPending, checkedDeviceIds, devices,
     noSelectionHint, commandError, interactionError, toggleAcquisition,
     dismissNoSelectionHint, dismissCommandError, dismissInteractionError } = useCore()
   const backendStatus = connected ? 'online' : 'offline'
+  const taskPhase = activeTask && taskState?.payload.taskId === activeTask.id
+    ? taskState.payload.phase : undefined
+  const taskCanAcquire = taskPhase === 'ready' || taskPhase === 'running'
 
   const isFault = state === 'Fault'
   const checkedCount = checkedDeviceIds.length
@@ -85,7 +88,7 @@ export default function TitleBar({ activeTask, viewTask, isHistoryView }: {
             <span className="font-semibold" style={{ color: 'var(--ink)' }}>{activeTask.name}</span>
             <span className="text-[9px] px-1.5 py-px rounded-full font-medium"
               style={{ background: 'rgba(6,78,59,0.08)', color: 'var(--primaryContainer)' }}>
-              {STATUS_LABEL[activeTask.status]}
+              {taskPhase ? STATUS_LABEL[taskPhase] : '等待任务状态同步'}
             </span>
           </div>
         ) : null}
@@ -106,11 +109,12 @@ export default function TitleBar({ activeTask, viewTask, isHistoryView }: {
           className="px-3.5 py-1 rounded-lg text-white font-semibold text-[11px] border-none cursor-pointer
                      precision-shadow active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
           style={{ background: btnBg }}
-          disabled={!connected || !activeTask || isHistoryView || commandPending || isFault}
+          disabled={!connected || !activeTask || !taskCanAcquire || isHistoryView || commandPending || isFault}
           onClick={toggleAcquisition}
           title={!connected ? '后端未连接'
             : !activeTask ? '请先激活任务'
             : isHistoryView ? '历史查看时不能启停当前采集'
+            : !taskCanAcquire ? '等待当前任务进入就绪或运行阶段'
             : isFault ? '设备故障复位尚未实现'
             : acquisition ? '停止当前任务的本地采集' : '开始当前任务的本地采集'}
         >

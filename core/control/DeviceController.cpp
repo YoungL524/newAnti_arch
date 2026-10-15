@@ -395,9 +395,6 @@ bool DeviceController::beginAcquisition(
     runtime.configurationRevision = configurationRevision;
     runtime.validity = core::model::deviceStateFieldBit(
         core::model::DeviceStateFieldFlag::AcquisitionValid);
-    runtime.connectionState = sample.value.dpHeartbeat == 1U || sample.value.spHeartbeat == 1U
-        ? core::model::DeviceConnectionState::Connected
-        : core::model::DeviceConnectionState::Disconnected;
     runtime.operatingState = core::model::DeviceOperatingState::Collecting;
     sample.value.devices = {runtime};
     const auto steadyNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -581,13 +578,19 @@ QString DeviceController::lastError() const
 }
 
 /**
- * @brief 以聚合状态门禁保护唯一写入口；非法完整快照不会推进revision。
+ * @brief 在唯一写入口同步通信聚合结果，避免心跳更新后设备仍保留采集开始时的在线结论。
+ * @details 当前单雷达 DP/SP 任一路在线即通信可用；控制双心跳门控另行判断，不改变采集会话或工作阶段。
+ * 初始化、心跳、期限与采集切换共用此处，门禁拒绝时整个快照均不发布。
  */
 bool DeviceController::publishDeviceState(
     core::model::Sample<core::model::DeviceState> sample,
     qint64 utcMs,
     qint64 steadyNs)
 {
+    const auto connection = sample.value.dpHeartbeat == 1U || sample.value.spHeartbeat == 1U
+        ? core::model::DeviceConnectionState::Connected
+        : core::model::DeviceConnectionState::Disconnected;
+    for (auto &device : sample.value.devices) device.connectionState = connection;
     sample.meta.receiveTimeUtcMs = utcMs;
     sample.meta.receiveTimeSteadyNs = steadyNs;
     if (core::producer::RuntimeStateGate::validateDeviceState(sample, 4)

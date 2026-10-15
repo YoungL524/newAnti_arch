@@ -3,7 +3,7 @@
  * @brief 定义 SQLite 配置真源、任务服务与稳定身份登记的单写线程组合根。
  * @details ApplicationRuntime 将本对象移动到唯一存储 QThread 后调用 initialize()；本对象在该线程构造并
  * 拥有 SQLite Repository、配置/任务 Owner、共享存储 ExecutionLane 和 ArchiveReader。下游通过
- * StableIdRegistry 读取已提交身份；本类不创建采集会话、不绑定 TrackIngressProducer，也不执行命令。
+ * StableIdRegistry 读取已提交身份；本类把会话事务委托 TaskService，不绑定 TrackIngressProducer，也不执行设备命令。
  */
 #pragma once
 
@@ -51,11 +51,14 @@ class SystemEventPublisher;
 namespace core::task {
 class TaskService;
 struct TaskDefinition;
+/** @brief 借用任务模块的强类型停止原因，存储编排不另建原因编号。 */
+enum class CollectionStopReason : quint8;
 }
 
 namespace core::app {
 
 struct ActiveTaskRuntimeContext;
+class SystemStateOwner;
 
 /**
  * @brief 在一个存储线程内建立和关闭全部 SQLite 单写依赖。
@@ -74,12 +77,14 @@ public:
      * @param trackTopic 数据域唯一航迹历史，生命周期覆盖本对象。
      * @param eventTopic 数据域唯一系统事件历史，生命周期覆盖本对象。
      * @param taskState 数据域唯一任务状态，由本对象拥有的TaskService写入Ready及后续阶段。
+     * @param systemStateOwner 线程安全的唯一系统状态 Owner；生命周期必须覆盖存储线程停止。
      */
     StorageRuntime(QString databasePath, QString applicationVersion,
                    core::model::StableIdRegistry &stableIds,
                    const core::domain::HistoryTopic<core::model::TrackPacket> &trackTopic,
                    core::domain::EventTopic<core::model::SystemEvent> &eventTopic,
-                   core::domain::LatestState<core::model::TaskState> &taskState);
+                   core::domain::LatestState<core::model::TaskState> &taskState,
+                   SystemStateOwner &systemStateOwner);
 
     /** @brief 释放前要求 shutdown() 已完成，防止跨线程销毁 Qt SQL 连接。 */
     ~StorageRuntime() override;
@@ -122,6 +127,30 @@ public:
 
     /** @brief 返回可复用控制模板；模板不是运行状态且不会随任务参数修改。 */
     Q_INVOKABLE QByteArray listTaskTemplates();
+
+    /**
+     * @brief 在存储线程校验历史事件查询并返回已提交的一页数据，复用唯一 SQLite 连接。
+     * @param requestTarget 相对目标；taskId/deviceId/domain/severity/startUtcMs/endUtcMs/limit/cursor 各至多一次。
+     * @return V1 JSON；无效参数、未知任务、SQL 失败分别为 INVALID_REQUEST、RESOURCE_NOT_FOUND、PERSISTENCE_FAILED。
+     * @note taskId 省略读取全局，包含无任务事件；每页最多 200 条，游标绑定全部条件，不触发归档排空。
+     */
+    QByteArray listArchivedEvents(const QString &requestTarget);
+
+    /**
+     * @brief 存储线程只读程序运行记录，不修改退出标记或触发归档排空。
+     * @param requestTarget 相对目标；只允许 startUtcMs/endUtcMs/shutdownState/limit/cursor 各一次。
+     * @return V1 JSON，最多 200 行；非法条件/游标返回 INVALID_REQUEST，SQL 失败为 PERSISTENCE_FAILED。
+     * @note 时间按启动 UTC 闭区间，游标绑定全部条件；状态零不代表操作系统进程仍存活。
+     */
+    QByteArray listArchivedRuns(const QString &requestTarget);
+
+    /**
+     * @brief 在存储线程校验任务、UTC 闭区间与绑定查询条件的游标，返回最多 1000 条已提交航迹。
+     * @param requestTarget 相对 HTTP 目标；仅接受 taskId/startUtcMs/endUtcMs/limit/cursor。
+     * @return V1 JSON；参数错误 400、未知任务 404、SQL/安装配置错误 500，空结果不代表未归档尾部已经存在。
+     * @note 只读存储，不强制归档排空、不恢复历史采集或发送设备命令。
+     */
+    QByteArray listArchivedTracks(const QString &requestTarget);
 
     /** @brief 校验任务JSON并通过唯一TaskService创建Draft任务。 */
     Q_INVOKABLE QByteArray createTask(const QByteArray &requestBody);
@@ -178,13 +207,23 @@ public:
     /** @brief 为已解析上下文创建逐阵面会话并推进TaskState至Running。 */
     bool startCollections(ActiveTaskRuntimeContext &context);
 
-    /** @brief 收口上下文中的全部活动会话，最后一个停止后TaskState回到Ready。 */
-    bool stopCollections(const std::array<core::model::AcquisitionId, 4> &acquisitionIds);
+    /** @brief 按调用方的 UserStop/Error 原因原子收口全部活动会话；失败保留整组活动位，成功回到 Ready。 */
+    bool stopCollections(const std::array<core::model::AcquisitionId, 4> &acquisitionIds,
+                         core::task::CollectionStopReason reason);
 
     /** @brief 返回所属存储线程的最近失败原因；运行期在该线程复制进响应，组合根仅在启动/关停屏障后读取。 */
     QString lastError() const;
 
 private:
+    /** @brief 存储线程接收 Reader 状态变化，同步更新内存系统状态；诊断事件至多每五秒一条。 */
+    void reportArchiveStatus(quint32 flags);
+
+    /** @brief 存储线程发布首次 Topic 缺口，保留精确闭区间；关停期间不再追加诊断尾部。 */
+    void reportArchiveGap(bool eventTopic, quint64 firstLost, quint64 lastLost);
+
+    /** @brief 构造三种已登记归档事实；仅用于存储线程，发布失败不递归生成事件。 */
+    void publishArchiveEvent(core::model::EventCode code, qint64 argument0, qint64 argument1);
+
     /**
      * @brief 构造并发布一条携带 TaskId 的 Control 域任务参数故障事实。
      * @param code 已登记的 Control 域事件码；严重级别由事件码决定。
@@ -206,6 +245,7 @@ private:
     const core::domain::HistoryTopic<core::model::TrackPacket> &m_trackTopic; ///< 数据域唯一航迹历史，只由 Reader 读取。
     core::domain::EventTopic<core::model::SystemEvent> &m_eventTopic; ///< 数据域唯一事件历史；Producer 写入，Reader 只读。
     core::domain::LatestState<core::model::TaskState> &m_taskState; ///< TaskService唯一写入的任务运行状态。
+    SystemStateOwner &m_systemStateOwner; ///< 借用组合根唯一系统状态 Owner，只调用其线程安全归档报告入口。
     std::unique_ptr<core::archive::SqliteArchiveRepository> m_archiveRepository; ///< 当前线程唯一 SQLite 连接 Owner。
     std::unique_ptr<core::persistence::SqliteRuntimeRepository> m_runtimeRepository; ///< 复用唯一连接的低频持久化入口。
     std::unique_ptr<core::config::DeviceConfigService> m_deviceService; ///< 设备 revision 与运行时句柄唯一 Owner。
@@ -214,7 +254,10 @@ private:
     std::unique_ptr<core::execution::ExecutionLane> m_archiveLane; ///< 唯一存储线程上的合并唤醒通道。
     std::unique_ptr<core::archive::ArchiveReader> m_archiveReader; ///< Track/Event Topic 的正式归档 Consumer。
     QString m_lastError; ///< 最近失败原因；不进入 Topic 或 Web 数据流。
-    quint64 m_nextFaultTraceId = 1; ///< 任务参数故障事件的进程内诊断关联号；零不使用。
+    quint64 m_nextFaultTraceId = 1; ///< 任务参数及归档事件共用的存储诊断关联号；零不使用。
+    quint32 m_archiveFlags = 0; ///< 本存储运行时最近归档结果，用于事件前后位图，不保存完整系统状态。
+    qint64 m_lastArchiveEventSteadyNs = 0; ///< 归档变化日志上次尝试发布的单调纳秒，五秒限频，不驱动计时器。
+    bool m_closing = false; ///< 关停收口后不再生成归档诊断事件，避免改变排空目标水位。
 };
 
 } // namespace core::app

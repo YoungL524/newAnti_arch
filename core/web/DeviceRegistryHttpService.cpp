@@ -176,9 +176,21 @@ void DeviceRegistryHttpService::consumeRequest(QTcpSocket &socket)
         return;
     }
     qint64 contentLength = 0;
+    bool lengthSeen = false;
     for (const auto &line : lines) {
         const auto trimmed = line.trimmed();
+        if (trimmed.toLower().startsWith("transfer-encoding:")) {
+            socket.setProperty("requestDispatched", true);
+            writeResponse(socket, 400, errorBody("INVALID_REQUEST", QStringLiteral("不支持Transfer-Encoding")));
+            return;
+        }
         if (trimmed.toLower().startsWith("content-length:")) {
+            if (lengthSeen) {
+                socket.setProperty("requestDispatched", true);
+                writeResponse(socket, 400, errorBody("INVALID_REQUEST", QStringLiteral("Content-Length重复")));
+                return;
+            }
+            lengthSeen = true;
             bool ok = false;
             contentLength = trimmed.mid(sizeof("content-length:") - 1).trimmed().toLongLong(&ok);
             if (!ok || contentLength < 0 || contentLength > kMaximumRequestBytes) {
@@ -222,7 +234,7 @@ void DeviceRegistryHttpService::consumeRequest(QTcpSocket &socket)
 }
 
 /**
- * @brief CRUD 直接异步交给存储 Owner，控制相关路由只调用主线程 ApplicationController。
+ * @brief CRUD 与有界归档查询异步交给存储 Owner，控制路由只调用主线程 ApplicationController。
  * @details 请求正文和路径按值进入 Qt 低频调用；没有共享 CommandQueue、额外线程或对 Topic 的轮询。
  */
 void DeviceRegistryHttpService::dispatch(const QByteArray &method, const QString &path,
@@ -234,7 +246,13 @@ void DeviceRegistryHttpService::dispatch(const QByteArray &method, const QString
     }
     auto *storage = m_storageRuntime;
     std::function<QByteArray()> work;
-    if (path == QStringLiteral("/api/v1/devices")) {
+    if (path.section('?', 0, 0) == QStringLiteral("/api/v1/archive/tracks")) {
+        if (method == "GET") work = [storage, path] { return storage->listArchivedTracks(path); };
+    } else if (path.section('?', 0, 0) == QStringLiteral("/api/v1/archive/events")) {
+        if (method == "GET") work = [storage, path] { return storage->listArchivedEvents(path); };
+    } else if (path.section('?', 0, 0) == QStringLiteral("/api/v1/archive/runs")) {
+        if (method == "GET") work = [storage, path] { return storage->listArchivedRuns(path); };
+    } else if (path == QStringLiteral("/api/v1/devices")) {
         if (method == "GET") work = [storage] { return storage->listDevices(); };
         else if (method == "POST") work = [storage, body] { return storage->createDevice(body); };
     } else if (path.startsWith(QStringLiteral("/api/v1/devices/"))) {

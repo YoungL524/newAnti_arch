@@ -17,6 +17,7 @@ import DeviceEditDialog from './components/dialogs/DeviceEditDialog'
 import { fetchDevices, createDevice, deleteDeviceApi, updateDevice as apiUpdateDevice, radarToApiPayload, subToApiPayload, apiDeviceToRadar, apiDeviceToSub, type DeviceRegistryStatus } from './lib/devicesApi'
 import TaskCreateDialog, { type TaskCreateResult } from './components/dialogs/TaskCreateDialog'
 import type { RadarControlSettings, Task, TaskTemplate } from './lib/taskTypes'
+import type { WsTaskStateMessage } from './lib/protocol'
 import {
   fetchTasksFromBackend,
   createTaskApi,
@@ -54,12 +55,63 @@ export default function App() {
   const [taskActionError, setTaskActionError] = useState('')
   const tasksRef = useRef<Task[]>([])
   const activeTaskIdRef = useRef<string | null>(null)
+  const taskRefreshRef = useRef<AbortController | null>(null) ///< 只读任务刷新至多保留一轮，替代或卸载时取消。
 
   useEffect(() => { devicesRef.current = devices }, [devices])
   useEffect(() => { subDevicesRef.current = subDevices }, [subDevices])
   useEffect(() => { tasksRef.current = tasks }, [tasks])
   useEffect(() => { activeTaskIdRef.current = activeTaskId }, [activeTaskId])
 
+  /**
+   * @brief 刷新唯一任务台账与活动选择；过期响应不能覆盖重连或更新阶段之后的结果。
+   * @note 保留仍存在的历史查看选择；只有原本跟随当前任务的视图才随活动身份一起切换。
+   */
+  const reloadTasks = useCallback(() => {
+    taskRefreshRef.current?.abort()
+    const request = new AbortController()
+    taskRefreshRef.current = request
+    fetchTasksFromBackend(request.signal)
+      .then(({ ok, tasks: loaded, activeTaskId: activeId }) => {
+        if (request.signal.aborted) return
+        if (!ok) {
+          setTasksBackend(false)
+          return
+        }
+        const previousActiveId = activeTaskIdRef.current
+        activeTaskIdRef.current = activeId
+        setTasks(loaded)
+        setActiveTaskId(activeId)
+        setViewTaskRunId(prev => {
+          if (prev && prev !== previousActiveId && loaded.some(t => t.id === prev)) return prev
+          return activeId
+        })
+        setTasksBackend(true)
+      })
+      .catch(() => { if (!request.signal.aborted) setTasksBackend(false) })
+      .finally(() => { if (!request.signal.aborted) setTasksReady(true) })
+  }, [])
+
+  /** @brief 卸载时取消只读刷新，禁止旧请求在页面生命周期结束后再提交状态。 */
+  useEffect(() => () => taskRefreshRef.current?.abort(), [])
+
+  /**
+   * @brief 任务快照变化后重新读取权威台账；断线先撤销旧任务选择，重连 None 不恢复旧运行任务。
+   * @param snapshot CoreProvider 已校验并接受的最新快照；null 表示未初始化或已断线。
+   */
+  const synchronizeTaskState = useCallback((snapshot: WsTaskStateMessage | null) => {
+    if (!snapshot) {
+      taskRefreshRef.current?.abort()
+      const previousActiveId = activeTaskIdRef.current
+      setViewTaskRunId(prev => prev === previousActiveId ? null : prev)
+      activeTaskIdRef.current = null
+      setActiveTaskId(null)
+      setTasksBackend(false)
+      return
+    }
+    reloadTasks()
+  }, [reloadTasks])
+
+  /** @brief 初始化或服务不可用时刷新台账与模板，任务刷新复用唯一可取消请求路径。 */
   const reloadBackendData = useCallback(() => {
     fetchDevices()
       .then(({ ok, radars, subs }) => {
@@ -75,27 +127,12 @@ export default function App() {
         setDeviceRegistryStatus('unavailable')
       })
 
-    fetchTasksFromBackend()
-      .then(({ ok, tasks: loaded, activeTaskId: activeId }) => {
-        if (!ok) {
-          setTasksBackend(false)
-          return
-        }
-        setTasks(loaded)
-        setActiveTaskId(activeId)
-        setViewTaskRunId(prev => {
-          if (prev && loaded.some(t => t.id === prev)) return prev
-          return activeId
-        })
-        setTasksBackend(true)
-      })
-      .catch(() => setTasksBackend(false))
-      .finally(() => setTasksReady(true))
+    reloadTasks()
 
     fetchTaskTemplates()
       .then(result => setTaskTemplates(result.ok ? result.data?.templates ?? [] : []))
       .catch(() => setTaskTemplates([]))
-  }, [])
+  }, [reloadTasks])
 
   useEffect(() => {
     reloadBackendData()
@@ -426,6 +463,7 @@ export default function App() {
       tasksReady={tasksReady}
       devicesReady={devicesReady}
       defaultCheckedDeviceIds={defaultCheckedDeviceIds}
+      onTaskStateChange={synchronizeTaskState}
     >
       <div className="h-screen flex flex-col overflow-hidden" style={{ background: 'var(--canvas)' }}>
         <div className="flex-1 flex overflow-hidden">

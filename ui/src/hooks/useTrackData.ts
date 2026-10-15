@@ -5,7 +5,7 @@
  * 不创建连接、不保存后端历史，也不改变断线和版本缺口语义。
  */
 
-import { useState, useEffect } from 'react'
+import { useMemo } from 'react'
 import { DeviceType, type DeviceDataRow, type RadarTrack } from '../lib/protocol'
 import { useCore } from './useCoreApi'
 
@@ -23,15 +23,13 @@ export interface TrackDataResult {
  * @param sourceId 后端稳定设备标识。
  * @param sourceLabel 用户可见设备名称。
  * @return 不拥有 WebSocket 历史、只供本轮 React 渲染使用的最终表格状态。
+ * @note 历史未归档的信噪比、外推、信号及景幅省略；消亡不解释为外推，扫描号不解释为景幅。
  */
 export function useTrackData(deviceType: DeviceType, sourceId: string, sourceLabel: string): TrackDataResult {
   const { tracks, historyTracks, isHistoryView, acquisition } = useCore()
-  const [rows, setRows] = useState<DeviceDataRow[]>([])
-
-  useEffect(() => {
+  const rows = useMemo<DeviceDataRow[]>(() => {
     if (deviceType !== DeviceType.RADAR) {
-      setRows([])
-      return
+      return []
     }
     if (isHistoryView) {
       const historicalRows: RadarTrack[] = historyTracks
@@ -40,23 +38,20 @@ export function useTrackData(deviceType: DeviceType, sourceId: string, sourceLab
           batchId: point.targetId,
           deviceId: point.deviceId,
           trackId: point.targetId,
+          acquisitionId: point.acquisitionId,
+          faceIndex: point.faceIndex,
           slantRange: point.range,
           azimuth: point.azimuth * 180 / Math.PI,
           elevation: point.elevation * 180 / Math.PI,
           altitude: point.altitude,
           radialSpeed: point.radialSpeed,
-          amplitude: 0,
-          snr: 0,
-          extrapolateFlag: 0,
-          targetType: point.targetId,
-          signalId: 0,
-          sceneNum: point.sceneNum,
+          amplitude: point.amplitude,
+          targetType: 0,
           timestamp: point.tsMs,
         }))
-      setRows(historicalRows)
-      return
+      return historicalRows
     }
-    setRows(tracks.filter(track => track.deviceId === sourceId))
+    return tracks.filter(track => track.deviceId === sourceId)
   }, [tracks, historyTracks, isHistoryView, deviceType, sourceId])
 
   const isLive = !isHistoryView && deviceType === DeviceType.RADAR && acquisition && rows.length > 0

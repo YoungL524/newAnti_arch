@@ -20,8 +20,8 @@ namespace core::domain {
 
 /**
  * @brief 集中拥有进程内共享强类型 Topic，但不承担中央消息路由或执行调度。
- * @details 当前只建立具有真实字段合同的 TrackPacket 历史和 SystemEvent 有界日志；Point、Optical 与
- * 三类State按已冻结合同保留最后值，无owner时保持未设置。对象由应用组合根拥有，Consumer只能借用只读引用。
+ * @details 只建立具有真实字段合同的 TrackPacket 历史、SystemEvent 有界日志及三类 State 最后值。
+ * 不创建 Point/Optical 占位 Topic。对象由应用组合根拥有，Consumer 只能借用只读引用。
  */
 class CoreDataDomain final
 {
@@ -77,11 +77,11 @@ public:
     LatestState<core::model::DeviceState>& deviceState() noexcept { return m_deviceState; }
     /** @brief 返回设备状态只读入口，生命周期由数据域拥有。 */
     const LatestState<core::model::DeviceState>& deviceState() const noexcept { return m_deviceState; }
-    /** @brief 返回任务状态，后续由TaskService唯一写入；当前未设置不伪造运行任务。 */
+    /** @brief 返回由 TaskService 唯一写入的任务状态；初始化前不伪造运行任务。 */
     LatestState<core::model::TaskState>& taskState() noexcept { return m_taskState; }
     /** @brief 返回任务状态只读入口。 */
     const LatestState<core::model::TaskState>& taskState() const noexcept { return m_taskState; }
-    /** @brief 返回系统状态，后续由SystemStateOwner唯一写入。 */
+    /** @brief 返回由 SystemStateOwner 唯一写入的系统状态，组合根只向 Owner 报告生命周期事实。 */
     LatestState<core::model::SystemState>& systemState() noexcept { return m_systemState; }
     /** @brief 返回系统状态只读入口。 */
     const LatestState<core::model::SystemState>& systemState() const noexcept { return m_systemState; }

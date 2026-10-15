@@ -2,6 +2,7 @@
 #include "core/app/StorageRuntime.h"
 #include "core/control/DeviceController.h"
 #include "core/producer/TrackIngressProducer.h"
+#include "core/task/TaskService.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -161,7 +162,7 @@ void ApplicationController::startAcquisition(StorageRuntime &storage, const QUui
             const QString reason = m_lastError.isEmpty() ? m_deviceController.lastError() : m_lastError;
             m_trackIngress.clearBinding();
             QMetaObject::invokeMethod(&storage, [this, &storage, context, reason, completed] {
-                const bool rolledBack = storage.stopCollections(context.faceAcquisitionIds);
+                const bool rolledBack = storage.stopCollections(context.faceAcquisitionIds, core::task::CollectionStopReason::Error);
                 const QByteArray response = errorResponse(
                     rolledBack ? QStringLiteral("COMMAND_REJECTED") : QStringLiteral("INTERNAL_ERROR"),
                     rolledBack ? reason : reason + QStringLiteral("；采集会话收口失败：") + storage.lastError());
@@ -195,7 +196,7 @@ void ApplicationController::stopAcquisition(StorageRuntime &storage, const QUuid
             failure = errorResponse(QStringLiteral("COMMAND_REJECTED"), storage.lastError());
         } else if (context.task.taskUuid != uuid || context.taskId != taskId) {
             failure = errorResponse(QStringLiteral("COMMAND_REJECTED"), QStringLiteral("请求任务不是当前采集任务"));
-        } else if (!storage.stopCollections(acquisitionIds)) {
+        } else if (!storage.stopCollections(acquisitionIds, core::task::CollectionStopReason::UserStop)) {
             failure = errorResponse(QStringLiteral("COMMAND_REJECTED"), storage.lastError());
         }
         QMetaObject::invokeMethod(this, [this, failure, completed] {

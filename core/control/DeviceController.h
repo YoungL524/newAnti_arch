@@ -151,7 +151,10 @@ public:
     QString lastError() const;
 
 private:
-    /** @brief 为完整快照补齐聚合元数据，通过门禁后才替换共享 DeviceState。 */
+    /**
+     * @brief 按当前单雷达 DP/SP 任一路在线规则同步通信状态，补齐元数据并校验后替换共享 State。
+     * @note 只更新 connectionState，不改变工作阶段或会话；控制发送仍要求双心跳在线。
+     */
     bool publishDeviceState(
         core::model::Sample<core::model::DeviceState> sample,
         qint64 utcMs,

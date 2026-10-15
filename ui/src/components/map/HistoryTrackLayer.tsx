@@ -1,45 +1,23 @@
 /**
  * @file HistoryTrackLayer.tsx
- * @brief 按任务查询并绘制可分页回放的历史航迹线与点。
- * @details 历史数据来自数据库查询，图层生命周期独立于实时 TrackLayer，切换任务时会清理旧地图要素。
+ * @brief 绘制回放控制器提供的当前页可见轨迹，不查询或缓存历史。
+ * @details 坐标按采集时安装 revision 计算；本层只做投影，按会话/设备/阵面/航迹隔离并在消亡处断线。
  */
 
 import { useEffect, useRef, useMemo, useState, useCallback } from 'react'
 import type { TrackHistoryPoint } from '../../lib/protocol'
 import type { MapViewport } from './mapViewport'
-import type { RadarDevice } from './types'
-import { projectRadarTrack } from '../../lib/radarPose'
-
-interface ScreenPoint { x: number; y: number }
-
-const HISTORY_LINE = 'rgba(148, 163, 184, 0.35)'
-const HISTORY_DOT = '#94a3b8'
-const DOT_R = 1.8
+import { drawTrack } from './TrackLayer'
 
 /** @brief 仅绘制上层已经提供的历史结果，不新增历史查询接口。 */
 interface Props {
-  device: RadarDevice ///< 设备安装参数。
+  hiddenDeviceIds: readonly string[] ///< 当前台账中明确取消显示的设备；已删除设备仍可按归档位置绘制。
   points: TrackHistoryPoint[] ///< 上层拥有的历史结果，本层不持久缓存副本。
   mapInstance: MapViewport | null ///< 借用当前地图，不拥有其生命周期。
 }
 
-function strokePolyline(ctx: CanvasRenderingContext2D, points: ScreenPoint[], color: string, width: number, alpha: number) {
-  if (points.length < 2) return
-  ctx.save()
-  ctx.strokeStyle = color
-  ctx.lineWidth = width
-  ctx.globalAlpha = alpha
-  ctx.lineJoin = 'round'
-  ctx.lineCap = 'round'
-  ctx.beginPath()
-  ctx.moveTo(points[0].x, points[0].y)
-  for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y)
-  ctx.stroke()
-  ctx.restore()
-}
-
-/** @brief 使用与实时航迹相同的当前地图投影绘制已有历史结果，未扩展回放功能。 */
-export default function HistoryTrackLayer({ device, points, mapInstance }: Props) {
+/** @brief 只绘制当前页，不把设备最新台账或实时位姿套到历史观测上。 */
+export default function HistoryTrackLayer({ hiddenDeviceIds, points, mapInstance }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rafRef = useRef(0)
   const [repaintTick, setRepaintTick] = useState(0)
@@ -53,17 +31,18 @@ export default function HistoryTrackLayer({ device, points, mapInstance }: Props
   }, [])
 
   const trailMap = useMemo(() => {
-    const m = new Map<number, TrackHistoryPoint[]>()
+    const active = new Map<string, TrackHistoryPoint[]>()
+    const trails: TrackHistoryPoint[][] = []
     for (const pt of points) {
-      if (pt.deviceId !== device.id) continue
-      if (!m.has(pt.targetId)) m.set(pt.targetId, [])
-      m.get(pt.targetId)!.push(pt)
+      if (hiddenDeviceIds.includes(pt.deviceId)) continue
+      const key = `${pt.acquisitionId}:${pt.deviceId}:${pt.faceIndex}:${pt.targetId}`
+      if (pt.packFlag === 0) { active.delete(key); continue }
+      let trail = active.get(key)
+      if (!trail) { trail = []; active.set(key, trail); trails.push(trail) }
+      trail.push(pt)
     }
-    for (const arr of m.values()) {
-      arr.sort((a, b) => a.tsMs - b.tsMs)
-    }
-    return m
-  }, [points, device.id])
+    return { trails, active }
+  }, [points, hiddenDeviceIds])
 
   useEffect(() => {
     const map = mapInstance
@@ -84,37 +63,20 @@ export default function HistoryTrackLayer({ device, points, mapInstance }: Props
     const { clientWidth: cw, clientHeight: ch } = map.getContainer()
     if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch }
     ctx.clearRect(0, 0, cw, ch)
-    if (trailMap.size === 0) return
+    if (trailMap.trails.length === 0) return
 
-    for (const [, pts] of trailMap) {
-      const sp = pts
-        .map((pt) => {
-          const projected = projectRadarTrack(
-            device,
-            pt.faceIndex ?? -1,
-            pt.azimuth * 180 / Math.PI,
-            pt.elevation * 180 / Math.PI,
-            pt.range,
-          )
-          if (!projected) return null
-          const p = map.project(projected.lng, projected.lat)
-          return p ? { x: p.x, y: p.y } : null
-        })
-        .filter((v): v is ScreenPoint => {
-          return !!v && v.x > -50 && v.x < cw + 50 && v.y > -50 && v.y < ch + 50
-        })
-      if (sp.length >= 2) strokePolyline(ctx, sp, HISTORY_LINE, 1, 0.55)
-      for (const p of sp) {
-        ctx.save()
-        ctx.globalAlpha = 0.45
-        ctx.beginPath()
-        ctx.arc(p.x, p.y, DOT_R, 0, Math.PI * 2)
-        ctx.fillStyle = HISTORY_DOT
-        ctx.fill()
-        ctx.restore()
-      }
+    for (const pts of trailMap.trails) {
+      const tail = pts[pts.length - 1]
+      const key = `${tail.acquisitionId}:${tail.deviceId}:${tail.faceIndex}:${tail.targetId}`
+      const active = trailMap.active.get(key) === pts
+      /** @brief 序号只表示本段绘制顺序；复用实时画笔，不补造历史识别、选择或航向状态。 */
+      const sp = pts.flatMap((pt, pointIndex) => {
+        const p = map.project(pt.longitude, pt.latitude)
+        return p ? [{ p, pt: { compacted: false, pointIndex, azimuth: null } }] : []
+      })
+      drawTrack(ctx, sp, false, !active)
     }
-  }, [trailMap, device, mapInstance, repaintTick])
+  }, [trailMap, mapInstance, repaintTick])
 
   if (points.length === 0) return null
 

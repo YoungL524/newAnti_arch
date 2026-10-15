@@ -1,7 +1,7 @@
 /**
  * @file TaskService.h
  * @brief 定义任务及其多次采集会话的唯一业务 owner。
- * @details 上游未来由 ApplicationController 请求创建任务、开始或停止采集；本类通过 SqliteRuntimeRepository
+ * @details 上游 ApplicationController 经 StorageRuntime 请求创建任务、开始或停止采集；本类通过 SqliteRuntimeRepository
  * 先提交 tasks/collection_sessions，再分配 TaskId/AcquisitionId 并登记归档身份。下游通信 Producer 使用返回
  * 句柄构造 TrackPacket；本类不发送设备命令、不解析 ACK、不发布航迹或创建线程。
  */
@@ -51,7 +51,7 @@ enum class CollectionStopReason : quint8
 
 /**
  * @brief 持久化任务并管理当前 run 内多次、不可复用的 AcquisitionId 生命周期。
- * @warning 所有方法必须在 SQLite 单写线程调用；由唯一采集编排者调用 startCollection()。
+ * @warning 所有方法必须在 SQLite 单写线程调用；由唯一采集编排者调用 startCollections()。
  */
 class TaskService final
 {
@@ -75,7 +75,8 @@ public:
 
     /**
      * @brief 从 SQLite 未删除任务重建当前进程 TaskId。
-     * @return 全部任务成功分配并绑定返回 true；只允许在空注册域调用一次。
+     * @return 全部任务成功分配、绑定并发布 None 初始状态返回 true；只允许在空注册域调用一次。
+     * @note 不恢复历史采集或自动激活旧任务；失败交由存储组合根销毁本服务及其已加载依赖。
      */
     bool loadFromDatabase();
 
@@ -180,31 +181,13 @@ public:
     bool resolveTask(const QUuid &taskUuid, core::model::TaskId &taskId) const;
 
     /**
-     * @brief 为已确认启动的设备建立新采集会话和 AcquisitionId。
-     * @param taskId 已加载或创建的任务句柄。
-     * @param deviceId DeviceConfigService 已激活且协议配置就绪的设备句柄。
-     * @param endpointId 与 deviceId 同 revision 的主航迹接收端点。
-     * @param faceIndex 本次会话所属0～3阵面，必须在任务冻结的faceMask中启用。
-     * @param acquisitionId 成功时写入不可复用的采集会话句柄。
-     * @return 数据库会话创建与完整归档身份绑定成功返回 true。
-     * @warning 本函数只创建本地采集会话，不证明 DP、SP 或 FP 已执行 workmode。
-     * 目标任务必须是当前 Ready 任务，设备必须属于该任务已经持久化的绑定集合。
-     */
-    bool startCollection(
-        core::model::TaskId taskId,
-        core::model::DeviceId deviceId,
-        core::model::EndpointId endpointId,
-        quint8 faceIndex,
-        core::model::AcquisitionId &acquisitionId);
-
-    /**
      * @brief 按任务阵面位图建立一次本地开始操作所需的全部独立会话。
      * @param taskId 当前Ready任务句柄。
      * @param deviceId 任务绑定的完整雷达句柄。
      * @param endpointId 与设备revision一致的主航迹端点。
      * @param faceMask bit0～bit3表示本次启用阵面，必须与任务冻结绑定一致。
      * @param acquisitionIds 成功时按阵面下标写入独立句柄，未启用阵面保持零。
-     * @return 全部会话创建且TaskState进入Running时返回true；中途失败会收口已创建会话。
+     * @return 全部会话同一事务创建且 TaskState 进入 Running 返回 true；身份绑定失败显式收口，收口失败进入 Faulted。
      */
     bool startCollections(
         core::model::TaskId taskId,
@@ -214,16 +197,19 @@ public:
         std::array<core::model::AcquisitionId, 4> &acquisitionIds);
 
     /**
-     * @brief 停止一个当前活动采集会话，但保留其身份供 Topic 中晚到批次完成归档。
-     * @param acquisitionId startCollection() 返回且尚未停止的句柄。
+     * @brief 原子停止当前活动采集会话集合，但保留身份供 Topic 晚到批次完成归档。
+     * @param acquisitionIds 同次操作的非空、无重复活动句柄集合。
      * @param reason 已知停止原因，不接受 AbnormalProcessExit。
      * @param stoppedUtcMs 实际停止接收的 Unix epoch 毫秒。
-     * @return 唯一活动会话成功收口返回 true；重复停止或未知句柄返回 false。
+     * @return 整组事务提交后统一更新内存；未知、重复或失败保持原活动位。
      */
-    bool stopCollection(
-        core::model::AcquisitionId acquisitionId,
+    bool stopCollections(
+        const QVector<core::model::AcquisitionId> &acquisitionIds,
         CollectionStopReason reason,
         qint64 stoppedUtcMs);
+
+    /** @brief Producer 停止后，以 ProcessShutdown 原子收口全部活动会话；空集合成功，失败保留活动位和错误。 */
+    bool stopAllCollections(qint64 stoppedUtcMs);
 
     /**
      * @brief 判断 AcquisitionId 是否仍允许 Producer 接收并发布新航迹。

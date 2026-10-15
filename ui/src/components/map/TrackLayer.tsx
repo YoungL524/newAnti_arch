@@ -23,7 +23,7 @@ interface TrailPoint {
   slantRange: number
   azimuth: number
   elevation: number
-  altitude: number
+  altitude?: number ///< 可空 MSL 海拔；画笔不使用该字段补造位置。
   radialSpeed: number
   pointIndex: number
   style?: TrackStyle
@@ -149,10 +149,12 @@ function fillDot(ctx: CanvasRenderingContext2D, x: number, y: number, r: number,
  * @param ctx 地图覆盖层本帧画布。
  * @param sp 已投影到当前地图像素坐标且按点序号排序的同一航迹。
  * @param selected 当前目标是否被选择。
+ * @param ended 已有消亡判断，仅控制颜色，不修改业务状态。
+ * @note 回放只传入本帧绘制属性；单点没有地理方位角时不推造箭头方向。
  */
-function drawTrack(ctx: CanvasRenderingContext2D, sp: { p: ScreenPoint; pt: TrailPoint }[], selected: boolean) {
+export function drawTrack(ctx: CanvasRenderingContext2D, sp: { p: ScreenPoint; pt: { compacted: boolean; pointIndex: number; azimuth: number | null; interaction?: TrackInteraction } }[], selected: boolean, ended = false) {
   if (sp.length === 0) return
-  const accent = activeColor(sp[sp.length - 1].pt.interaction)
+  const accent = ended ? GRAY_COLOR : activeColor(sp[sp.length - 1].pt.interaction)
   const headR = selected ? HEAD_R + 0.4 : HEAD_R
 
   const older = sp.filter(s => s.pt.compacted)
@@ -188,14 +190,14 @@ function drawTrack(ctx: CanvasRenderingContext2D, sp: { p: ScreenPoint; pt: Trai
     fillDot(ctx, greenPart[i].p.x, greenPart[i].p.y, r, accent, greenAlpha(i, greenPart.length))
   }
 
-  if (greenPart.length > 0) {
-    const angle = movementAngle(greenPart, greenPart[greenPart.length - 1].pt.azimuth)
+  if (greenPart.length > 0 && (greenPart.length >= 2 || greenPart[0].pt.azimuth !== null)) {
+    const angle = movementAngle(greenPart, greenPart[greenPart.length - 1].pt.azimuth ?? 0)
     const head = greenPart[greenPart.length - 1].p
     const tipX = head.x + Math.cos(angle) * (headR + 2.5)
     const tipY = head.y + Math.sin(angle) * (headR + 2.5)
     drawChevronArrow(ctx, tipX, tipY, angle, accent)
-  } else if (grayPart.length > 0) {
-    const angle = movementAngle(grayPart, grayPart[grayPart.length - 1].pt.azimuth)
+  } else if (greenPart.length === 0 && grayPart.length > 0 && (grayPart.length >= 2 || grayPart[0].pt.azimuth !== null)) {
+    const angle = movementAngle(grayPart, grayPart[grayPart.length - 1].pt.azimuth ?? 0)
     const head = grayPart[grayPart.length - 1].p
     drawChevronArrow(ctx, head.x, head.y, angle, GRAY_COLOR, ARROW_LEN - 1)
   }

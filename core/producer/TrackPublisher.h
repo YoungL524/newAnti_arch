@@ -19,7 +19,7 @@
 
 namespace core::producer {
 
-/** @brief 表示 TrackPublisher 能从 Sample 本身确定的拒绝原因。 */
+/** @brief 表示 TrackPublisher 从 Sample 确定的拒绝原因；0～18 编号已用于事件，后续仅允许尾部新增。 */
 enum class TrackPublishRejection : quint8
 {
     None = 0,                 ///< Sample 已通过门禁并成功进入 trackTopic。

@@ -1,12 +1,13 @@
 /**
  * @file SqliteRuntimeRepository.h
- * @brief 定义设备配置、任务和采集会话共用的 SQLite 低频持久化适配器。
+ * @brief 定义设备配置、任务、采集会话及有界事件/航迹历史读取共用的 SQLite 低频适配器。
  * @details 上游 DeviceConfigService/TaskService 调用本类创建不可变设备 revision、任务和采集会话，下游复用
  * SqliteArchiveRepository 已打开的唯一 QSQLITE 写连接。本类不分配 CompactId、不发布 Topic、不执行设备命令，
- * 也不保存第二份配置真源；新人应从 saveDeviceRevision() 与 createCollectionSession() 阅读事务边界。
+ * 也不保存第二份配置真源；从 saveDeviceRevision()/createCollectionSessions() 阅读事务边界，从 read*Page 阅读分页边界。
  */
 
 #pragma once
+#include <QJsonArray>
 
 #include "core/config/DeviceConfiguration.h"
 #include "core/task/TaskDefinition.h"
@@ -14,6 +15,7 @@
 
 #include <QString>
 #include <QVector>
+#include <array>
 
 namespace core::archive {
 class SqliteArchiveRepository;
@@ -144,30 +146,79 @@ public:
      * @param databaseTaskId tasks 正主键。
      * @param deviceRevisionId devices revision 正主键。
      * @param endpointKey 本次实际接收航迹的稳定端点键。
-     * @param faceIndex 本次采集对应的0～3物理阵面索引。
-     * @param sessionUuid 成功时回填新生成的稳定 UUID。
-     * @param collectionSessionId 成功时回填 collection_sessions 主键。
-     * @return 外键存在且事务提交成功返回 true。
+     * @param faceMask 本次启用阵面低四位，非零。
+     * @param sessionUuids 提交后按阵面回填 UUID，未启用项为空。
+     * @param collectionSessionIds 提交后按阵面回填主键，未启用项为零。
+     * @return 所有阵面在同一事务提交才返回 true；失败不交付部分会话。
      */
-    bool createCollectionSession(
+    bool createCollectionSessions(
         qint64 databaseTaskId,
         qint64 deviceRevisionId,
         const QString &endpointKey,
-        quint8 faceIndex,
-        QUuid &sessionUuid,
-        qint64 &collectionSessionId);
+        quint8 faceMask,
+        std::array<QUuid, 4> &sessionUuids,
+        std::array<qint64, 4> &collectionSessionIds);
 
     /**
      * @brief 把 Running 会话更新为一个已知停止状态。
-     * @param collectionSessionId 当前 run 内活动会话主键。
+     * @param collectionSessionIds 当前 run 内非空、无重复的活动会话主键集合。
      * @param stopReason 合同登记值 1=UserStop、2=Disconnected、3=ProcessShutdown、4=Error。
      * @param stoppedUtcMs 已知停止接收的 Unix epoch 毫秒。
-     * @return 唯一活动行成功更新返回 true；不存在、重复停止或参数错误返回 false。
+     * @return 全部活动行同一事务提交返回 true；任一失败整组回滚，不返回部分成功。
      */
-    bool stopCollectionSession(
-        qint64 collectionSessionId,
+    bool stopCollectionSessions(
+        const QVector<qint64> &collectionSessionIds,
         quint8 stopReason,
         qint64 stoppedUtcMs);
+
+    /**
+     * @brief 在唯一存储线程读取指定稳定任务的已提交事件，按 UTC/事件 ID 倒序取有界一页。
+     * @param taskUuid 可空稳定任务身份；空时包含无任务归属事件，不使用进程句柄查询历史。
+     * @param deviceUuid 可空稳定设备身份；跨安装 revision 查询，不要求设备当前仍在台账。
+     * @param domain 零表示全部，否则为事件域 1～4。
+     * @param severity -1 表示全部，否则精确匹配 0～4。
+     * @param startUtcMs 正 UTC 毫秒闭区间起点。
+     * @param endUtcMs 不小于起点的安全整数 UTC 毫秒闭区间终点。
+     * @param beforeUtcMs 首次为零；续页严格早于该 UTC 毫秒与 beforeEventId 的组合。
+     * @param beforeEventId 首次为零；续页同毫秒下严格小于该数据库事件主键。
+     * @param limit 每页 1～200，查询最多取 limit+1 行判断后续页。
+     * @param events 成功替换为原始事件边界 JSON，ID/参数使用十进制字符串；不格式化显示文本。
+     * @param hasMore 成功时表示同一读取时刻还有更早记录；不承诺跨请求数据库快照。
+     * @return 参数、线程或 SQL 失败返回 false，不返回部分结果，错误从 lastError 读取。
+     */
+    bool readEventPage(const QUuid &taskUuid, const QUuid &deviceUuid, int domain, int severity,
+                           qint64 startUtcMs, qint64 endUtcMs, qint64 beforeUtcMs, qint64 beforeEventId,
+                           int limit, QJsonArray &events, bool &hasMore);
+
+    /**
+     * @brief 唯一存储线程读取已提交运行记录，按启动时刻/主键倒序，不推断进程存活。
+     * @param startUtcMs 正安全整数 UTC 毫秒闭区间起点。
+     * @param endUtcMs 不早于起点的安全整数 UTC 毫秒终点。
+     * @param shutdownState -1 表示全部，0/1/2 分别为未标记退出/正常退出/检测到异常。
+     * @param beforeUtcMs 首次为零，续页取最后一条启动时刻。
+     * @param beforeRunId 首次为零，续页取最后一条数据库主键，不是运行 UUID。
+     * @param limit 每页 1～200，额外读取一条判断后续页。
+     * @param runs 成功替换的短期 JSON；可空字段省略，ID 保留十进制字符串精度。
+     * @param hasMore 是否还有更早记录，跨页不持有快照事务。
+     * @return 参数、线程或 SQL 失败返回 false，不交付部分页，lastError 提供原因。
+     */
+    bool readRunPage(qint64 startUtcMs, qint64 endUtcMs, int shutdownState,
+                     qint64 beforeUtcMs, qint64 beforeRunId, int limit, QJsonArray &runs, bool &hasMore);
+
+    /**
+     * @brief 在唯一存储线程升序读取一页已提交航迹及采集时不可变安装配置，不使用当前设备 revision。
+     * @param taskUuid 稳定任务 UUID。
+     * @param startUtcMs 正 UTC 毫秒闭区间起点。
+     * @param endUtcMs 不小于起点的 UTC 毫秒闭区间终点。
+     * @param afterUtcMs 首次为零，续页为最后观测的接收 UTC 毫秒。
+     * @param afterId 首次为零，续页为最后 observation_id，防止同毫秒重复。
+     * @param limit 1～1000，实际至多读取 limit+1 行判断后续。
+     * @param tracks 成功时替换为短期边界 JSON；角度弧度，距离/高度米，pose 姿态度。
+     * @param hasMore 成功时指示还有下一页，跨页不持有 SQL 事务。
+     * @return SQL 或归档安装配置缺失/非法返回 false，不交付部分结果，错误由 lastError 提供。
+     */
+    bool readTaskTrackPage(const QUuid &taskUuid, qint64 startUtcMs, qint64 endUtcMs,
+                           qint64 afterUtcMs, qint64 afterId, int limit, QJsonArray &tracks, bool &hasMore);
 
     /** @brief 返回最近一次低频持久化失败原因；成功操作会清空旧错误。 */
     QString lastError() const;

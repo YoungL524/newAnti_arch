@@ -76,9 +76,12 @@ constexpr bool hasEventSubject(EventSubjectFlags flags, EventSubjectFlag flag) n
  */
 enum class EventCode : quint32
 {
-    DeviceMalformedFrame = 0x01010001U, ///< 设备接入收到包头、长度、包尾或校验不成立的帧。
-    TrackPublishRejected = 0x02010001U, ///< 航迹 Sample 被发布前门禁拒绝；argument0 保存拒绝原因编号。
+    DeviceMalformedFrame = 0x01010001U, ///< 封装或协议字段无效；argument0 为 Adapter 拒绝编号，argument1 可含窗口坏帧总数。
+    TrackPublishRejected = 0x02010001U, ///< 航迹最终门禁拒绝；argument0 为拒绝编号，argument1 可含窗口最终门禁拒绝总数。
     SystemTopicSequenceGap = 0x03010001U, ///< Reader cursor 落后于 Topic 历史窗口；两个参数保存丢失闭区间。
+    SystemArchiveHealthChanged = 0x03020001U, ///< 归档状态变化；两个参数为前后三位降级位图，当前状态以 SystemState 为准。
+    SystemArchiveTrackGap = 0x03020002U, ///< 归档首次观察航迹缺口；两个参数为丢失 sequence 闭区间。
+    SystemArchiveEventGap = 0x03020003U, ///< 归档首次观察事件缺口；两个参数为丢失 sequence 闭区间。
     ControlDatagramSendFailed = 0x04010002U, ///< 控制数据报未能交给本地 UDP Socket；requestId 有效。
     ControlTaskLifecycleChanged = 0x04010003U, ///< 任务本地持久化生命周期变化；argument0 为1创建、2激活、3完成、4归档。
     ControlTaskControlSettingsPersistFailed = 0x04010004U, ///< 任务控制参数快照未能提交 SQLite；taskId 有效，severity=Error。
@@ -101,6 +104,9 @@ constexpr bool isRegisteredEventCode(EventCode code) noexcept
     case EventCode::DeviceHeartbeatChanged:
     case EventCode::TrackPublishRejected:
     case EventCode::SystemTopicSequenceGap:
+    case EventCode::SystemArchiveHealthChanged:
+    case EventCode::SystemArchiveTrackGap:
+    case EventCode::SystemArchiveEventGap:
     case EventCode::ControlDatagramSendFailed:
     case EventCode::ControlTaskLifecycleChanged:
     case EventCode::ControlTaskControlSettingsPersistFailed:

@@ -1,5 +1,7 @@
 #include "core/producer/TrackIngressProducer.h"
+#include "core/producer/SystemEventPublisher.h"
 
+#include <limits>
 #include <utility>
 
 namespace core::producer {
@@ -11,8 +13,10 @@ constexpr double degreesToRadians = 3.14159265358979323846 / 180.0;
  * @brief 直接复用现有TrackPublisher，不注册Adapter回调或复制Topic所有权。
  */
 TrackIngressProducer::TrackIngressProducer(
-    core::domain::HistoryTopic<core::model::TrackPacket> &trackTopic) noexcept
+    core::domain::HistoryTopic<core::model::TrackPacket> &trackTopic,
+    SystemEventPublisher *eventPublisher) noexcept
     : m_publisher(trackTopic)
+    , m_eventPublisher(eventPublisher)
 {
 }
 
@@ -46,7 +50,7 @@ bool TrackIngressProducer::bind(
 }
 
 /**
- * @brief 同步清零全部身份，不清空TrackTopic中已经发布且由retention管理的历史。
+ * @brief 同步清零身份与未报告计数，避免把旧会话拒绝数归到新会话；不清除历史及跨会话限频时刻。
  */
 void TrackIngressProducer::clearBinding() noexcept
 {
@@ -54,11 +58,13 @@ void TrackIngressProducer::clearBinding() noexcept
     m_deviceId = {};
     m_taskId = {};
     m_faceAcquisitionIds = {};
+    m_pendingRejectionCount = 0;
 }
 
 /**
  * @brief 在协议回调栈内完成身份快照、度转弧度和定长Sample构造，再交给最终发布门禁。
  * @details sourceTime未具有可信UTC合同，故保持零且不置有效位；packFlag按0消亡、1存在原样窄化。
+ * 最终门禁失败才按类别五秒限频报告，保留当前原因及窗口累计拒绝数；正常未采集/未选阵面不会触发错误日志。
  */
 TrackIngressProducer::Result TrackIngressProducer::accept(
     quint8 faceIndex, quint32 sourceSequence,
@@ -92,8 +98,37 @@ TrackIngressProducer::Result TrackIngressProducer::accept(
     sample.value.packFlag = static_cast<quint8>(track.packFlag);
     sample.value.faceIndex = faceIndex;
     sample.value.recognitionStatus = core::model::RecognitionStatus::Completed;
-    return m_publisher.publish(std::move(sample)).accepted()
-        ? Result::Published : Result::PublisherRejected;
+    const quint64 traceId = sample.meta.traceId;
+    const auto result = m_publisher.publish(std::move(sample));
+    if (result.accepted()) return Result::Published;
+    if (!m_eventPublisher || receiveUtcMs <= 0 || receiveSteadyNs <= 0) return Result::PublisherRejected;
+    if (m_pendingRejectionCount < std::numeric_limits<qint64>::max()) ++m_pendingRejectionCount;
+    if (m_lastRejectionReportSteadyNs != 0
+        && receiveSteadyNs - m_lastRejectionReportSteadyNs < 5'000'000'000LL) return Result::PublisherRejected;
+    m_lastRejectionReportSteadyNs = receiveSteadyNs;
+    core::model::Sample<core::model::SystemEvent> event;
+    event.meta.receiveTimeUtcMs = receiveUtcMs;
+    event.meta.receiveTimeSteadyNs = receiveSteadyNs;
+    event.meta.traceId = traceId;
+    event.meta.endpointId = m_endpointId;
+    event.value.eventCode = core::model::EventCode::TrackPublishRejected;
+    event.value.domain = core::model::EventDomain::Track;
+    event.value.severity = core::model::EventSeverity::Warning;
+    event.value.deviceId = m_deviceId;
+    event.value.taskId = m_taskId;
+    event.value.acquisitionId = acquisitionId;
+    event.value.trackId = static_cast<quint32>(track.targetId);
+    event.value.argument0 = static_cast<qint64>(result.rejection);
+    event.value.argument1 = m_pendingRejectionCount;
+    event.value.flags = core::model::eventSubjectBit(core::model::EventSubjectFlag::DeviceIdValid)
+        | core::model::eventSubjectBit(core::model::EventSubjectFlag::TaskIdValid)
+        | core::model::eventSubjectBit(core::model::EventSubjectFlag::AcquisitionIdValid)
+        | core::model::eventSubjectBit(core::model::EventSubjectFlag::TrackIdValid)
+        | core::model::eventSubjectBit(core::model::EventSubjectFlag::Argument0Valid)
+        | core::model::eventSubjectBit(core::model::EventSubjectFlag::Argument1Valid);
+    m_pendingRejectionCount = 0;
+    m_eventPublisher->publish(std::move(event));
+    return Result::PublisherRejected;
 }
 
 } // namespace core::producer

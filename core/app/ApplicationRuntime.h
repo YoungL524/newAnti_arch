@@ -7,6 +7,7 @@
 #pragma once
 #include "core/datadomain/CoreDataDomain.h"
 #include "core/app/ApplicationController.h"
+#include "core/app/SystemStateOwner.h"
 #include "core/comm/UdpEndpoint.h"
 #include "core/protocol/DcmpProtocolAdapter.h"
 #include "core/control/DeviceController.h"
@@ -59,10 +60,11 @@ private:
                         quint16 senderPort, qint64 utcMs, qint64 steadyNs);
     /** @brief 创建唯一存储线程并同步完成数据库、设备和任务身份加载。 */
     bool startStorage();
-    /** @brief 在存储线程正常关闭 SQLite 后停止线程并清空本次运行稳定 ID。 */
-    void stopStorage();
+    /** @brief 在存储线程关闭 SQLite 后停止线程并清空身份；排空或关闭失败返回 false，资源仍释放。 */
+    bool stopStorage();
 
     core::domain::CoreDataDomain m_domain; ///< 唯一强类型数据域。
+    SystemStateOwner m_systemStateOwner; ///< 线程安全的唯一系统状态写入者，借用前置数据域，晚于存储线程析构。
     core::model::StableIdRegistry m_stableIds; ///< SQLite Owner 写入、WebReader读取的稳定身份注册表。
     QString m_databasePath; ///< 正式 SQLite 文件路径，由 main 或测试显式提供。
     QString m_applicationVersion; ///< application_runs 记录的应用版本。
@@ -77,7 +79,7 @@ private:
     core::comm::UdpEndpoint m_sock2DpSp; ///< 同一绑定端口收 DP/SP 心跳与 DP 航迹，并向 DP 发送控制报文。
     core::web::WebSocketGateway m_gateway; ///< /ws/v1唯一网络连接owner。
     core::web::DeviceRegistryHttpService m_deviceHttp; ///< 设备与任务登记的低频HTTP边界，不进入数据域。
-    core::web::StateWebSocketService m_stateWeb; ///< DeviceState只读Reader。
+    core::web::StateWebSocketService m_stateWeb; ///< Device/Task/System 三类 State 的只读 Reader，各自维护 revision。
     core::web::TrackWebSocketService m_trackWeb; ///< TrackTopic独立cursor只读Reader。
     core::web::EventWebSocketService m_eventWeb; ///< EventTopic独立cursor只读Reader；与归档共享事实，不复制历史。
     QString m_error; ///< 最近启动失败原因。
@@ -90,5 +92,7 @@ private:
     quint64 m_protocolRejected = 0; ///< 协议解释未返回 Accepted 的累计数。
     core::protocol::DcmpProtocolAdapter::Result m_lastProtocolRejection = core::protocol::DcmpProtocolAdapter::Result::Accepted; ///< 最近协议拒绝枚举，仅用于诊断。
     qint64 m_lastUdpReportSteadyNs = 0; ///< 上次接收汇总的单调纳秒；没有来包时不额外启动轮询。
+    qint64 m_lastMalformedReportSteadyNs = 0; ///< 协议坏帧事件最近尝试发布时间；与终端汇总独立，五秒限频。
+    qint64 m_pendingMalformedCount = 0; ///< 自上次报告以来所有坏帧拒绝数，饱和于 int64 上限，不保存报文或来源字符串。
 };
 }

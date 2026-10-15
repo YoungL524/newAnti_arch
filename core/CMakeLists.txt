@@ -1,4 +1,6 @@
 add_library(NewAntiDrone_datadomain STATIC
+    app/SystemStateOwner.h
+    app/SystemStateOwner.cpp
     app/ApplicationRuntime.h
     app/ApplicationRuntime.cpp
     app/ApplicationController.h

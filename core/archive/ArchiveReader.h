@@ -93,6 +93,13 @@ public Q_SLOTS:
      */
     void refresh();
 
+Q_SIGNALS:
+    /** @brief 存储线程内同步报告三位归档结果；仅变化时发出，不携带历史 Sample，不得排队到主线程。 */
+    void archiveStatusChanged(quint32 degradationFlags);
+
+    /** @brief 存储线程内报告本 Reader 首次观察的指定 Topic 缺口闭区间；每个 Topic 最多一次。 */
+    void firstGapDetected(bool eventTopic, quint64 firstLost, quint64 lastLost);
+
 private Q_SLOTS:
     /**
      * @brief 接收任一 Topic Doorbell 并仅向存储 Lane 置本 Reader 的 pending 位。
@@ -132,6 +139,8 @@ private:
     quint64 m_eventGapCount = 0; ///< 事件读取发现 retention gap 的累计次数。
     quint64 m_trackCommitFailureCount = 0; ///< 航迹事务失败累计次数，不推进 cursor。
     quint64 m_eventCommitFailureCount = 0; ///< 事件事务失败累计次数，不推进 cursor。
+    bool m_trackFailed = false; ///< 航迹最近一次非空事务是否失败，仅同类成功提交可清除。
+    bool m_eventFailed = false; ///< 事件最近一次非空事务是否失败，另一类提交不能掩盖它。
 };
 
 } // namespace core::archive

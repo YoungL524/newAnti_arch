@@ -13,6 +13,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
+#include <QLockFile>
 #include <QSet>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -127,7 +128,7 @@ SqliteArchiveRepository::~SqliteArchiveRepository()
 }
 
 /**
- * @brief 校验路径与 QSQLITE 驱动，初始化数据库后登记当前进程运行实例。
+ * @brief 规范化路径并取得数据库独占进程锁，校验驱动后初始化和恢复运行记录，防止第二个 Core 误改活跃 run。
  * @details 任一步失败都释放 prepared query 和 Qt 连接；不会留下可被 ArchiveReader 误用的半打开状态。
  */
 bool SqliteArchiveRepository::open()
@@ -145,8 +146,19 @@ bool SqliteArchiveRepository::open()
         m_lastError = QStringLiteral("数据库父目录不存在：%1").arg(databaseFile.absolutePath());
         return false;
     }
+    const QString canonical = databaseFile.exists() ? databaseFile.canonicalFilePath()
+        : QDir(databaseFile.absoluteDir().canonicalPath()).filePath(databaseFile.fileName());
+    if (canonical.isEmpty()) { m_lastError = QStringLiteral("无法规范化数据库路径"); return false; }
+    m_databasePath = canonical;
+    m_databaseLock = std::make_unique<QLockFile>(canonical + QStringLiteral(".core.lock"));
+    m_databaseLock->setStaleLockTime(0);
+    if (!m_databaseLock->tryLock(0)) {
+        m_lastError = QStringLiteral("数据库已被其他 Core 占用或无法创建独占锁");
+        m_databaseLock.reset(); return false;
+    }
     if (!QSqlDatabase::isDriverAvailable(QStringLiteral("QSQLITE"))) {
         m_lastError = QStringLiteral("Qt 运行环境未提供 QSQLITE 驱动");
+        m_databaseLock.reset();
         return false;
     }
 
@@ -187,7 +199,8 @@ bool SqliteArchiveRepository::closeCleanly(qint64 endedUtcMs)
     query.prepare(QStringLiteral(
         "UPDATE application_runs "
         "SET ended_utc_ms = ?, shutdown_state = 1, exit_code = 0 "
-        "WHERE run_id = ? AND shutdown_state = 0"));
+        "WHERE run_id = ? AND shutdown_state = 0 AND NOT EXISTS("
+        "SELECT 1 FROM collection_sessions WHERE run_id=application_runs.run_id AND stop_reason=0)"));
     query.addBindValue(endedUtcMs);
     query.addBindValue(m_runId);
     const bool updated = query.exec() && query.numRowsAffected() == 1;
@@ -196,6 +209,7 @@ bool SqliteArchiveRepository::closeCleanly(qint64 endedUtcMs)
             ? QStringLiteral("当前运行实例未能唯一标记为正常退出")
             : query.lastError().text();
     }
+    query = QSqlQuery();
     closeConnection();
     if (updated) {
         m_lastError.clear();
@@ -1237,6 +1251,13 @@ bool SqliteArchiveRepository::beginApplicationRun()
         return false;
     }
 
+    /** @brief 修复旧版正常 run 遗留的活动会话，只使用已记录正常退出时刻，不猜测异常退出时间。 */
+    QSqlQuery repairCleanSessions(m_database);
+    if (!repairCleanSessions.exec(QStringLiteral(
+        "UPDATE collection_sessions SET stop_reason=3,stopped_utc_ms=("
+        "SELECT ended_utc_ms FROM application_runs WHERE application_runs.run_id=collection_sessions.run_id) "
+        "WHERE stop_reason=0 AND run_id IN(SELECT run_id FROM application_runs WHERE shutdown_state=1)")))
+        return rollbackWithError(repairCleanSessions.lastError().text());
     QSqlQuery markAbnormal(m_database);
     markAbnormal.prepare(QStringLiteral(
         "UPDATE application_runs SET abnormal_detected_utc_ms=?, shutdown_state=2 "
@@ -1337,7 +1358,7 @@ bool SqliteArchiveRepository::rollbackWithError(const QString &error)
 }
 
 /**
- * @brief 先销毁绑定连接的 QSqlQuery，再清空句柄并调用 removeDatabase，满足 Qt 连接生命周期要求。
+ * @brief 先销毁 prepared query、移除连接，再释放数据库进程锁；第二个 Core 不能在连接释放前开始恢复。
  */
 void SqliteArchiveRepository::closeConnection() noexcept
 {
@@ -1359,6 +1380,7 @@ void SqliteArchiveRepository::closeConnection() noexcept
     m_deviceRevisionIds.clear();
     m_taskIds.clear();
     m_collectionBindings.clear();
+    m_databaseLock.reset();
 }
 
 /**

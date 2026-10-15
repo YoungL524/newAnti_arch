@@ -8,6 +8,7 @@ import { useMemo } from 'react'
 import { useCore } from '../../hooks/useCoreApi'
 import type { RadarTrack } from '../../lib/protocol'
 
+/** @brief 同一设备目标只选取最后绘制点，不补造缺失高度或识别结果。 */
 function latestSelectedTracks(tracks: RadarTrack[]): RadarTrack[] {
   const map = new Map<string, RadarTrack>()
   for (const t of tracks) {
@@ -22,6 +23,7 @@ function latestSelectedTracks(tracks: RadarTrack[]): RadarTrack[] {
   return [...map.values()].sort((a, b) => (a.trackId ?? 0) - (b.trackId ?? 0))
 }
 
+/** @brief 展示已有选中状态，缺失的 MSL 高度显示空值，不写回选择或采集状态。 */
 export default function SelectedTracksPanel() {
   const { tracks, acquisition } = useCore()
 
@@ -63,7 +65,7 @@ export default function SelectedTracksPanel() {
               <span style={{ color: '#707974' }}>速度</span>
               <span style={{ color: '#191c1b', fontFamily: "'JetBrains Mono', monospace" }}>{t.radialSpeed.toFixed(2)} m/s</span>
               <span style={{ color: '#707974' }}>高度</span>
-              <span style={{ color: '#191c1b', fontFamily: "'JetBrains Mono', monospace" }}>{t.altitude.toFixed(1)} m</span>
+              <span style={{ color: '#191c1b', fontFamily: "'JetBrains Mono', monospace" }}>{t.altitude === undefined ? '—' : t.altitude.toFixed(1) + ' m'}</span>
               <span style={{ color: '#707974' }}>方位</span>
               <span style={{ color: '#191c1b', fontFamily: "'JetBrains Mono', monospace" }}>{t.azimuth.toFixed(2)}°</span>
               <span style={{ color: '#707974' }}>俯仰</span>

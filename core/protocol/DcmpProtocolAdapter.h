@@ -17,18 +17,18 @@ namespace core::protocol {
 class DcmpProtocolAdapter final
 {
 public:
-    /** @brief 本次解析结果；只有Accepted表示已把有效载荷交给对应处理函数。 */
+    /** @brief 本次解析结果；编号已用于接入事件原因，只允许尾部新增，Accepted 表示载荷已交给处理函数。 */
     enum class Result
     {
-        Accepted, ///< 合法心跳已经同步交付。
-        InvalidLength, ///< 空指针、截断、超长、非四字节载荷或声明长度不符。
-        InvalidMagic, ///< 起始标志错误。
-        UnsupportedVersion, ///< 协议版本不受支持。
-        InvalidTail, ///< 包尾错误。
-        UnsupportedMessage, ///< 完整封装有效，但当前未实现该消息类型。
-        InvalidHeartbeat, ///< 在线值或阵面位图超出协议范围。
-        InvalidTrack, ///< 阵面、消亡标志或显示必需的航迹字段违反协议合同。
-        NoHandler ///< 对应类型处理函数未配置，未发生业务交付。
+        Accepted = 0, ///< 合法心跳或航迹已经同步交付。
+        InvalidLength = 1, ///< 空指针、截断、超长、非四字节载荷或声明长度不符。
+        InvalidMagic = 2, ///< 起始标志错误。
+        UnsupportedVersion = 3, ///< 协议版本不受支持。
+        InvalidTail = 4, ///< 包尾错误。
+        UnsupportedMessage = 5, ///< 完整封装有效，但当前未实现该消息类型。
+        InvalidHeartbeat = 6, ///< 在线值或阵面位图超出协议范围。
+        InvalidTrack = 7, ///< 阵面、消亡标志或显示必需的航迹字段违反协议合同。
+        NoHandler = 8 ///< 对应类型处理函数未配置，未发生业务交付。
     };
     /** @brief DP强类型同步入口；公共头及载荷引用仅在回调内有效，末两参数为接收UTC毫秒及steady纳秒。 */
     using DpHandler = std::function<void(const DcmpFrameHeader &, const DpHeartbeatPayload &, qint64, qint64)>;
