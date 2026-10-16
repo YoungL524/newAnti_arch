@@ -54,7 +54,7 @@ ArchiveReader::~ArchiveReader()
 /**
  * @brief 每个 Topic 最多读取并同步提交一个固定批次，互不共享 cursor 或失败状态。
  * @details Track 失败后仍尝试 Event，避免一种存储映射故障饿死另一种事实；返回值只请求有确定剩余数据的
- * 成功 Topic 继续运行，失败 Topic 等待显式 refresh 或后续 Doorbell，防止数据库故障时忙循环。
+ * 成功 Topic 继续运行；事件循环调用方对提交失败统一退避，关停调用方则直接检查提交进度。
  */
 bool ArchiveReader::consumeOneTurn()
 {
@@ -117,11 +117,11 @@ quint64 ArchiveReader::eventCommitFailureCount() const noexcept
 }
 
 /**
- * @brief 无条件置位一次归档调度，使初始历史或退避后的失败批次能够重新读取。
+ * @brief 解除 Lane 暂停并补偿一次归档调度，使没有新数据的失败尾部也能重试。
  */
 void ArchiveReader::refresh()
 {
-    m_executionLane.request(m_executionSlot);
+    m_executionLane.resume(m_executionSlot);
 }
 
 /**
@@ -134,7 +134,7 @@ void ArchiveReader::onTopicAdvanced(quint64 newestSequence)
 }
 
 /**
- * @brief 位命中时执行一次双 Topic 有界归档，有成功分页时重新请求下一轮。
+ * @brief 位命中时执行双 Topic 有界归档；任一失败则暂停该共享数据库 Reader，由存储运行时安排一次重试。
  */
 void ArchiveReader::onExecutionRequested(quint64 pendingMask)
 {
@@ -142,7 +142,11 @@ void ArchiveReader::onExecutionRequested(quint64 pendingMask)
     if ((pendingMask & ownBit) == 0) {
         return;
     }
-    if (consumeOneTurn()) {
+    const bool hasMore = consumeOneTurn();
+    if (m_trackFailed || m_eventFailed) {
+        m_executionLane.suspend(m_executionSlot);
+        Q_EMIT retryRequired();
+    } else if (hasMore) {
         m_executionLane.request(m_executionSlot);
     }
 }

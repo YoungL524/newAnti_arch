@@ -19,6 +19,7 @@
 #include <QByteArray>
 #include <QString>
 #include <QUuid>
+#include <QTimer>
 
 #include <array>
 #include <memory>
@@ -253,6 +254,7 @@ private:
     std::unique_ptr<core::task::TaskService> m_taskService; ///< 任务和采集会话唯一 Owner。
     std::unique_ptr<core::execution::ExecutionLane> m_archiveLane; ///< 唯一存储线程上的合并唤醒通道。
     std::unique_ptr<core::archive::ArchiveReader> m_archiveReader; ///< Track/Event Topic 的正式归档 Consumer。
+    std::unique_ptr<QTimer> m_archiveRetryTimer; ///< 存储线程创建/销毁的单次一秒故障重试；健康及空闲时不轮询 Topic。
     QString m_lastError; ///< 最近失败原因；不进入 Topic 或 Web 数据流。
     quint64 m_nextFaultTraceId = 1; ///< 任务参数及归档事件共用的存储诊断关联号；零不使用。
     quint32 m_archiveFlags = 0; ///< 本存储运行时最近归档结果，用于事件前后位图，不保存完整系统状态。

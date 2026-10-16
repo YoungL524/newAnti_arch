@@ -1,6 +1,8 @@
 add_library(NewAntiDrone_datadomain STATIC
     app/SystemStateOwner.h
     app/SystemStateOwner.cpp
+    app/RuntimeDiagnostics.h
+    app/RuntimeDiagnostics.cpp
     app/ApplicationRuntime.h
     app/ApplicationRuntime.cpp
     app/ApplicationController.h
@@ -15,6 +17,7 @@ add_library(NewAntiDrone_datadomain STATIC
     web/EventWebSocketService.h
     web/WebSocketGateway.cpp
     web/WebSocketGateway.h
+    web/LocalWebAccess.h
     web/DeviceRegistryHttpService.cpp
     web/DeviceRegistryHttpService.h
     comm/UdpEndpoint.cpp

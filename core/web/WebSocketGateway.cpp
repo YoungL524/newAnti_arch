@@ -1,4 +1,5 @@
 #include "core/web/WebSocketGateway.h"
+#include "core/web/LocalWebAccess.h"
 
 #include <QHostAddress>
 #include <QJsonDocument>
@@ -26,7 +27,7 @@ WebSocketGateway::~WebSocketGateway()
 }
 
 /**
- * @brief V1只开放回环监听；非可信网络的TLS与访问限制留给部署层。
+ * @brief V1只开放回环监听；接纳连接时仍独立检查本机 Host/Origin，不依赖代理代替 Core 门禁。
  */
 bool WebSocketGateway::start(quint16 port)
 {
@@ -94,15 +95,17 @@ void WebSocketGateway::broadcast(const QJsonObject &message)
 }
 
 /**
- * @brief 先验证路径和容量，再登记断开清理；只有正式受管连接才通知Reader发送初始快照。
+ * @brief 在任何业务快照前验证路径、本机 Host/Origin 和容量，远程网页即使直连 Core 也无法读取数据。
  */
 void WebSocketGateway::acceptPendingConnections()
 {
     while (m_server.hasPendingConnections()) {
         QWebSocket *client = m_server.nextPendingConnection();
         if (!client) continue;
-        if (client->requestUrl().path() != QStringLiteral("/ws/v1")) {
-            client->close(QWebSocketProtocol::CloseCodePolicyViolated, QStringLiteral("仅支持/ws/v1"));
+        if (client->requestUrl().path() != QStringLiteral("/ws/v1")
+            || !localAuthority(client->requestUrl().authority().toLatin1())
+            || !localOrigin(client->origin().toLatin1())) {
+            client->close(QWebSocketProtocol::CloseCodePolicyViolated, QStringLiteral("仅允许本机页面访问/ws/v1"));
             client->deleteLater();
             continue;
         }

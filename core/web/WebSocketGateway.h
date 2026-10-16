@@ -67,7 +67,7 @@ Q_SIGNALS:
     void clientConnected(QWebSocket *client);
 
 private Q_SLOTS:
-    /** @brief 接纳/ws/v1连接、拒绝错误路径和超额客户端，再通知Reader发送快照。 */
+    /** @brief 接纳/ws/v1连接，先拒绝非本机 Host/Origin、错误路径和超额客户端，再通知 Reader 发送快照。 */
     void acceptPendingConnections();
 
 private:

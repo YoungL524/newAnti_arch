@@ -62,7 +62,7 @@ quint64 TrackPublisher::rejectedCount() const noexcept
 }
 
 /**
- * @brief 以身份、时间、质量、运动学、辅助量、识别状态的稳定顺序返回首个拒绝原因。
+ * @brief 以身份、时间、质量、运动学、辅助量、识别状态及类型的稳定顺序返回首个拒绝原因。
  * @details 顺序保证同一非法 Sample 的结果可重复，便于聚合指标。函数只做 Sample 内部合同检查；设备注册、
  * 当前 acquisition 和 DeviceId 安装配置真实性必须由调用前的控制上下文验证，不能由数据域反向依赖控制平面。
  */
@@ -119,6 +119,9 @@ TrackPublishRejection TrackPublisher::validate(
     if (track.faceIndex > 3U) return TrackPublishRejection::InvalidFaceIndex;
     if (track.recognitionStatus != core::model::RecognitionStatus::Completed) {
         return TrackPublishRejection::RecognitionNotCompleted;
+    }
+    if (track.recognitionType != core::model::RecognitionType::Unknown) {
+        return TrackPublishRejection::InvalidRecognitionType;
     }
     return TrackPublishRejection::None;
 }

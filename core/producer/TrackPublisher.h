@@ -19,7 +19,7 @@
 
 namespace core::producer {
 
-/** @brief 表示 TrackPublisher 从 Sample 确定的拒绝原因；0～18 编号已用于事件，后续仅允许尾部新增。 */
+/** @brief 表示 TrackPublisher 从 Sample 确定的拒绝原因；0～19 编号已用于事件，后续仅允许尾部新增。 */
 enum class TrackPublishRejection : quint8
 {
     None = 0,                 ///< Sample 已通过门禁并成功进入 trackTopic。
@@ -40,7 +40,8 @@ enum class TrackPublishRejection : quint8
     InvalidTrackValidity,     ///< TrackPacket validity 含未知位，或缺失扫描号未清零。
     InvalidPackFlag,          ///< packFlag 不是合同冻结的0或1。
     InvalidFaceIndex,         ///< faceIndex 超出整机允许的0～3范围。
-    RecognitionNotCompleted   ///< 同步识别仍为 Pending 或已经 Failed。
+    RecognitionNotCompleted,  ///< 同步识别仍为 Pending 或已经 Failed。
+    InvalidRecognitionType    ///< 识别类型不是当前合同唯一允许的 Unknown；稳定拒绝编号19。
 };
 
 /** @brief 表示一次航迹发布尝试的确定结果。 */

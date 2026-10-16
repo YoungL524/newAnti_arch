@@ -1,12 +1,14 @@
 #include "core/web/DeviceRegistryHttpService.h"
 #include "core/app/ApplicationController.h"
 #include "core/app/StorageRuntime.h"
+#include "core/web/LocalWebAccess.h"
 
 #include <QCoreApplication>
 #include <QEvent>
 #include <QHostAddress>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMap>
 #include <QMetaObject>
 #include <QPointer>
 #include <QTimer>
@@ -158,7 +160,8 @@ void DeviceRegistryHttpService::acceptConnections()
 
 /**
  * @brief 完整解析一次有界 HTTP 请求后异步处理；最多 16 项在途，所有写操作互斥且不排队。
- * @details Socket 仅由主线程 QPointer 检查；完成时即使客户端已断开仍释放请求名额和写互斥位。
+ * @details 受理前拒绝非本机 Host/Origin、跨站浏览器请求及非 JSON 正文；无正文生命周期命令保持可用。
+ * Socket 仅由主线程 QPointer 检查；完成时即使客户端已断开仍释放请求名额和写互斥位。
  */
 void DeviceRegistryHttpService::consumeRequest(QTcpSocket &socket)
 {
@@ -170,15 +173,33 @@ void DeviceRegistryHttpService::consumeRequest(QTcpSocket &socket)
     if (headerEnd < 0) return;
     const auto lines = request.left(headerEnd).split('\n');
     const auto requestLine = lines.first().trimmed().split(' ');
-    if (requestLine.size() < 2) {
+    if (requestLine.size() != 3 || !requestLine[1].startsWith('/')
+        || (requestLine[2] != "HTTP/1.1" && requestLine[2] != "HTTP/1.0")) {
         socket.setProperty("requestDispatched", true);
         writeResponse(socket, 400, errorBody("INVALID_REQUEST", QStringLiteral("请求行无效")));
         return;
     }
     qint64 contentLength = 0;
     bool lengthSeen = false;
-    for (const auto &line : lines) {
-        const auto trimmed = line.trimmed();
+    QMap<QByteArray, QByteArray> accessHeaders;
+    for (int index = 1; index < lines.size(); ++index) {
+        const auto trimmed = lines[index].trimmed();
+        const int colon = trimmed.indexOf(':');
+        const QByteArray name = trimmed.left(colon).toLower();
+        if (colon <= 0 || lines[index].startsWith(' ') || lines[index].startsWith('\t')
+            || name.contains(' ') || name.contains('\t')) {
+            socket.setProperty("requestDispatched", true);
+            writeResponse(socket, 400, errorBody("INVALID_REQUEST", QStringLiteral("请求头格式无效")));
+            return;
+        }
+        if (name == "host" || name == "origin" || name == "sec-fetch-site" || name == "content-type") {
+            if (accessHeaders.contains(name)) {
+                socket.setProperty("requestDispatched", true);
+                writeResponse(socket, 400, errorBody("INVALID_REQUEST", QStringLiteral("访问边界请求头重复")));
+                return;
+            }
+            accessHeaders.insert(name, trimmed.mid(colon + 1).trimmed());
+        }
         if (trimmed.toLower().startsWith("transfer-encoding:")) {
             socket.setProperty("requestDispatched", true);
             writeResponse(socket, 400, errorBody("INVALID_REQUEST", QStringLiteral("不支持Transfer-Encoding")));
@@ -199,6 +220,21 @@ void DeviceRegistryHttpService::consumeRequest(QTcpSocket &socket)
                 return;
             }
         }
+    }
+    const QByteArray origin = accessHeaders.value("origin");
+    const QByteArray site = accessHeaders.value("sec-fetch-site");
+    if (!localAuthority(accessHeaders.value("host"))
+        || (accessHeaders.contains("origin") && !localOrigin(origin))
+        || (!site.isEmpty() && site != "same-origin" && site != "none")) {
+        socket.setProperty("requestDispatched", true);
+        writeResponse(socket, 403, errorBody("ACCESS_DENIED", QStringLiteral("仅允许本机页面或原生客户端访问")));
+        return;
+    }
+    if (requestLine[0] != "GET" && contentLength > 0
+        && accessHeaders.value("content-type").split(';').first().trimmed().toLower() != "application/json") {
+        socket.setProperty("requestDispatched", true);
+        writeResponse(socket, 415, errorBody("INVALID_REQUEST", QStringLiteral("写请求正文必须使用application/json")));
+        return;
     }
     const qsizetype bodyOffset = headerEnd + 4;
     if (request.size() - bodyOffset < contentLength) return;
@@ -321,10 +357,12 @@ void DeviceRegistryHttpService::writeResponse(QTcpSocket &socket, int statusCode
     const QByteArray reason = statusCode == 200 ? QByteArrayLiteral("OK")
         : statusCode == 201 ? QByteArrayLiteral("Created")
         : statusCode == 400 ? QByteArrayLiteral("Bad Request")
+        : statusCode == 403 ? QByteArrayLiteral("Forbidden")
         : statusCode == 404 ? QByteArrayLiteral("Not Found")
         : statusCode == 405 ? QByteArrayLiteral("Method Not Allowed")
         : statusCode == 409 ? QByteArrayLiteral("Conflict")
         : statusCode == 413 ? QByteArrayLiteral("Payload Too Large")
+        : statusCode == 415 ? QByteArrayLiteral("Unsupported Media Type")
         : statusCode == 422 ? QByteArrayLiteral("Unprocessable Entity")
         : statusCode == 500 ? QByteArrayLiteral("Internal Server Error")
         : QByteArrayLiteral("Service Unavailable");

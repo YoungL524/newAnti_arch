@@ -557,6 +557,18 @@ bool StorageRuntime::initialize()
                      this, &StorageRuntime::reportArchiveStatus, Qt::DirectConnection);
     QObject::connect(m_archiveReader.get(), &core::archive::ArchiveReader::firstGapDetected,
                      this, &StorageRuntime::reportArchiveGap, Qt::DirectConnection);
+    m_archiveRetryTimer = std::make_unique<QTimer>();
+    m_archiveRetryTimer->setSingleShot(true);
+    m_archiveRetryTimer->setTimerType(Qt::PreciseTimer);
+    m_archiveRetryTimer->setInterval(1000);
+    /** @brief 整轮事务结束后只安排一个故障重试，期间 Doorbell 留在 Lane 位中，不能绕过退避。 */
+    QObject::connect(m_archiveReader.get(), &core::archive::ArchiveReader::retryRequired, this, [this] {
+        if (!m_closing && !m_archiveRetryTimer->isActive()) m_archiveRetryTimer->start();
+    });
+    /** @brief 无新数据也显式重读失败 cursor；若再次失败，由该轮结果安排下一次单次重试。 */
+    QObject::connect(m_archiveRetryTimer.get(), &QTimer::timeout, this, [this] {
+        if (!m_closing && m_archiveReader) m_archiveReader->refresh();
+    });
     m_archiveReader->refresh();
     m_lastError.clear();
     return true;
@@ -574,6 +586,7 @@ bool StorageRuntime::shutdown()
         return false;
     }
     m_closing = true;
+    m_archiveRetryTimer.reset();
     m_lastError.clear();
     bool archiveComplete = true;
     if (m_taskService && !m_taskService->stopAllCollections(QDateTime::currentMSecsSinceEpoch())) {

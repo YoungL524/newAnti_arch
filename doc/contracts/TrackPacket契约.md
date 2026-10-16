@@ -60,6 +60,9 @@ Publisher 在入口计算接收至发布时延并写入聚合指标。
 | `recognitionStatus` | `RecognitionStatus` | 发布时必须为 `Completed` |
 | `recognitionType` | `RecognitionType` | 当前只冻结 `Unknown` |
 
+TrackPublisher 在进入 Topic 前检查识别状态和识别类型；未冻结类型返回稳定拒绝编号 19
+InvalidRecognitionType，与 SQLite 的 Unknown 字段约束一致，不等到归档事务才发现非法枚举。
+
 所有 double 字段必须有限。幅值的厂家单位和标度尚未冻结，因此字段名不带物理单位后缀，不对正负或范围做
 未经协议支撑的推断。
 

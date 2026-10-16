@@ -89,11 +89,14 @@ public:
 public Q_SLOTS:
     /**
      * @brief 主动请求一次存储 Lane 调度，用于首次接入或外部退避结束后的重试。
-     * @note 不读取数据、不创建定时器；重复调用由 ExecutionLane 合并。
+     * @note 必须在存储线程调用；解除 Lane 故障暂停，不读取数据、不创建定时器。
      */
     void refresh();
 
 Q_SIGNALS:
+    /** @brief 本轮任一事务失败后在存储线程请求外部安排一次退避；Reader 已暂停 Lane slot，失败 cursor 不变。 */
+    void retryRequired();
+
     /** @brief 存储线程内同步报告三位归档结果；仅变化时发出，不携带历史 Sample，不得排队到主线程。 */
     void archiveStatusChanged(quint32 degradationFlags);
 

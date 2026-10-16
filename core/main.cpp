@@ -1,4 +1,5 @@
 #include "core/app/ApplicationRuntime.h"
+#include "core/app/RuntimeDiagnostics.h"
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
@@ -72,10 +73,16 @@ int main(int argc, char** argv)
         report(QStringLiteral("core-error"), QStringLiteral("无法创建应用数据目录"));
         return 1;
     }
+    const QString databasePath = databaseOverride.isEmpty()
+        ? QDir(dataDirectory).filePath(QStringLiteral("antidrone.db")) : databaseOverride;
+    core::app::RuntimeDiagnostics diagnostics;
+    if (!diagnostics.open(databasePath + QStringLiteral(".diagnostics.log"))) {
+        report(QStringLiteral("core-error"), QStringLiteral("无法打开Core诊断文件"));
+        qCritical() << "无法打开Core诊断文件";
+        return 1;
+    }
     core::app::ApplicationRuntime runtime(
-        databaseOverride.isEmpty()
-            ? QDir(dataDirectory).filePath(QStringLiteral("antidrone.db"))
-            : databaseOverride,
+        databasePath,
         QCoreApplication::applicationVersion());
     if (!runtime.start()) {
         qCritical().noquote() << runtime.lastError();

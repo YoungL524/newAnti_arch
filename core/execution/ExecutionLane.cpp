@@ -58,6 +58,7 @@ void ExecutionLane::releaseSlot(ExecutionSlot slot) noexcept
     }
     const quint64 bit = quint64(1) << slot;
     m_pendingMask.fetch_and(~bit, std::memory_order_acq_rel);
+    m_suspendedMask.fetch_and(~bit, std::memory_order_acq_rel);
     m_claimedMask.fetch_and(~bit, std::memory_order_acq_rel);
 }
 
@@ -87,14 +88,36 @@ quint64 ExecutionLane::executedWakeCount() const noexcept
 }
 
 /**
- * @brief 原子取走本轮全部 pending 位，在同一线程直接通知所有 Consumer，再补偿运行期间的新请求。
+ * @brief 暂停位只在执行线程修改；保留 pending，让故障期间任意数量的 Doorbell 合并而不触发 SQL。
+ */
+void ExecutionLane::suspend(ExecutionSlot slot) noexcept
+{
+    if (slot >= 64 || QThread::currentThread() != thread()) return;
+    const quint64 bit = quint64(1) << slot;
+    if ((m_claimedMask.load(std::memory_order_acquire) & bit) != 0)
+        m_suspendedMask.fetch_or(bit, std::memory_order_acq_rel);
+}
+
+/**
+ * @brief 解除暂停后主动补偿一次请求，无新 Doorbell 的尾部数据也可重试；不持有业务数据。
+ */
+void ExecutionLane::resume(ExecutionSlot slot) noexcept
+{
+    if (slot >= 64 || QThread::currentThread() != thread()) return;
+    m_suspendedMask.fetch_and(~(quint64(1) << slot), std::memory_order_acq_rel);
+    request(slot);
+}
+
+/**
+ * @brief 原子取走本轮可执行 pending 位，暂停位保留；同一线程通知 Consumer，再补偿运行期间的新请求。
  * @details executeRequested 不携带数据；Consumer 自己读取 Topic。先释放唤醒令牌再复查 pending，避免请求
  * 落在“已取走旧位但尚未允许新唤醒”的竞态窗口中。
  */
 void ExecutionLane::drainPending()
 {
-    const quint64 pending = m_pendingMask.exchange(0, std::memory_order_acq_rel)
-        & m_claimedMask.load(std::memory_order_acquire);
+    const quint64 runnable = m_claimedMask.load(std::memory_order_acquire)
+        & ~m_suspendedMask.load(std::memory_order_acquire);
+    const quint64 pending = m_pendingMask.fetch_and(~runnable, std::memory_order_acq_rel) & runnable;
     m_executedWakeCount.fetch_add(1, std::memory_order_relaxed);
     if (pending != 0) {
         Q_EMIT executeRequested(pending);
@@ -112,6 +135,9 @@ void ExecutionLane::drainPending()
  */
 void ExecutionLane::scheduleWake() noexcept
 {
+    if ((m_pendingMask.load(std::memory_order_acquire)
+         & m_claimedMask.load(std::memory_order_acquire)
+         & ~m_suspendedMask.load(std::memory_order_acquire)) == 0) return;
     bool expected = false;
     if (!m_wakeScheduled.compare_exchange_strong(expected,
                                                  true,

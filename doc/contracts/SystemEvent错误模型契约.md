@@ -189,7 +189,8 @@ ArchiveReader 按独立 cursor 将同一事实写入 `system_events`。
   1 长度、2 包头、3 版本、4 包尾、6 心跳字段、7 航迹字段。合法但不支持的消息（5）和未配置处理器（8）
   只保留接入指标，不把它们冒充坏帧。未解析来源身份时不猜测设备/任务，内部事件 endpointId 为零。
 - TrackPublishRejected 由 TrackIngressProducer 在最终 TrackPublisher 门禁失败时发布，Warning；argument0 为
-  TrackPublishRejection 的稳定编号 1～18（现有顺序冻结，后续仅可尾部追加），关联已绑定设备、任务、采集、航迹与端点。
+  TrackPublishRejection 的稳定编号 1～19（现有顺序冻结，后续仅可尾部追加），19 为 InvalidRecognitionType，
+  关联已绑定设备、任务、采集、航迹与端点；拒绝未冻结识别类型，避免发布成功后卡住归档事务。
   UnboundContext/UnboundFace 是未采集或未选择阵面的正常过滤，不发布故障；协议 InvalidTrack 留在 DeviceMalformedFrame。
 - 两类各自最多五秒一条，首条立即发布，argument1 为上次报告后至当前、该类别累计拒绝条数（含当前，正 int64）；
   argument0 只描述当前触发报告的拒绝原因，不把计数说成同一原因。固定计数饱和于 int64 上限，无动态原因表。

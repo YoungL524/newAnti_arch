@@ -11,3 +11,7 @@
 /ui/maps/
 /release/
 /release-fixed/
+
+# 用户提供的本地评估原件不随源码固化提交。
+/doc/architecture/newAnti_arch_dev_evaluation_report.pdf
+/doc/architecture/newAnti_arch-dev-评估报告.md

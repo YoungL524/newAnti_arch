@@ -62,6 +62,12 @@ public:
      */
     void request(ExecutionSlot slot) noexcept;
 
+    /** @brief 在 Lane 线程暂停指定 slot 的执行；跨线程 request 仍只合并一个 pending 位，不积压唤醒。 */
+    void suspend(ExecutionSlot slot) noexcept;
+
+    /** @brief 在 Lane 线程解除暂停并补偿一次读取；故障重试时机由外部运行时拥有，不由 Consumer 轮询。 */
+    void resume(ExecutionSlot slot) noexcept;
+
     /**
      * @brief 返回已经进入 Lane 事件循环的累计唤醒轮数。
      * @return 单调观测值，用于验证突发请求是否被合并；不参与业务正确性。
@@ -92,6 +98,7 @@ private:
 
     std::atomic<quint64> m_claimedMask {0}; ///< 已分配 slot 位集合，不包含 Consumer 指针或所有权。
     std::atomic<quint64> m_pendingMask {0}; ///< 尚未取走的运行请求；重复 slot 请求自动合并。
+    std::atomic<quint64> m_suspendedMask {0}; ///< 故障退避中的调度位；只阻止执行，不清除已合并的更新提示。
     std::atomic_bool m_wakeScheduled {false}; ///< true 表示 Lane 事件循环已有一个待执行唤醒。
     std::atomic<quint64> m_executedWakeCount {0}; ///< 已进入 drainPending 的累计轮数，仅供指标和测试。
 };
